@@ -37,7 +37,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hassoncs/hush.git",
-    "directory": "packages/hush-cli"
+    "directory": "hush-cli"
   },
   "bugs": {
     "url": "https://github.com/hassoncs/hush/issues"
