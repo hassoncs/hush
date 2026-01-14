@@ -1,0 +1,302 @@
+---
+title: Configuration
+description: Complete guide to configuring Hush with hush.yaml.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Hush is configured through a `hush.yaml` file in your repository root.
+
+## Basic Structure
+
+```yaml
+# hush.yaml
+sources:
+  shared: .env
+  development: .env.development
+  production: .env.production
+
+targets:
+  - name: root
+    path: .
+    format: dotenv
+
+  - name: app
+    path: ./packages/app
+    format: dotenv
+    include:
+      - EXPO_PUBLIC_*
+
+  - name: api
+    path: ./packages/api
+    format: wrangler
+    exclude:
+      - EXPO_PUBLIC_*
+```
+
+## Sources
+
+The `sources` section defines your `.env` files and how they map to environments.
+
+```yaml
+sources:
+  shared: .env                    # Base variables for all environments
+  development: .env.development   # Development-specific overrides
+  production: .env.production     # Production-specific overrides
+```
+
+### Source Merging Order
+
+When decrypting, sources are merged in order with later values overriding earlier ones:
+
+1. **shared** - Base variables
+2. **environment** (development or production) - Environment overrides
+3. **.env.local** (unencrypted) - Personal overrides (not committed)
+
+### Example
+
+```bash
+# .env (shared)
+API_URL=https://api.example.com
+DEBUG=false
+
+# .env.development
+API_URL=http://localhost:8787
+DEBUG=true
+
+# Result for development:
+# API_URL=http://localhost:8787  (overridden)
+# DEBUG=true                      (overridden)
+```
+
+## Targets
+
+The `targets` section defines where secrets should be written and in what format.
+
+### Required Fields
+
+| Field | Description |
+|-------|-------------|
+| `name` | Identifier for the target (used in output messages) |
+| `path` | Directory where the output file should be written |
+| `format` | Output format: `dotenv`, `wrangler`, `json`, or `shell` |
+
+### Optional Fields
+
+| Field | Description |
+|-------|-------------|
+| `include` | Glob patterns for variables to include |
+| `exclude` | Glob patterns for variables to exclude |
+
+### Example
+
+```yaml
+targets:
+  - name: app
+    path: ./packages/app
+    format: dotenv
+    include:
+      - EXPO_PUBLIC_*
+      - NEXT_PUBLIC_*
+      - VITE_*
+```
+
+## Include/Exclude Patterns
+
+Use glob patterns to control which variables reach each target.
+
+### Include
+
+Only variables matching any `include` pattern are written:
+
+```yaml
+targets:
+  - name: client
+    path: ./client
+    format: dotenv
+    include:
+      - EXPO_PUBLIC_*    # Variables starting with EXPO_PUBLIC_
+      - NEXT_PUBLIC_*    # Variables starting with NEXT_PUBLIC_
+```
+
+### Exclude
+
+All variables except those matching `exclude` patterns are written:
+
+```yaml
+targets:
+  - name: server
+    path: ./server
+    format: wrangler
+    exclude:
+      - EXPO_PUBLIC_*    # Exclude client-only variables
+      - NEXT_PUBLIC_*
+```
+
+### Combined
+
+When both are specified, `include` is applied first, then `exclude`:
+
+```yaml
+targets:
+  - name: api
+    path: ./api
+    format: json
+    include:
+      - API_*           # Include all API_* variables
+    exclude:
+      - API_DEBUG_*     # Except debugging ones
+```
+
+<Aside type="tip">
+Use `include` when you want to explicitly list what a target receives.
+Use `exclude` when you want "everything except these."
+</Aside>
+
+## Output Formats
+
+### dotenv
+
+Standard `.env` file format:
+
+```bash
+# .env.development
+DATABASE_URL=postgres://localhost/mydb
+API_KEY=sk_test_xxx
+```
+
+Output file: `.env.development` or `.env.production`
+
+### wrangler
+
+Cloudflare Wrangler `.dev.vars` format (same as dotenv, different filename):
+
+```bash
+# .dev.vars
+DATABASE_URL=postgres://localhost/mydb
+API_KEY=sk_test_xxx
+```
+
+Output file: `.dev.vars`
+
+### json
+
+JSON object format:
+
+```json
+{
+  "DATABASE_URL": "postgres://localhost/mydb",
+  "API_KEY": "sk_test_xxx"
+}
+```
+
+Output file: `.env.development.json` or `.env.production.json`
+
+### shell
+
+Sourceable shell exports:
+
+```bash
+#!/bin/sh
+export DATABASE_URL="postgres://localhost/mydb"
+export API_KEY="sk_test_xxx"
+```
+
+Output file: `.env.development.sh` or `.env.production.sh`
+
+## Variable Interpolation
+
+Reference other variables using `${VAR}` syntax:
+
+```bash
+# .env
+HOST=localhost
+PORT=3000
+BASE_URL=http://${HOST}:${PORT}
+API_URL=${BASE_URL}/api
+```
+
+After interpolation:
+
+```bash
+HOST=localhost
+PORT=3000
+BASE_URL=http://localhost:3000
+API_URL=http://localhost:3000/api
+```
+
+<Aside type="note">
+Interpolation happens after merging all sources, so you can reference variables defined in any source file.
+</Aside>
+
+## SOPS Configuration
+
+Hush uses SOPS for encryption. Configure it in `.sops.yaml`:
+
+```yaml
+# .sops.yaml
+creation_rules:
+  - encrypted_regex: '.*'
+    age: age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### Multiple Keys
+
+For team environments, use multiple age keys:
+
+```yaml
+creation_rules:
+  - encrypted_regex: '.*'
+    age: >-
+      age1alice...,
+      age1bob...,
+      age1charlie...
+```
+
+Anyone with any of these keys can decrypt the secrets.
+
+## Complete Example
+
+```yaml
+# hush.yaml
+sources:
+  shared: .env
+  development: .env.development
+  production: .env.production
+
+targets:
+  # Root gets everything for scripts
+  - name: root
+    path: .
+    format: dotenv
+
+  # Expo app only gets public variables
+  - name: mobile
+    path: ./packages/mobile
+    format: dotenv
+    include:
+      - EXPO_PUBLIC_*
+
+  # Next.js web app gets its public variables
+  - name: web
+    path: ./packages/web
+    format: dotenv
+    include:
+      - NEXT_PUBLIC_*
+
+  # API gets everything except public variables
+  - name: api
+    path: ./packages/api
+    format: wrangler
+    exclude:
+      - EXPO_PUBLIC_*
+      - NEXT_PUBLIC_*
+
+  # Shared library gets specific variables as JSON
+  - name: shared
+    path: ./packages/shared
+    format: json
+    include:
+      - API_URL
+      - APP_NAME
+```

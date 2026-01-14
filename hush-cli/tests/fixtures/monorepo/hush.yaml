@@ -1,0 +1,25 @@
+sources:
+  shared: .env
+  development: .env.development
+  production: .env.production
+
+targets:
+  - name: root
+    path: .
+    format: dotenv
+
+  - name: app
+    path: ./app
+    format: dotenv
+    include:
+      - EXPO_PUBLIC_*
+      - NEXT_PUBLIC_*
+      - VITE_*
+
+  - name: api
+    path: ./api
+    format: wrangler
+    exclude:
+      - EXPO_PUBLIC_*
+      - NEXT_PUBLIC_*
+      - VITE_*

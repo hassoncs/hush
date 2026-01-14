@@ -1,0 +1,119 @@
+---
+title: Hush
+description: SOPS-based secrets management for monorepos. Encrypt once, decrypt everywhere.
+template: splash
+hero:
+  title: Secrets that stay silent
+  tagline: SOPS-based encryption for monorepos. Encrypt once, decrypt everywhere.
+  image:
+    html: |
+      <div class="animated-terminal" aria-label="Hush CLI demo terminal">
+        <div class="terminal-header">
+          <div class="terminal-controls">
+            <span class="control close"></span>
+            <span class="control minimize"></span>
+            <span class="control maximize"></span>
+          </div>
+          <span class="terminal-title">terminal</span>
+        </div>
+        <div class="terminal-body">
+          <span class="line"><span class="prompt"></span><span class="cmd">npx hush encrypt</span></span>
+          <span class="line dim">Encrypting .env files...</span>
+          <span class="line ok">&#10003; Wrote .env.encrypted</span>
+          <span class="line ok">&#10003; Wrote .env.development.encrypted</span>
+          <span class="line ok">&#10003; Wrote .env.production.encrypted</span>
+          <span class="line">&nbsp;</span>
+          <span class="line"><span class="prompt"></span><span class="cmd">npx hush decrypt</span></span>
+          <span class="line dim">Decrypting for development...</span>
+          <span class="line ok">&#10003; app/.env.development (3 vars)</span>
+          <span class="line ok">&#10003; api/.dev.vars (5 vars)</span>
+          <span class="line">&nbsp;</span>
+          <span class="line"><span class="prompt"></span><span class="typing"></span></span>
+        </div>
+      </div>
+  actions:
+    - text: Get Started
+      link: /getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/hassoncs/hush
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Why Hush?
+
+<CardGrid stagger>
+  <Card title="Encrypt Once" icon="lock-closed">
+    Store encrypted `.env` files in git. Use industry-standard SOPS + age encryption that your security team will approve.
+  </Card>
+  <Card title="Decrypt Everywhere" icon="rocket">
+    Route secrets to different packages with include/exclude patterns. `EXPO_PUBLIC_*` to apps, everything else to APIs.
+  </Card>
+  <Card title="Multiple Formats" icon="document">
+    Output to `.env`, Wrangler `.dev.vars`, JSON, or shell exports. Each package gets secrets in the format it needs.
+  </Card>
+  <Card title="AI-Native" icon="approve-check">
+    Let AI agents query your secrets without exposing values. `hush inspect` masks everything sent to LLMs.
+  </Card>
+</CardGrid>
+
+## Quick Example
+
+```bash
+# Initialize configuration
+npx hush init
+
+# Encrypt your .env files
+npx hush encrypt
+
+# Decrypt for development
+npx hush decrypt
+
+# Decrypt for production
+npx hush decrypt -e production
+
+# Push to Cloudflare Workers
+npx hush push
+```
+
+## The Problem
+
+In a monorepo, you have multiple packages that each need different subsets of environment variables:
+
+- Your **Expo app** needs `EXPO_PUBLIC_*` variables
+- Your **Next.js web app** needs `NEXT_PUBLIC_*` variables  
+- Your **Cloudflare Worker** needs API keys but not public variables
+- Your **root** needs everything for local development
+
+Copying `.env` files manually is error-prone. Committing unencrypted secrets is a security risk.
+
+## The Solution
+
+Hush gives you a single encrypted source of truth that automatically distributes the right secrets to the right places:
+
+```yaml
+# hush.yaml
+sources:
+  shared: .env
+  development: .env.development
+  production: .env.production
+
+targets:
+  - name: app
+    path: ./app
+    format: dotenv
+    include:
+      - EXPO_PUBLIC_*
+
+  - name: api
+    path: ./api
+    format: wrangler
+    exclude:
+      - EXPO_PUBLIC_*
+```
+
+One command. All packages. Correct secrets.

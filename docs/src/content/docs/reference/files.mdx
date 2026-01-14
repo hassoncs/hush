@@ -1,0 +1,235 @@
+---
+title: File Reference
+description: Complete reference for all files used by Hush.
+---
+
+import { Aside, FileTree } from '@astrojs/starlight/components';
+
+This page documents all files that Hush creates, reads, and manages.
+
+## File Overview
+
+| File | Committed | Purpose |
+|------|-----------|---------|
+| `hush.yaml` | Yes | Configuration file |
+| `.sops.yaml` | Yes | SOPS encryption config |
+| `.env.encrypted` | Yes | Encrypted shared secrets |
+| `.env.development.encrypted` | Yes | Encrypted development secrets |
+| `.env.production.encrypted` | Yes | Encrypted production secrets |
+| `.env.local` | **No** | Personal overrides (unencrypted) |
+| `.env.development` | No | Generated development env |
+| `.env.production` | No | Generated production env |
+| `.dev.vars` | No | Generated Wrangler secrets |
+
+## Configuration Files
+
+### hush.yaml
+
+The main configuration file. Defines sources and targets.
+
+```yaml
+sources:
+  shared: .env
+  development: .env.development
+  production: .env.production
+
+targets:
+  - name: root
+    path: .
+    format: dotenv
+```
+
+**Location:** Repository root  
+**Commit:** Yes  
+**Created by:** `hush init` or manually
+
+### .sops.yaml
+
+SOPS configuration file. Defines which keys can encrypt/decrypt.
+
+```yaml
+creation_rules:
+  - encrypted_regex: '.*'
+    age: age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**Location:** Repository root  
+**Commit:** Yes  
+**Created by:** Manually (SOPS requirement)
+
+## Source Files (Unencrypted)
+
+These are your original `.env` files before encryption.
+
+<Aside type="caution">
+Never commit these files. They contain plaintext secrets.
+</Aside>
+
+### .env
+
+Shared variables used across all environments.
+
+```bash
+DATABASE_URL=postgres://user:pass@host/db
+STRIPE_SECRET_KEY=sk_xxx
+EXPO_PUBLIC_API_URL=${API_BASE}/v1
+```
+
+### .env.development
+
+Development-specific overrides.
+
+```bash
+API_BASE=http://localhost:8787
+DEBUG=true
+```
+
+### .env.production
+
+Production-specific overrides.
+
+```bash
+API_BASE=https://api.example.com
+DEBUG=false
+```
+
+### .env.local
+
+Personal overrides. Never encrypted, never committed.
+
+```bash
+# Your personal settings
+DEBUG=verbose
+SKIP_AUTH=true
+```
+
+<Aside type="tip">
+Use `.env.local` for personal development settings that shouldn't be shared with the team.
+</Aside>
+
+## Encrypted Files
+
+These are the SOPS-encrypted versions of your source files. Safe to commit.
+
+### .env.encrypted
+
+Encrypted version of `.env` (shared secrets).
+
+### .env.development.encrypted
+
+Encrypted version of `.env.development`.
+
+### .env.production.encrypted
+
+Encrypted version of `.env.production`.
+
+**Created by:** `hush encrypt`  
+**Commit:** Yes  
+**Used by:** `hush decrypt`, `hush edit`
+
+## Generated Files
+
+These are created by `hush decrypt` and should not be committed.
+
+### .env.development / .env.production
+
+Generated dotenv files for the current environment.
+
+**Created by:** `hush decrypt`  
+**Location:** Each target's path  
+**Commit:** No
+
+### .dev.vars
+
+Generated Wrangler secrets file.
+
+**Created by:** `hush decrypt` (for `format: wrangler` targets)  
+**Location:** Target's path  
+**Commit:** No
+
+### .env.*.json
+
+Generated JSON format.
+
+**Created by:** `hush decrypt` (for `format: json` targets)  
+**Commit:** No
+
+### .env.*.sh
+
+Generated shell script.
+
+**Created by:** `hush decrypt` (for `format: shell` targets)  
+**Commit:** No
+
+## Typical Project Structure
+
+<FileTree>
+- .sops.yaml            # SOPS config (committed)
+- hush.yaml             # Hush config (committed)
+- .env.encrypted        # Encrypted shared (committed)
+- .env.development.encrypted  # Encrypted dev (committed)
+- .env.production.encrypted   # Encrypted prod (committed)
+- .env.local            # Personal overrides (NOT committed)
+- .env.development      # Generated (NOT committed)
+- packages/
+  - app/
+    - .env.development  # Generated (NOT committed)
+  - api/
+    - .dev.vars         # Generated (NOT committed)
+</FileTree>
+
+## Recommended .gitignore
+
+Add these entries to your `.gitignore`:
+
+```bash
+# Hush - Source files (unencrypted)
+.env
+.env.development
+.env.production
+.env.local
+
+# Hush - Generated files
+.env.*.json
+.env.*.sh
+.dev.vars
+
+# Keep encrypted files
+!.env.encrypted
+!.env.*.encrypted
+```
+
+## Age Key File
+
+SOPS uses age for encryption. Your private key is stored at:
+
+```
+~/.config/sops/age/key.txt
+```
+
+<Aside type="danger">
+**Never commit your age private key.** Store it securely and share it with team members through a secure channel.
+</Aside>
+
+### Key Format
+
+```
+# created: 2024-01-01T00:00:00Z
+# public key: age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+AGE-SECRET-KEY-1XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+```
+
+### Multiple Keys
+
+For team environments, each member has their own key. All public keys are listed in `.sops.yaml`:
+
+```yaml
+creation_rules:
+  - encrypted_regex: '.*'
+    age: >-
+      age1alice...,
+      age1bob...,
+      age1charlie...
+```
+
+Anyone with any of these private keys can decrypt the secrets.

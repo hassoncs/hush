@@ -1,0 +1,154 @@
+---
+title: Getting Started
+description: Install Hush and encrypt your first secrets in under 5 minutes.
+---
+
+import { Steps, Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+Get up and running with Hush in just a few minutes.
+
+## Prerequisites
+
+Hush uses [SOPS](https://github.com/getsops/sops) with [age](https://github.com/FiloSottile/age) encryption. Install them first:
+
+<Tabs>
+  <TabItem label="macOS">
+    ```bash
+    brew install sops age
+    ```
+  </TabItem>
+  <TabItem label="Linux">
+    ```bash
+    # SOPS
+    curl -LO https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
+    sudo mv sops-v3.8.1.linux.amd64 /usr/local/bin/sops
+    sudo chmod +x /usr/local/bin/sops
+
+    # age
+    curl -LO https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz
+    tar xzf age-v1.1.1-linux-amd64.tar.gz
+    sudo mv age/age /usr/local/bin/
+    ```
+  </TabItem>
+  <TabItem label="Windows">
+    ```powershell
+    # Using scoop
+    scoop install sops age
+    
+    # Or using chocolatey
+    choco install sops age
+    ```
+  </TabItem>
+</Tabs>
+
+## Installation
+
+<Tabs>
+  <TabItem label="pnpm">
+    ```bash
+    pnpm add -D @chriscode/hush
+    ```
+  </TabItem>
+  <TabItem label="npm">
+    ```bash
+    npm install -D @chriscode/hush
+    ```
+  </TabItem>
+  <TabItem label="yarn">
+    ```bash
+    yarn add -D @chriscode/hush
+    ```
+  </TabItem>
+</Tabs>
+
+## Setup
+
+<Steps>
+
+1. **Generate an age key**
+
+   Create a key pair for encrypting your secrets:
+
+   ```bash
+   mkdir -p ~/.config/sops/age
+   age-keygen -o ~/.config/sops/age/key.txt
+   ```
+
+   This creates a private key at `~/.config/sops/age/key.txt`. The public key is printed to the console.
+
+2. **Create `.sops.yaml`**
+
+   In your repository root, create a SOPS configuration file:
+
+   ```yaml
+   # .sops.yaml
+   creation_rules:
+     - encrypted_regex: '.*'
+       age: age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   ```
+
+   Replace the `age:` value with your public key from step 1.
+
+3. **Initialize Hush**
+
+   Run the init command to create `hush.yaml`:
+
+   ```bash
+   npx hush init
+   ```
+
+   This auto-detects packages in your monorepo and creates a configuration file.
+
+4. **Create your env files**
+
+   ```bash
+   # .env (shared across environments)
+   DATABASE_URL=postgres://localhost/mydb
+   STRIPE_SECRET_KEY=sk_test_xxx
+   EXPO_PUBLIC_API_URL=${API_BASE}/v1
+
+   # .env.development
+   API_BASE=http://localhost:8787
+
+   # .env.production
+   API_BASE=https://api.example.com
+   ```
+
+5. **Encrypt**
+
+   ```bash
+   npx hush encrypt
+   ```
+
+   This creates encrypted versions of your env files (`.env.encrypted`, etc.) that are safe to commit.
+
+6. **Decrypt for development**
+
+   ```bash
+   npx hush decrypt
+   ```
+
+   This decrypts and distributes secrets to all configured targets.
+
+</Steps>
+
+## Verify Your Setup
+
+Check that everything is configured correctly:
+
+```bash
+npx hush status
+```
+
+This shows your configuration, encrypted files, and target distribution.
+
+## Next Steps
+
+- Learn about [Configuration](/guides/configuration/) to customize your setup
+- Understand [Monorepo Patterns](/guides/monorepos/) for routing secrets
+- Explore [AI-Native Workflow](/guides/ai-native/) for working with AI assistants
+- See the full [Command Reference](/reference/commands/)
+
+<Aside type="tip">
+Add `*.encrypted` files to git and `.env.development`, `.env.production`, `.dev.vars` to `.gitignore`. The encrypted files are your source of truth.
+</Aside>

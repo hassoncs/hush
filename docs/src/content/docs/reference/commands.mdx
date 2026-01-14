@@ -1,0 +1,280 @@
+---
+title: Commands
+description: Complete reference for all Hush CLI commands.
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+## Overview
+
+```bash
+hush <command> [options]
+```
+
+### Global Options
+
+| Option | Description |
+|--------|-------------|
+| `-e, --env <env>` | Environment: `development` or `production` (default: `development`) |
+| `-r, --root <dir>` | Root directory (default: current directory) |
+| `-h, --help` | Show help message |
+| `-v, --version` | Show version number |
+
+---
+
+## init
+
+Generate a `hush.yaml` configuration file with auto-detected targets.
+
+```bash
+hush init
+```
+
+This command scans your monorepo for packages with `package.json` files and creates an initial configuration.
+
+### Example Output
+
+```yaml
+# hush.yaml (generated)
+sources:
+  shared: .env
+  development: .env.development
+  production: .env.production
+
+targets:
+  - name: root
+    path: .
+    format: dotenv
+  - name: app
+    path: ./packages/app
+    format: dotenv
+  - name: api
+    path: ./packages/api
+    format: wrangler
+```
+
+---
+
+## encrypt
+
+Encrypt source `.env` files to `.env.encrypted` files.
+
+```bash
+hush encrypt
+```
+
+### What Gets Encrypted
+
+Based on your `hush.yaml` sources configuration:
+- `.env` → `.env.encrypted`
+- `.env.development` → `.env.development.encrypted`
+- `.env.production` → `.env.production.encrypted`
+
+<Aside type="tip">
+Encrypted files are safe to commit to git. Add them to version control as your source of truth.
+</Aside>
+
+---
+
+## decrypt
+
+Decrypt and distribute secrets to all configured targets.
+
+```bash
+# Decrypt for development (default)
+hush decrypt
+
+# Decrypt for production
+hush decrypt -e production
+hush decrypt --env prod
+```
+
+### How It Works
+
+1. Loads and decrypts encrypted source files
+2. Merges shared → environment → local overrides
+3. Interpolates variable references (`${VAR}`)
+4. Filters variables per target using `include`/`exclude` patterns
+5. Writes to each target in the configured format
+
+### Source File Priority
+
+Later sources override earlier ones:
+
+1. **Shared** (`.env.encrypted`) - Base variables
+2. **Environment** (`.env.development.encrypted` or `.env.production.encrypted`) - Environment overrides
+3. **Local** (`.env.local`, unencrypted) - Personal overrides (not committed)
+
+---
+
+## edit
+
+Edit encrypted files directly in your `$EDITOR`.
+
+```bash
+# Edit shared secrets
+hush edit
+
+# Edit development secrets
+hush edit development
+
+# Edit production secrets
+hush edit production
+```
+
+This temporarily decrypts the file, opens it in your editor, and re-encrypts on save.
+
+<Aside type="caution">
+Make sure your `$EDITOR` environment variable is set (e.g., `vim`, `nano`, `code --wait`).
+</Aside>
+
+---
+
+## list
+
+List all variables with their actual values.
+
+```bash
+# List development variables
+hush list
+
+# List production variables
+hush list -e production
+```
+
+<Aside type="danger">
+This command shows actual secret values. Use `hush inspect` for AI-safe output.
+</Aside>
+
+---
+
+## inspect
+
+List all variables with masked values. **Safe for AI agents**.
+
+```bash
+hush inspect
+hush inspect -e production
+```
+
+### Example Output
+
+```
+Secrets for development:
+
+  DATABASE_URL      = post****************... (45 chars)
+  STRIPE_SECRET_KEY = sk_t****************... (32 chars)
+  API_KEY           = (not set)
+
+Total: 3 variables
+
+Target distribution:
+
+  root (.) - 3 vars
+  app (./app/) - 1 vars
+    include: EXPO_PUBLIC_*
+  api (./api/) - 2 vars
+    exclude: EXPO_PUBLIC_*
+```
+
+This lets AI agents reason about your configuration without seeing actual secrets.
+
+---
+
+## has
+
+Check if a specific secret exists. Returns exit code `0` if set, `1` if not.
+
+```bash
+# Check if a variable is set
+hush has DATABASE_URL
+
+# Quiet mode (no output, just exit code)
+hush has API_KEY -q
+
+# Use in scripts
+hush has DATABASE_URL -q && echo "DB configured"
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-q, --quiet` | Suppress output, only return exit code |
+
+### Example Output
+
+```
+DATABASE_URL is set (45 chars)
+```
+
+Or if not set:
+
+```
+DATABASE_URL not found
+```
+
+---
+
+## push
+
+Push production secrets to Cloudflare Workers.
+
+```bash
+# Push secrets
+hush push
+
+# Preview without pushing
+hush push --dry-run
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Preview what would be pushed without making changes |
+
+### How It Works
+
+1. Finds targets with `format: wrangler` and a `wrangler.toml` file
+2. Reads the worker name from `wrangler.toml`
+3. Uploads production secrets using `wrangler secret put`
+
+<Aside type="note">
+Requires the `wrangler` CLI to be installed and authenticated.
+</Aside>
+
+---
+
+## status
+
+Show configuration and file status.
+
+```bash
+hush status
+```
+
+### Example Output
+
+```
+Hush Status
+
+Configuration: hush.yaml
+
+Sources:
+  shared: .env (encrypted: yes, modified: no)
+  development: .env.development (encrypted: yes, modified: no)
+  production: .env.production (encrypted: yes, modified: no)
+
+Targets:
+  root (.)
+    format: dotenv
+  app (./packages/app)
+    format: dotenv
+    include: EXPO_PUBLIC_*
+  api (./packages/api)
+    format: wrangler
+    exclude: EXPO_PUBLIC_*
+
+All encrypted files are up to date.
+```

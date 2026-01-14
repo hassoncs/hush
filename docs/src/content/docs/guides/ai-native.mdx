@@ -1,0 +1,219 @@
+---
+title: AI-Native Workflow
+description: Use Hush safely with AI coding assistants like Cursor, GitHub Copilot, and Claude.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Hush provides commands specifically designed for AI coding assistants. These let AI agents reason about your secrets without ever seeing the actual values.
+
+## The Problem
+
+When you ask an AI assistant to help with your project, it often needs to understand your configuration:
+
+- "Set up the database connection"
+- "Configure Stripe integration"
+- "Check if the API key is set"
+
+If you let the AI read your `.env` file directly, those secrets get sent to the LLM provider. That's a security risk.
+
+## The Solution
+
+Hush provides two AI-safe commands:
+
+- **`hush inspect`** - Shows all variables with masked values
+- **`hush has <key>`** - Checks if a specific variable exists
+
+These commands give AI agents enough information to help without exposing secrets.
+
+## Commands for AI Agents
+
+### hush inspect
+
+Shows all variables with masked values:
+
+```bash
+hush inspect
+```
+
+Output:
+
+```
+Secrets for development:
+
+  DATABASE_URL      = post****************... (45 chars)
+  STRIPE_SECRET_KEY = sk_t****************... (32 chars)
+  API_KEY           = (not set)
+
+Total: 3 variables
+
+Target distribution:
+
+  root (.) - 3 vars
+  app (./app/) - 1 vars
+    include: EXPO_PUBLIC_*
+  api (./api/) - 2 vars
+    exclude: EXPO_PUBLIC_*
+```
+
+The AI can see:
+- Which variables exist
+- Their approximate length
+- Which are set vs unset
+- Which targets receive which variables
+
+But it never sees the actual values.
+
+### hush has
+
+Check if a specific variable is set:
+
+```bash
+# Verbose output
+hush has DATABASE_URL
+# Output: DATABASE_URL is set (45 chars)
+
+# Quiet mode (for scripting)
+hush has DATABASE_URL -q
+# Exit code: 0 (exists) or 1 (missing)
+```
+
+Use in conditional logic:
+
+```bash
+hush has STRIPE_SECRET_KEY -q && echo "Stripe is configured"
+hush has DATABASE_URL -q || echo "Missing DATABASE_URL"
+```
+
+## AI Agent Instructions
+
+If you're using AI coding assistants, add this to your project's AI instructions:
+
+```markdown
+## Secrets Management
+
+This project uses Hush for secrets. NEVER read .env files directly.
+
+Instead, use these commands:
+- `hush inspect` - See what variables are configured
+- `hush has <KEY>` - Check if a specific variable exists
+- `hush status` - See configuration and file status
+
+These commands mask sensitive values, making them safe to run.
+```
+
+## Common AI Workflows
+
+### "Help me set up the database"
+
+<Steps>
+1. AI runs `hush inspect` to see current variables
+2. AI sees `DATABASE_URL = (not set)` 
+3. AI provides instructions for adding the variable
+4. Human adds the value and runs `hush encrypt`
+</Steps>
+
+### "Check if Stripe is configured"
+
+```bash
+hush has STRIPE_SECRET_KEY -q && echo "Ready" || echo "Missing"
+```
+
+AI gets a clear yes/no without seeing the key.
+
+### "What environment variables does the API need?"
+
+```bash
+hush inspect -e production
+```
+
+AI sees which variables exist for production and which targets receive them.
+
+## Example Conversation
+
+**Human:** Can you help configure the payment integration?
+
+**AI:** Let me check your current secrets configuration.
+
+```bash
+hush inspect
+```
+
+I can see you have:
+- `STRIPE_SECRET_KEY` - Set (32 chars)
+- `STRIPE_WEBHOOK_SECRET` - Not set
+- `STRIPE_PUBLISHABLE_KEY` - Not set
+
+You're missing the webhook secret and publishable key. Here's how to add them:
+
+1. Get your keys from the Stripe dashboard
+2. Add them to `.env`:
+   ```bash
+   STRIPE_WEBHOOK_SECRET=whsec_xxx
+   STRIPE_PUBLISHABLE_KEY=pk_xxx
+   ```
+3. Encrypt: `hush encrypt`
+
+<Aside type="tip">
+The AI helped configure Stripe without ever seeing the actual API keys.
+</Aside>
+
+## Cursor Integration
+
+For [Cursor](https://cursor.sh/), add to your `.cursorrules`:
+
+```markdown
+# Secrets
+- Never read .env, .env.*, or .dev.vars files directly
+- Use `hush inspect` to see variable names and status
+- Use `hush has <KEY>` to check specific variables
+- These commands mask values, making them safe to share
+```
+
+## Claude Integration
+
+For Claude's project knowledge:
+
+```markdown
+# Environment Variables
+
+This project uses Hush for encrypted secrets management.
+
+Safe commands (these mask values):
+- hush inspect - List all variables with masked values
+- hush has <KEY> - Check if a variable exists
+- hush status - Show configuration
+
+Never run:
+- cat .env
+- echo $SECRET_KEY
+- Any command that would expose actual values
+```
+
+## Security Considerations
+
+### What AI Sees
+
+With `hush inspect`:
+- Variable names
+- Whether they're set or unset
+- Character length (approximate)
+- First 4 characters (masked: `sk_t***...`)
+
+### What AI Never Sees
+
+- Full secret values
+- Complete connection strings
+- API keys or tokens
+- Passwords
+
+### Why This Matters
+
+Even if your AI conversation is logged:
+- No secrets in the logs
+- No risk of accidental exposure
+- Audit-friendly workflow
+
+<Aside type="note">
+The first 4 characters are shown to help identify the type of secret (e.g., `sk_` for Stripe keys, `ghp_` for GitHub tokens). This is intentional and mirrors what you'd see in dashboards.
+</Aside>

@@ -1,0 +1,9 @@
+sources:
+  shared: .env
+  development: .env.development
+  production: .env.production
+
+targets:
+  - name: root
+    path: .
+    format: dotenv

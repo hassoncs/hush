@@ -1,0 +1,260 @@
+---
+title: Output Formats
+description: Reference for all output formats supported by Hush.
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Hush can output secrets in multiple formats to match what each package in your monorepo expects.
+
+## Available Formats
+
+| Format | Output File | Use Case |
+|--------|-------------|----------|
+| `dotenv` | `.env.development` / `.env.production` | Standard apps (Node.js, React, etc.) |
+| `wrangler` | `.dev.vars` | Cloudflare Workers |
+| `json` | `.env.development.json` | JSON consumers, configs |
+| `shell` | `.env.development.sh` | Shell scripts, CI/CD |
+
+## dotenv
+
+Standard `.env` file format. The most common choice for Node.js applications.
+
+### Configuration
+
+```yaml
+targets:
+  - name: app
+    path: ./packages/app
+    format: dotenv
+```
+
+### Output
+
+<Tabs>
+  <TabItem label="Development">
+    **File:** `.env.development`
+    ```bash
+    DATABASE_URL=postgres://localhost/mydb
+    API_KEY=sk_test_xxx
+    DEBUG=true
+    ```
+  </TabItem>
+  <TabItem label="Production">
+    **File:** `.env.production`
+    ```bash
+    DATABASE_URL=postgres://prod-host/mydb
+    API_KEY=sk_live_xxx
+    DEBUG=false
+    ```
+  </TabItem>
+</Tabs>
+
+### Compatibility
+
+Works with:
+- Node.js (`dotenv` package)
+- React / Next.js
+- Vite
+- Expo
+- Most JavaScript/TypeScript tools
+
+## wrangler
+
+Cloudflare Wrangler format for Workers development.
+
+### Configuration
+
+```yaml
+targets:
+  - name: api
+    path: ./packages/api
+    format: wrangler
+```
+
+### Output
+
+**File:** `.dev.vars`
+
+```bash
+DATABASE_URL=postgres://localhost/mydb
+STRIPE_SECRET_KEY=sk_test_xxx
+JWT_SECRET=super-secret-key
+```
+
+<Aside type="note">
+The format is identical to dotenv, but the filename is `.dev.vars` which Wrangler expects for local development secrets.
+</Aside>
+
+### Usage with Wrangler
+
+```bash
+# Local development reads from .dev.vars automatically
+wrangler dev
+
+# Production uses secrets set via wrangler secret
+hush push  # Pushes secrets to Cloudflare
+```
+
+### Push to Production
+
+Hush can push secrets to Cloudflare Workers:
+
+```bash
+# Preview what would be pushed
+hush push --dry-run
+
+# Push production secrets
+hush push
+```
+
+This runs `wrangler secret put` for each variable.
+
+## json
+
+JSON object format for applications that consume JSON configuration.
+
+### Configuration
+
+```yaml
+targets:
+  - name: shared
+    path: ./packages/shared
+    format: json
+```
+
+### Output
+
+<Tabs>
+  <TabItem label="Development">
+    **File:** `.env.development.json`
+    ```json
+    {
+      "DATABASE_URL": "postgres://localhost/mydb",
+      "API_KEY": "sk_test_xxx",
+      "DEBUG": "true"
+    }
+    ```
+  </TabItem>
+  <TabItem label="Production">
+    **File:** `.env.production.json`
+    ```json
+    {
+      "DATABASE_URL": "postgres://prod-host/mydb",
+      "API_KEY": "sk_live_xxx",
+      "DEBUG": "false"
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+<Aside type="tip">
+All values are strings, matching how environment variables work. Parse booleans and numbers in your application if needed.
+</Aside>
+
+### Use Cases
+
+- Configuration files that need JSON
+- Tools that read JSON config
+- API responses or fixtures
+- Type-safe config loading
+
+## shell
+
+Sourceable shell script with export statements.
+
+### Configuration
+
+```yaml
+targets:
+  - name: scripts
+    path: ./scripts
+    format: shell
+```
+
+### Output
+
+<Tabs>
+  <TabItem label="Development">
+    **File:** `.env.development.sh`
+    ```bash
+    #!/bin/sh
+    export DATABASE_URL="postgres://localhost/mydb"
+    export API_KEY="sk_test_xxx"
+    export DEBUG="true"
+    ```
+  </TabItem>
+  <TabItem label="Production">
+    **File:** `.env.production.sh`
+    ```bash
+    #!/bin/sh
+    export DATABASE_URL="postgres://prod-host/mydb"
+    export API_KEY="sk_live_xxx"
+    export DEBUG="false"
+    ```
+  </TabItem>
+</Tabs>
+
+### Usage
+
+```bash
+# Source the file to set environment variables
+source .env.development.sh
+
+# Or in a script
+#!/bin/bash
+source ./scripts/.env.production.sh
+./deploy.sh
+```
+
+### Use Cases
+
+- CI/CD pipelines
+- Shell scripts
+- Docker build arguments
+- Makefile targets
+
+## Choosing a Format
+
+| Your Stack | Recommended Format |
+|------------|-------------------|
+| Node.js / npm packages | `dotenv` |
+| Cloudflare Workers | `wrangler` |
+| Config-driven apps | `json` |
+| Shell scripts / CI | `shell` |
+| React / Next.js | `dotenv` |
+| Expo | `dotenv` |
+| Vite | `dotenv` |
+
+## Multiple Formats
+
+You can use different formats for different targets:
+
+```yaml
+targets:
+  # App uses dotenv
+  - name: app
+    path: ./packages/app
+    format: dotenv
+    include:
+      - NEXT_PUBLIC_*
+
+  # API uses wrangler
+  - name: api
+    path: ./packages/api
+    format: wrangler
+    exclude:
+      - NEXT_PUBLIC_*
+
+  # Shared config uses JSON
+  - name: config
+    path: ./packages/config
+    format: json
+    include:
+      - APP_*
+
+  # CI scripts use shell
+  - name: ci
+    path: ./scripts
+    format: shell
+```
