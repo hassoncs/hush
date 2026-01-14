@@ -20,7 +20,7 @@ Hush encrypts secrets so they can be committed to git, and provides AI-safe comm
 ### ALWAYS use Hush commands instead:
 - `npx hush inspect` to see what variables exist (values are masked)
 - `npx hush has <KEY>` to check if a specific variable is set
-- `npx hush edit` to modify secrets (opens secure editor)
+- `npx hush set` to add or modify secrets (opens secure editor)
 - `npx hush status` to view configuration
 
 ## Quick Check: Is Hush Set Up?
@@ -69,15 +69,15 @@ npx hush has API_KEY -q             # Quiet: exit code only (0=set, 1=missing)
 npx hush status
 ```
 
-### Edit secrets (requires user interaction)
+### Set/modify secrets (requires user interaction)
 
 ```bash
-npx hush edit                       # Edit shared secrets
-npx hush edit development           # Edit dev secrets  
-npx hush edit production            # Edit prod secrets
+npx hush set                        # Set shared secrets
+npx hush set development            # Set dev secrets  
+npx hush set production             # Set prod secrets
 ```
 
-After editing, encrypt:
+After setting, encrypt:
 
 ```bash
 npx hush encrypt
@@ -105,7 +105,7 @@ npx hush has DATABASE_URL
 ```
 
 ### "Help user add a new secret"
-1. Tell user to run: `npx hush edit`
+1. Tell user to run: `npx hush set`
 2. They add the variable in their editor
 3. They save and close
 4. Tell them to run: `npx hush encrypt`

@@ -91,7 +91,7 @@ Don't read .env files directly - use the AI-safe hush inspect command.
 
 ```markdown
 Help me add a new environment variable called [SECRET_NAME] to this project.
-Guide me through using hush edit and hush encrypt. Don't write to .env files directly.
+Guide me through using hush set and hush encrypt. Don't write to .env files directly.
 ```
 
 ### Set Up for a New Team Member
@@ -186,7 +186,7 @@ Instead, use these AI-safe commands:
 - `npx hush inspect` - See what variables exist (masked values)
 - `npx hush has <KEY>` - Check if a specific variable is set
 - `npx hush status` - View configuration
-- `npx hush edit` - Modify secrets (user interaction required)
+- `npx hush set` - Set/modify secrets (user interaction required)
 
 These commands mask sensitive values, making them safe for AI to read.
 ```

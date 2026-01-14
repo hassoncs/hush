@@ -61,14 +61,14 @@ hush decrypt -e prod            # Short form
 
 ---
 
-### hush edit
+### hush set (alias: edit)
 
-Edit encrypted files directly in your `$EDITOR`.
+Set or modify secrets. Opens encrypted file in your `$EDITOR`.
 
 ```bash
-hush edit                       # Edit shared secrets
-hush edit development           # Edit development secrets
-hush edit production            # Edit production secrets
+hush set                        # Set shared secrets
+hush set development            # Set development secrets
+hush set production             # Set production secrets
 ```
 
 Opens a temporary decrypted file, re-encrypts on save.

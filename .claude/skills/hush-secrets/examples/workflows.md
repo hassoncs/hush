@@ -52,7 +52,7 @@ echo "Some secrets missing"
 2. **If not set, guide the user:**
    > To add `NEW_API_KEY`, run:
    > ```bash
-   > hush edit
+   > hush set
    > ```
    > Add a line like: `NEW_API_KEY=your_actual_key_here`
    > Save and close the editor, then run:
@@ -68,7 +68,7 @@ echo "Some secrets missing"
 ### "I need to add secrets for production"
 
 Guide the user:
-> Run `hush edit production` to edit production secrets.
+> Run `hush set production` to set production secrets.
 > After saving, run `hush encrypt` to encrypt the changes.
 > To deploy, run `hush decrypt -e production`.
 

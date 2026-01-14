@@ -26,7 +26,7 @@ ${pc.bold('Commands:')}
   init              Initialize hush.yaml config
   encrypt           Encrypt source .env files
   decrypt           Decrypt and distribute to targets
-  edit [file]       Edit encrypted file in $EDITOR
+  set [file]        Set/edit secrets in $EDITOR (alias: edit)
   list              List all variables (shows values)
   inspect           List all variables (masked values, AI-safe)
   has <key>         Check if a secret exists (exit 0 if set, 1 if not)
@@ -54,8 +54,8 @@ ${pc.bold('Examples:')}
   hush encrypt                  Encrypt .env files
   hush decrypt                  Decrypt for development
   hush decrypt -e production    Decrypt for production
-  hush edit                     Edit shared secrets
-  hush edit development         Edit development secrets
+  hush set                      Set/edit shared secrets
+  hush set development          Set/edit development secrets
   hush list                     List all variables (shows values)
   hush inspect                  List all variables (masked, AI-safe)
   hush has DATABASE_URL         Check if DATABASE_URL is set
@@ -193,7 +193,7 @@ function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
-    if (command === 'edit' && !arg.startsWith('-')) {
+    if ((command === 'set' || command === 'edit') && !arg.startsWith('-')) {
       const parsed = parseFileKey(arg);
       if (parsed) {
         file = parsed;
@@ -238,6 +238,7 @@ async function main(): Promise<void> {
         await decryptCommand({ root, env });
         break;
 
+      case 'set':
       case 'edit':
         await editCommand({ root, file });
         break;

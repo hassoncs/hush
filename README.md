@@ -183,8 +183,8 @@ targets:
 | `hush encrypt` | Encrypt `.env` files to `.env.encrypted` |
 | `hush decrypt` | Decrypt and distribute to all targets |
 | `hush decrypt -e prod` | Decrypt with production values |
-| `hush edit` | Edit shared secrets in `$EDITOR` |
-| `hush edit development` | Edit development secrets |
+| `hush set` | Set/edit secrets in `$EDITOR` |
+| `hush set development` | Set development secrets |
 | `hush list` | List all variables (shows values) |
 | `hush inspect` | List all variables (masked values, AI-safe) |
 | `hush has <KEY>` | Check if a secret exists (exit 0/1) |

@@ -107,19 +107,19 @@ Later sources override earlier ones:
 
 ---
 
-## edit
+## set
 
-Edit encrypted files directly in your `$EDITOR`.
+Set or modify secrets. Opens encrypted file in your `$EDITOR`. Alias: `edit`
 
 ```bash
-# Edit shared secrets
-hush edit
+# Set shared secrets
+hush set
 
-# Edit development secrets
-hush edit development
+# Set development secrets
+hush set development
 
-# Edit production secrets
-hush edit production
+# Set production secrets
+hush set production
 ```
 
 This temporarily decrypts the file, opens it in your editor, and re-encrypts on save.

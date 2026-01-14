@@ -28,7 +28,7 @@ Hush encrypts secrets so they can be committed to git, and provides AI-safe comm
 ### ALWAYS use Hush commands instead:
 - \`npx hush inspect\` to see what variables exist (values are masked)
 - \`npx hush has <KEY>\` to check if a specific variable is set
-- \`npx hush edit\` to modify secrets (opens secure editor)
+- \`npx hush set\` to add or modify secrets (opens secure editor)
 - \`npx hush status\` to view configuration
 
 ## Quick Check: Is Hush Set Up?
@@ -77,15 +77,15 @@ npx hush has API_KEY -q             # Quiet: exit code only (0=set, 1=missing)
 npx hush status
 \`\`\`
 
-### Edit secrets (requires user interaction)
+### Set/modify secrets (requires user interaction)
 
 \`\`\`bash
-npx hush edit                       # Edit shared secrets
-npx hush edit development           # Edit dev secrets  
-npx hush edit production            # Edit prod secrets
+npx hush set                        # Set shared secrets
+npx hush set development            # Set dev secrets  
+npx hush set production             # Set prod secrets
 \`\`\`
 
-After editing, encrypt:
+After setting, encrypt:
 
 \`\`\`bash
 npx hush encrypt
@@ -113,7 +113,7 @@ npx hush has DATABASE_URL
 \`\`\`
 
 ### "Help user add a new secret"
-1. Tell user to run: \`npx hush edit\`
+1. Tell user to run: \`npx hush set\`
 2. They add the variable in their editor
 3. They save and close
 4. Tell them to run: \`npx hush encrypt\`
@@ -458,14 +458,14 @@ hush decrypt -e prod            # Short form
 
 ---
 
-### hush edit
+### hush set (alias: edit)
 
-Edit encrypted files directly in your \`$EDITOR\`.
+Set or modify secrets. Opens encrypted file in your \`$EDITOR\`.
 
 \`\`\`bash
-hush edit                       # Edit shared secrets
-hush edit development           # Edit development secrets
-hush edit production            # Edit production secrets
+hush set                        # Set shared secrets
+hush set development            # Set development secrets
+hush set production             # Set production secrets
 \`\`\`
 
 Opens a temporary decrypted file, re-encrypts on save.
@@ -753,7 +753,7 @@ echo "Some secrets missing"
 2. **If not set, guide the user:**
    > To add \`NEW_API_KEY\`, run:
    > \`\`\`bash
-   > hush edit
+   > hush set
    > \`\`\`
    > Add a line like: \`NEW_API_KEY=your_actual_key_here\`
    > Save and close the editor, then run:
@@ -769,7 +769,7 @@ echo "Some secrets missing"
 ### "I need to add secrets for production"
 
 Guide the user:
-> Run \`hush edit production\` to edit production secrets.
+> Run \`hush set production\` to set production secrets.
 > After saving, run \`hush encrypt\` to encrypt the changes.
 > To deploy, run \`hush decrypt -e production\`.
 
