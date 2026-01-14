@@ -2,7 +2,20 @@
 
 > **The AI-native secrets manager.** Encrypt secrets, commit safely, let AI help—without exposing values.
 
+[![npm](https://img.shields.io/npm/v/@chriscode/hush)](https://www.npmjs.com/package/@chriscode/hush)
+[![Documentation](https://img.shields.io/badge/docs-hush--docs.pages.dev-blue)](https://hush-docs.pages.dev)
+
 Hush is a SOPS-based secrets management tool designed for the AI coding era. It encrypts your `.env` files so they can be safely committed to git, distributes secrets to any framework in your monorepo, and includes an **Agent Skill** that teaches AI assistants to work with secrets without ever seeing the actual values.
+
+**[Read the full documentation →](https://hush-docs.pages.dev)**
+
+## Quick Start (with AI)
+
+```bash
+npx @chriscode/hush skill
+```
+
+That's it. Once installed, ask your AI assistant: *"Set up Hush for this project"* — it knows what to do.
 
 ## Why Hush?
 

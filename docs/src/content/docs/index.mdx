@@ -42,7 +42,27 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid, Code, Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Install in Seconds
+
+<Tabs>
+  <TabItem label="With AI Assistant">
+    Install the Claude Code / OpenCode skill, then let AI handle the rest:
+    <Code code="npx @chriscode/hush skill" lang="bash" />
+    Once installed, just ask your AI: *"Set up Hush for this project"*
+  </TabItem>
+  <TabItem label="Manual Setup">
+    <Code code={`# Install Hush
+npm install -D @chriscode/hush
+
+# Initialize config
+npx hush init
+
+# Encrypt your secrets
+npx hush encrypt`} lang="bash" />
+  </TabItem>
+</Tabs>
 
 ## Why Hush?
 

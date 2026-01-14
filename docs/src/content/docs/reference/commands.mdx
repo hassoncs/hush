@@ -278,3 +278,84 @@ Targets:
 
 All encrypted files are up to date.
 ```
+
+---
+
+## check
+
+Verify encrypted files are in sync with source files. Useful for pre-commit hooks.
+
+```bash
+# Basic check
+hush check
+
+# Warn but don't fail
+hush check --warn
+
+# JSON output for CI
+hush check --json
+
+# Only check git-modified files
+hush check --only-changed
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--warn` | Warn on drift but exit 0 |
+| `--json` | Output machine-readable JSON |
+| `--quiet` | Suppress output |
+| `--only-changed` | Only check files modified in git |
+| `--require-source` | Fail if source file is missing |
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | All in sync |
+| `1` | Drift detected (run `hush encrypt`) |
+| `2` | Config error |
+| `3` | Runtime error (sops missing, decrypt failed) |
+
+### Pre-commit Hook
+
+```bash
+# .husky/pre-commit
+npx hush check || exit 1
+```
+
+Bypass with: `HUSH_SKIP_CHECK=1 git commit -m "message"`
+
+---
+
+## skill
+
+Install the Claude Code / OpenCode skill for AI-safe secrets management.
+
+```bash
+# Interactive: choose global or local
+hush skill
+
+# Install globally (all projects)
+hush skill --global
+
+# Install locally (this project only)
+hush skill --local
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--global` | Install to `~/.claude/skills/` |
+| `--local` | Install to `./.claude/skills/` |
+
+### Global vs Local
+
+- **Global** - Works across all your projects. Recommended for personal use.
+- **Local** - Bundled with the project. Recommended for teams (commit `.claude/` to git).
+
+<Aside type="tip">
+Once installed, the skill teaches AI assistants to use `hush inspect` and `hush has` instead of reading `.env` files directly.
+</Aside>
