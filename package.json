@@ -1,0 +1,63 @@
+{
+  "name": "@chriscode/hush",
+  "version": "1.0.0",
+  "description": "SOPS-based secrets management for monorepos. Encrypt once, decrypt everywhere.",
+  "type": "module",
+  "bin": {
+    "hush": "./bin/hush.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "pnpm build",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "secrets",
+    "sops",
+    "age",
+    "encryption",
+    "env",
+    "dotenv",
+    "monorepo",
+    "cloudflare",
+    "wrangler",
+    "expo"
+  ],
+  "author": "Chris Hasson",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hassoncs/hush.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hassoncs/hush/issues"
+  },
+  "homepage": "https://github.com/hassoncs/hush#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "dotenv-expand": "^11.0.6",
+    "glob": "^10.3.10",
+    "picocolors": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.8.3"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
