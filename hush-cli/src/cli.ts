@@ -11,8 +11,9 @@ import { listCommand } from './commands/list.js';
 import { inspectCommand } from './commands/inspect.js';
 import { hasCommand } from './commands/has.js';
 import { checkCommand } from './commands/check.js';
+import { skillCommand } from './commands/skill.js';
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 
 function printHelp(): void {
   console.log(`
@@ -32,6 +33,7 @@ ${pc.bold('Commands:')}
   check             Verify secrets are encrypted (for pre-commit hooks)
   push              Push secrets to Cloudflare Workers
   status            Show configuration and status
+  skill             Install Claude Code / OpenCode skill
 
 ${pc.bold('Options:')}
   -e, --env <env>   Environment: development or production (default: development)
@@ -42,6 +44,8 @@ ${pc.bold('Options:')}
   --json            Output machine-readable JSON (check only)
   --only-changed    Only check git-modified files (check only)
   --require-source  Fail if source file is missing (check only)
+  --global          Install skill to ~/.claude/skills/ (skill only)
+  --local           Install skill to ./.claude/skills/ (skill only)
   -h, --help        Show this help message
   -v, --version     Show version number
 
@@ -61,6 +65,9 @@ ${pc.bold('Examples:')}
   hush check --json             Output JSON for CI
   hush push --dry-run           Preview push to Cloudflare
   hush status                   Show current status
+  hush skill                    Install Claude skill (interactive)
+  hush skill --global           Install skill for all projects
+  hush skill --local            Install skill for this project only
 `);
 }
 
@@ -76,6 +83,8 @@ interface ParsedArgs {
   json: boolean;
   onlyChanged: boolean;
   requireSource: boolean;
+  global: boolean;
+  local: boolean;
   file?: FileKey;
   key?: string;
 }
@@ -103,6 +112,8 @@ function parseArgs(args: string[]): ParsedArgs {
   let json = false;
   let onlyChanged = false;
   let requireSource = false;
+  let global = false;
+  let local = false;
   let file: FileKey | undefined;
   let key: string | undefined;
 
@@ -167,6 +178,16 @@ function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--global') {
+      global = true;
+      continue;
+    }
+
+    if (arg === '--local') {
+      local = true;
+      continue;
+    }
+
     if (!command && !arg.startsWith('-')) {
       command = arg;
       continue;
@@ -190,7 +211,7 @@ function parseArgs(args: string[]): ParsedArgs {
     }
   }
 
-  return { command, env, root, dryRun, quiet, warn, json, onlyChanged, requireSource, file, key };
+  return { command, env, root, dryRun, quiet, warn, json, onlyChanged, requireSource, global, local, file, key };
 }
 
 async function main(): Promise<void> {
@@ -201,7 +222,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const { command, env, root, dryRun, quiet, warn, json, onlyChanged, requireSource, file, key } = parseArgs(args);
+  const { command, env, root, dryRun, quiet, warn, json, onlyChanged, requireSource, global, local, file, key } = parseArgs(args);
 
   try {
     switch (command) {
@@ -247,6 +268,10 @@ async function main(): Promise<void> {
 
       case 'status':
         await statusCommand({ root });
+        break;
+
+      case 'skill':
+        await skillCommand({ root, global, local });
         break;
 
       default:

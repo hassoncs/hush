@@ -178,6 +178,7 @@ targets:
 | `hush check` | Verify encrypted files are in sync (for pre-commit hooks) |
 | `hush push` | Push production secrets to Cloudflare Workers |
 | `hush status` | Show configuration and file status |
+| `hush skill` | Install Claude Code / OpenCode skill |
 
 ## AI-Native Design
 
@@ -223,12 +224,14 @@ For [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [OpenCode](
 **Install the skill:**
 
 ```bash
-# Already included in projects using Hush
-ls .claude/skills/hush-secrets/
-
-# Or install globally for all your projects
-cp -r .claude/skills/hush-secrets ~/.claude/skills/
+npx hush skill           # Interactive: choose global or local
+npx hush skill --global  # Install to ~/.claude/skills/ (all projects)
+npx hush skill --local   # Install to ./.claude/skills/ (this project)
 ```
+
+**Global vs Local:**
+- **Global** (`~/.claude/skills/`) - Works across all your projects. Recommended for personal use.
+- **Local** (`./.claude/skills/`) - Bundled with the project. Recommended for teams (commit to git).
 
 **What the skill does:**
 - Detects when you're working with secrets or environment variables

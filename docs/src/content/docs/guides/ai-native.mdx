@@ -206,43 +206,23 @@ Never run:
 
 For [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [OpenCode](https://github.com/opencode-ai/opencode) users, Hush includes a ready-to-use **Agent Skill** that automatically teaches the AI to use Hush commands instead of reading `.env` files directly.
 
-### One-Click Installation
+### Installation
 
-Copy this prompt into Claude Code to install the skill:
-
-```markdown
-Install the Hush secrets skill for this project:
-
-1. Create .claude/skills/hush-secrets/examples directories
-2. Download skill files from https://github.com/hassoncs/hush repository:
-   - .claude/skills/hush-secrets/SKILL.md
-   - .claude/skills/hush-secrets/SETUP.md
-   - .claude/skills/hush-secrets/REFERENCE.md
-   - .claude/skills/hush-secrets/examples/workflows.md
-3. Verify the skill is available
-
-From now on, use hush commands instead of reading .env files.
-```
-
-### Manual Installation
-
-**Option 1: Project Skill (Recommended)**
-
-If you're using Hush in your project, copy the skill folder:
+The easiest way to install the skill is with the `hush skill` command:
 
 ```bash
-# From a Hush repository
-cp -r .claude/skills/hush-secrets /path/to/your/project/.claude/skills/
+npx hush skill           # Interactive: choose global or local
+npx hush skill --global  # Install to ~/.claude/skills/ (all projects)
+npx hush skill --local   # Install to ./.claude/skills/ (this project)
 ```
 
-**Option 2: Personal Skill (All Projects)**
+**Global vs Local:**
+- **Global** (`~/.claude/skills/`) - Works across all your projects. Recommended for personal use.
+- **Local** (`./.claude/skills/`) - Bundled with the project. Recommended for teams (commit to git).
 
-Install globally so it's available in every project:
-
-```bash
-mkdir -p ~/.claude/skills
-cp -r .claude/skills/hush-secrets ~/.claude/skills/
-```
+<Aside type="tip">
+For teams, use `--local` and commit the `.claude/` directory so everyone gets the skill automatically.
+</Aside>
 
 ### How It Works
 

@@ -83,6 +83,12 @@ export interface CheckResult {
   files: CheckFileResult[];
 }
 
+export interface SkillOptions {
+  root: string;
+  global?: boolean;
+  local?: boolean;
+}
+
 export const DEFAULT_SOURCES: SourceFiles = {
   shared: '.env',
   development: '.env.development',
