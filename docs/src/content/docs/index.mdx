@@ -1,10 +1,10 @@
 ---
 title: Hush
-description: SOPS-based secrets management for monorepos. Encrypt once, decrypt everywhere.
+description: The AI-native secrets manager. Encrypt secrets, commit safely, let AI help—without exposing values.
 template: splash
 hero:
-  title: Secrets that stay silent
-  tagline: SOPS-based encryption for monorepos. Encrypt once, decrypt everywhere.
+  title: The AI-native secrets manager
+  tagline: Encrypt secrets, commit to git, let AI help—without exposing values. Works with every framework.
   image:
     html: |
       <div class="animated-terminal" aria-label="Hush CLI demo terminal">
@@ -47,17 +47,17 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 ## Why Hush?
 
 <CardGrid stagger>
-  <Card title="Encrypt Once" icon="lock-closed">
-    Store encrypted `.env` files in git. Use industry-standard SOPS + age encryption that your security team will approve.
+  <Card title="AI-Native by Design" icon="approve-check">
+    Built for the AI coding era. Let Claude, Copilot, and Cursor help with secrets—without ever seeing the values. Includes a Claude Code Skill.
   </Card>
-  <Card title="Decrypt Everywhere" icon="rocket">
-    Route secrets to different packages with include/exclude patterns. `EXPO_PUBLIC_*` to apps, everything else to APIs.
+  <Card title="Every Framework" icon="rocket">
+    Next.js, Vite, Expo, Remix, Cloudflare Workers, Kubernetes—route `NEXT_PUBLIC_*` to frontend, server secrets to API.
+  </Card>
+  <Card title="Encrypted in Git" icon="lock-closed">
+    Commit `.env.encrypted` files safely. SOPS + age encryption your security team will approve. Single source of truth.
   </Card>
   <Card title="Multiple Formats" icon="document">
-    Output to `.env`, Wrangler `.dev.vars`, JSON, or shell exports. Each package gets secrets in the format it needs.
-  </Card>
-  <Card title="AI-Native" icon="approve-check">
-    Let AI agents query your secrets without exposing values. `hush inspect` masks everything sent to LLMs.
+    Output to dotenv, Wrangler `.dev.vars`, JSON, YAML, or shell exports. Each package gets secrets in the format it needs.
   </Card>
 </CardGrid>
 

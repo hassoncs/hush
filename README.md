@@ -1,17 +1,41 @@
 # @chriscode/hush
 
-> SOPS-based secrets management for monorepos. Encrypt once, decrypt everywhere.
+> **The AI-native secrets manager.** Encrypt secrets, commit safely, let AI help—without exposing values.
 
-Hush manages secrets across your monorepo using [SOPS](https://github.com/getsops/sops) with [age](https://github.com/FiloSottile/age) encryption. Configure targets explicitly via `hush.yaml` and route secrets with include/exclude patterns.
+Hush is a SOPS-based secrets management tool designed for the AI coding era. It encrypts your `.env` files so they can be safely committed to git, distributes secrets to any framework in your monorepo, and includes an **Agent Skill** that teaches AI assistants to work with secrets without ever seeing the actual values.
+
+## Why Hush?
+
+**The Problem:** AI coding assistants are incredibly helpful, but they can accidentally expose your secrets. When Claude, Copilot, or Cursor reads your `.env` file, those secrets get sent to the LLM provider.
+
+**The Solution:** Hush provides AI-safe commands (`hush inspect`, `hush has`) that let AI agents reason about your secrets—checking which exist, their types, and where they're routed—without ever seeing the actual values. Plus, the included **Claude Code Skill** automatically teaches AI to use these commands.
 
 ## Features
 
-- **Multiple source files** - Separate `.env`, `.env.development`, `.env.production`
-- **Explicit configuration** - `hush.yaml` defines sources and targets
-- **Include/exclude patterns** - Route `EXPO_PUBLIC_*` to apps, other vars to APIs
-- **Multiple output formats** - dotenv, Wrangler `.dev.vars`, JSON, shell exports
-- **Cloudflare integration** - Push secrets to Workers with one command
-- **AI-native inspection** - Query secrets without exposing values to LLMs
+- **Encrypted secrets in git** - Commit `.env.encrypted` files safely, decrypt anywhere
+- **Every framework supported** - Next.js, Vite, Remix, Expo, Cloudflare Workers, and more
+- **Smart routing** - Route `NEXT_PUBLIC_*` to frontend, server secrets to API
+- **Multiple output formats** - dotenv, Wrangler, JSON, shell, YAML
+- **AI-native by design** - Query secrets without exposing values to LLMs
+- **Claude Code Skill included** - AI automatically uses safe commands
+
+## Framework Support
+
+Hush works with **every major framework** out of the box. Use `include`/`exclude` patterns to route the right variables to each target:
+
+| Framework | Client Prefix | Example Pattern |
+|-----------|--------------|-----------------|
+| **Next.js** | `NEXT_PUBLIC_*` | `include: [NEXT_PUBLIC_*]` |
+| **Vite** | `VITE_*` | `include: [VITE_*]` |
+| **Create React App** | `REACT_APP_*` | `include: [REACT_APP_*]` |
+| **Vue CLI** | `VUE_APP_*` | `include: [VUE_APP_*]` |
+| **Nuxt** | `NUXT_PUBLIC_*` | `include: [NUXT_PUBLIC_*]` |
+| **Astro** | `PUBLIC_*` | `include: [PUBLIC_*]` |
+| **SvelteKit** | `PUBLIC_*` | `include: [PUBLIC_*]` |
+| **Expo / React Native** | `EXPO_PUBLIC_*` | `include: [EXPO_PUBLIC_*]` |
+| **Gatsby** | `GATSBY_*` | `include: [GATSBY_*]` |
+| **Remix** | (server-only) | No filtering needed |
+| **Cloudflare Workers** | (server-only) | `format: wrangler` |
 
 ## Installation
 
@@ -46,7 +70,7 @@ creation_rules:
 
 Get your public key from `~/.config/sops/age/key.txt`.
 
-### 2. Initialize hush
+### 2. Initialize Hush
 
 ```bash
 npx hush init
@@ -60,10 +84,10 @@ This creates `hush.yaml` with auto-detected targets.
 # .env (shared across environments)
 DATABASE_URL=postgres://localhost/mydb
 STRIPE_SECRET_KEY=sk_test_xxx
-EXPO_PUBLIC_API_URL=${API_BASE}/v1
+NEXT_PUBLIC_API_URL=${API_BASE}/v1
 
 # .env.development
-API_BASE=http://localhost:8787
+API_BASE=http://localhost:3000
 DEBUG=true
 
 # .env.production
@@ -74,17 +98,10 @@ DEBUG=false
 ### 4. Encrypt and use
 
 ```bash
-# Encrypt your secrets
-npx hush encrypt
-
-# Decrypt for local development
-npx hush decrypt
-
-# Decrypt for production
-npx hush decrypt -e production
-
-# Check your setup
-npx hush status
+npx hush encrypt          # Encrypt secrets
+npx hush decrypt          # Decrypt for development
+npx hush decrypt -e prod  # Decrypt for production
+npx hush status           # Check your setup
 ```
 
 ## Configuration
@@ -98,26 +115,42 @@ sources:
   production: .env.production
 
 targets:
+  # Root gets all variables
   - name: root
     path: .
     format: dotenv
 
-  - name: app
-    path: ./app
+  # Next.js app gets only public variables
+  - name: web
+    path: ./apps/web
     format: dotenv
     include:
-      - EXPO_PUBLIC_*
       - NEXT_PUBLIC_*
-      - VITE_*
 
+  # API gets everything except public variables  
   - name: api
-    path: ./api
+    path: ./apps/api
     format: wrangler
     exclude:
-      - EXPO_PUBLIC_*
       - NEXT_PUBLIC_*
       - VITE_*
+      - EXPO_PUBLIC_*
+
+  # Kubernetes config
+  - name: k8s
+    path: ./k8s
+    format: yaml
 ```
+
+### Output Formats
+
+| Format | Output File | Use Case |
+|--------|-------------|----------|
+| `dotenv` | `.env.development` | Next.js, Vite, CRA, Vue, Nuxt, Remix, Astro, SvelteKit, Expo, Node.js |
+| `wrangler` | `.dev.vars` | Cloudflare Workers & Pages |
+| `json` | `.env.development.json` | AWS Lambda, serverless functions, custom tooling |
+| `shell` | `.env.development.sh` | CI/CD pipelines, Docker builds, shell scripts |
+| `yaml` | `.env.development.yaml` | Kubernetes ConfigMaps, Docker Compose |
 
 ### Target Options
 
@@ -125,18 +158,9 @@ targets:
 |--------|-------------|
 | `name` | Identifier for the target |
 | `path` | Directory to write output file |
-| `format` | Output format: `dotenv`, `wrangler`, `json`, `shell` |
-| `include` | Glob patterns to include (e.g., `EXPO_PUBLIC_*`) |
+| `format` | Output format: `dotenv`, `wrangler`, `json`, `shell`, `yaml` |
+| `include` | Glob patterns to include (e.g., `NEXT_PUBLIC_*`) |
 | `exclude` | Glob patterns to exclude |
-
-### Output Formats
-
-| Format | Output File | Use Case |
-|--------|-------------|----------|
-| `dotenv` | `.env.development` / `.env.production` | Standard apps |
-| `wrangler` | `.dev.vars` | Cloudflare Workers |
-| `json` | `.env.development.json` | JSON consumers |
-| `shell` | `.env.development.sh` | Sourceable shell exports |
 
 ## Commands
 
@@ -151,17 +175,17 @@ targets:
 | `hush list` | List all variables (shows values) |
 | `hush inspect` | List all variables (masked values, AI-safe) |
 | `hush has <KEY>` | Check if a secret exists (exit 0/1) |
+| `hush check` | Verify encrypted files are in sync (for pre-commit hooks) |
 | `hush push` | Push production secrets to Cloudflare Workers |
-| `hush push --dry-run` | Preview what would be pushed |
 | `hush status` | Show configuration and file status |
 
-## AI-Native Commands
+## AI-Native Design
 
-Hush provides commands that let AI agents and coding assistants query secrets without exposing actual values. This prevents secrets from being sent to LLM providers.
+Hush is built for a world where AI helps write code. Traditional secrets management exposes values when AI reads `.env` files. Hush solves this with AI-safe commands.
 
-### `hush inspect` - Masked Variable Listing
+### `hush inspect` - See What's Configured
 
-Shows all secrets with masked values. Safe for AI agents to read.
+Shows all secrets with **masked values**. AI can see what exists without seeing actual secrets.
 
 ```bash
 $ hush inspect
@@ -175,48 +199,87 @@ Secrets for development:
 Total: 3 variables
 
 Target distribution:
-
-  root (.) - 3 vars
-  app (./app/) - 1 vars
-    include: EXPO_PUBLIC_*
-  api (./api/) - 2 vars
-    exclude: EXPO_PUBLIC_*
+  web (./apps/web) - 1 var (include: NEXT_PUBLIC_*)
+  api (./apps/api) - 2 vars (exclude: NEXT_PUBLIC_*)
 ```
 
-### `hush has <KEY>` - Check Secret Existence
-
-Check if a specific secret is configured. Returns exit code 0 if set, 1 if not.
+### `hush has <KEY>` - Check Specific Secrets
 
 ```bash
-# Check if DATABASE_URL is set
 $ hush has DATABASE_URL
 DATABASE_URL is set (45 chars)
-$ echo $?
-0
 
-# Check missing secret
 $ hush has MISSING_KEY
 MISSING_KEY not found
-$ echo $?
-1
 
-# Quiet mode for scripting
-$ hush has DATABASE_URL -q && echo "DB configured"
-DB configured
+# Quiet mode for scripts
+$ hush has API_KEY -q && echo "configured" || echo "missing"
 ```
 
-### Use Cases for AI Agents
+### Claude Code / OpenCode Skill
 
-Instead of reading `.env` files directly (which exposes secrets to the LLM):
+For [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [OpenCode](https://github.com/opencode-ai/opencode) users, Hush includes a ready-to-use **Agent Skill** that automatically teaches the AI to never read `.env` files directly.
+
+**Install the skill:**
 
 ```bash
-# AI agent checks configuration
-hush inspect                    # See what's configured
-hush has STRIPE_SECRET_KEY      # Verify specific secret exists
-hush has DATABASE_URL -q || echo "Need to configure DATABASE_URL"
+# Already included in projects using Hush
+ls .claude/skills/hush-secrets/
+
+# Or install globally for all your projects
+cp -r .claude/skills/hush-secrets ~/.claude/skills/
 ```
 
-This lets agents reason about secrets (existence, which targets receive them) without ever seeing the actual values.
+**What the skill does:**
+- Detects when you're working with secrets or environment variables
+- Uses `hush inspect` and `hush has` instead of reading `.env` files
+- Guides you through adding or modifying secrets safely
+- Never exposes secret values to the LLM
+
+The skill includes `SKILL.md` (core instructions), `REFERENCE.md` (command details), and `examples/workflows.md` (step-by-step guides).
+
+## Example: Monorepo with Next.js + Cloudflare Worker
+
+```yaml
+# hush.yaml
+sources:
+  shared: .env
+  development: .env.development
+  production: .env.production
+
+targets:
+  # Next.js frontend - only public vars
+  - name: web
+    path: ./apps/web
+    format: dotenv
+    include:
+      - NEXT_PUBLIC_*
+
+  # Cloudflare Worker API - server secrets only
+  - name: api
+    path: ./apps/api
+    format: wrangler
+    exclude:
+      - NEXT_PUBLIC_*
+```
+
+```bash
+# .env
+DATABASE_URL=postgres://...
+STRIPE_SECRET_KEY=sk_live_...
+NEXT_PUBLIC_API_URL=${API_BASE}/v1
+NEXT_PUBLIC_STRIPE_KEY=pk_live_...
+
+# .env.development
+API_BASE=http://localhost:8787
+
+# .env.production
+API_BASE=https://api.myapp.com
+```
+
+After `hush decrypt`:
+- `apps/web/.env.development` contains only `NEXT_PUBLIC_*` variables
+- `apps/api/.dev.vars` contains `DATABASE_URL`, `STRIPE_SECRET_KEY` (no public vars)
 
 ## How It Works
 
@@ -226,7 +289,7 @@ When you run `hush decrypt`:
 
 1. **Shared** (`.env.encrypted`) - Base variables
 2. **Environment** (`.env.development.encrypted` or `.env.production.encrypted`) - Overrides
-3. **Local** (`.env.local`, unencrypted) - Personal overrides
+3. **Local** (`.env.local`, unencrypted) - Personal overrides (not committed)
 
 Later files override earlier ones for the same key.
 
@@ -235,7 +298,6 @@ Later files override earlier ones for the same key.
 Reference other variables with `${VAR}`:
 
 ```bash
-# .env
 HOST=localhost
 PORT=3000
 BASE_URL=http://${HOST}:${PORT}
@@ -244,39 +306,27 @@ API_URL=${BASE_URL}/api
 
 ### Target Filtering
 
-Use `include` and `exclude` patterns to route variables:
+Use `include` and `exclude` patterns to route variables to the right places:
 
 ```yaml
 targets:
-  - name: app
-    path: ./app
-    format: dotenv
-    include:
-      - EXPO_PUBLIC_*    # Only client-safe vars
-
-  - name: api
-    path: ./api
-    format: wrangler
-    exclude:
-      - EXPO_PUBLIC_*    # Everything except client vars
+  - name: frontend
+    include: [NEXT_PUBLIC_*, VITE_*]    # Only client-safe vars
+    
+  - name: backend
+    exclude: [NEXT_PUBLIC_*, VITE_*]    # Everything except client vars
 ```
 
-## Package Scripts
+## Git Hook Integration
 
-Add to your `package.json`:
+Prevent committing unencrypted changes with `hush check`:
 
-```json
-{
-  "scripts": {
-    "secrets": "hush",
-    "secrets:decrypt": "hush decrypt",
-    "secrets:encrypt": "hush encrypt",
-    "secrets:edit": "hush edit",
-    "secrets:push": "hush push",
-    "secrets:status": "hush status"
-  }
-}
+```bash
+# .husky/pre-commit
+npx hush check || exit 1
 ```
+
+Bypass when needed: `HUSH_SKIP_CHECK=1 git commit -m "emergency fix"`
 
 ## File Reference
 
@@ -290,7 +340,7 @@ Add to your `package.json`:
 | `.env.local` | No | Personal overrides (unencrypted) |
 | `.env.development` | No | Generated dev env |
 | `.env.production` | No | Generated prod env |
-| `api/.dev.vars` | No | Generated Wrangler secrets |
+| `*/.dev.vars` | No | Generated Wrangler secrets |
 
 ## Programmatic Usage
 
@@ -305,24 +355,11 @@ import {
 } from '@chriscode/hush';
 
 const config = loadConfig('/path/to/repo');
-const shared = parseEnvContent(decryptedContent);
-const env = parseEnvContent(envContent);
-const merged = mergeVars(shared, env);
-const interpolated = interpolateVars(merged);
+const vars = parseEnvContent(decryptedContent);
+const interpolated = interpolateVars(vars);
 const filtered = filterVarsForTarget(interpolated, config.targets[0]);
 const output = formatVars(filtered, 'dotenv');
 ```
-
-## Migrating from v1
-
-v2 replaces environment prefixes (`DEV__`, `PROD__`) with separate files:
-
-| v1 | v2 |
-|----|-----|
-| `DEV__API_URL=...` in `.env` | `API_URL=...` in `.env.development` |
-| `PROD__API_URL=...` in `.env` | `API_URL=...` in `.env.production` |
-| Auto-detection of packages | Explicit `hush.yaml` configuration |
-| Hardcoded `EXPO_PUBLIC_*` routing | Configurable `include`/`exclude` patterns |
 
 ## Troubleshooting
 
@@ -331,11 +368,14 @@ Your age key doesn't match. Get the correct key from a team member.
 
 ### "SOPS is not installed"
 ```bash
-brew install sops
+brew install sops age
 ```
 
 ### Target not receiving expected variables
 Check your `include`/`exclude` patterns in `hush.yaml`. Run `hush status` to see target configuration.
+
+### AI assistant reading .env files directly
+Install the Claude Code skill: `cp -r .claude/skills/hush-secrets ~/.claude/skills/`
 
 ## License
 

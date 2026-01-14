@@ -1,4 +1,4 @@
-export type OutputFormat = 'dotenv' | 'wrangler' | 'json' | 'shell';
+export type OutputFormat = 'dotenv' | 'wrangler' | 'json' | 'shell' | 'yaml';
 export type Environment = 'development' | 'production';
 
 export interface Target {
@@ -105,5 +105,9 @@ export const FORMAT_OUTPUT_FILES: Record<OutputFormat, Record<Environment, strin
   shell: {
     development: '.env.development.sh',
     production: '.env.production.sh',
+  },
+  yaml: {
+    development: '.env.development.yaml',
+    production: '.env.production.yaml',
   },
 };

@@ -11,10 +11,11 @@ Hush can output secrets in multiple formats to match what each package in your m
 
 | Format | Output File | Use Case |
 |--------|-------------|----------|
-| `dotenv` | `.env.development` / `.env.production` | Standard apps (Node.js, React, etc.) |
-| `wrangler` | `.dev.vars` | Cloudflare Workers |
-| `json` | `.env.development.json` | JSON consumers, configs |
-| `shell` | `.env.development.sh` | Shell scripts, CI/CD |
+| `dotenv` | `.env.development` / `.env.production` | Next.js, Vite, Expo, Remix, Node.js, etc. |
+| `wrangler` | `.dev.vars` | Cloudflare Workers & Pages |
+| `json` | `.env.development.json` | AWS Lambda, serverless, JSON configs |
+| `shell` | `.env.development.sh` | CI/CD pipelines, Docker builds |
+| `yaml` | `.env.development.yaml` | Kubernetes ConfigMaps, Docker Compose |
 
 ## dotenv
 
@@ -52,12 +53,21 @@ targets:
 
 ### Compatibility
 
-Works with:
-- Node.js (`dotenv` package)
-- React / Next.js
-- Vite
-- Expo
-- Most JavaScript/TypeScript tools
+Works with every major framework:
+
+| Framework | Client Prefix |
+|-----------|--------------|
+| Next.js | `NEXT_PUBLIC_*` |
+| Vite | `VITE_*` |
+| Create React App | `REACT_APP_*` |
+| Vue CLI | `VUE_APP_*` |
+| Nuxt | `NUXT_PUBLIC_*` |
+| Astro | `PUBLIC_*` |
+| SvelteKit | `PUBLIC_*` |
+| Expo | `EXPO_PUBLIC_*` |
+| Gatsby | `GATSBY_*` |
+| Remix | (server-only) |
+| Node.js | (any) |
 
 ## wrangler
 
@@ -214,17 +224,84 @@ source ./scripts/.env.production.sh
 - Docker build arguments
 - Makefile targets
 
+## yaml
+
+YAML format for Kubernetes ConfigMaps, Docker Compose, and other YAML-based configuration.
+
+### Configuration
+
+```yaml
+targets:
+  - name: k8s
+    path: ./k8s
+    format: yaml
+```
+
+### Output
+
+<Tabs>
+  <TabItem label="Development">
+    **File:** `.env.development.yaml`
+    ```yaml
+    DATABASE_URL: "postgres://localhost/mydb"
+    API_KEY: "sk_test_xxx"
+    DEBUG: "true"
+    REDIS_URL: "redis://localhost:6379"
+    ```
+  </TabItem>
+  <TabItem label="Production">
+    **File:** `.env.production.yaml`
+    ```yaml
+    DATABASE_URL: "postgres://prod-host/mydb"
+    API_KEY: "sk_live_xxx"
+    DEBUG: "false"
+    REDIS_URL: "redis://prod-redis:6379"
+    ```
+  </TabItem>
+</Tabs>
+
+### Use Cases
+
+- Kubernetes ConfigMaps and Secrets
+- Docker Compose environment files
+- Helm chart values
+- Any YAML-based configuration
+
+### Creating a Kubernetes ConfigMap
+
+```bash
+# Generate the YAML
+hush decrypt -e production
+
+# Create ConfigMap from the generated file
+kubectl create configmap my-app-config --from-file=k8s/.env.production.yaml
+
+# Or use the file directly in your manifests
+```
+
+### Docker Compose Integration
+
+```yaml
+# docker-compose.yml
+services:
+  app:
+    env_file:
+      - ./config/.env.development.yaml
+```
+
 ## Choosing a Format
 
 | Your Stack | Recommended Format |
 |------------|-------------------|
-| Node.js / npm packages | `dotenv` |
-| Cloudflare Workers | `wrangler` |
-| Config-driven apps | `json` |
-| Shell scripts / CI | `shell` |
-| React / Next.js | `dotenv` |
-| Expo | `dotenv` |
-| Vite | `dotenv` |
+| Next.js, Vite, CRA, Vue, Nuxt | `dotenv` |
+| Astro, SvelteKit, Remix | `dotenv` |
+| Expo / React Native | `dotenv` |
+| Gatsby | `dotenv` |
+| Cloudflare Workers & Pages | `wrangler` |
+| AWS Lambda, serverless | `json` |
+| Kubernetes, Docker Compose | `yaml` |
+| CI/CD pipelines, shell scripts | `shell` |
+| Node.js / general backend | `dotenv` |
 
 ## Multiple Formats
 
@@ -232,26 +309,31 @@ You can use different formats for different targets:
 
 ```yaml
 targets:
-  # App uses dotenv
-  - name: app
-    path: ./packages/app
+  # Next.js app uses dotenv
+  - name: web
+    path: ./apps/web
     format: dotenv
     include:
       - NEXT_PUBLIC_*
 
-  # API uses wrangler
+  # Cloudflare Worker uses wrangler
   - name: api
-    path: ./packages/api
+    path: ./apps/api
     format: wrangler
     exclude:
       - NEXT_PUBLIC_*
 
-  # Shared config uses JSON
-  - name: config
-    path: ./packages/config
+  # Lambda functions use JSON
+  - name: lambda
+    path: ./packages/lambda
     format: json
-    include:
-      - APP_*
+
+  # Kubernetes uses YAML
+  - name: k8s
+    path: ./k8s
+    format: yaml
+    exclude:
+      - NEXT_PUBLIC_*
 
   # CI scripts use shell
   - name: ci

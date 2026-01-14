@@ -3,6 +3,7 @@ import { formatDotenv } from './dotenv.js';
 import { formatJson } from './json.js';
 import { formatShell } from './shell.js';
 import { formatWrangler } from './wrangler.js';
+import { formatYaml } from './yaml.js';
 
 export function formatVars(vars: EnvVar[], format: OutputFormat): string {
   switch (format) {
@@ -14,7 +15,9 @@ export function formatVars(vars: EnvVar[], format: OutputFormat): string {
       return formatJson(vars);
     case 'shell':
       return formatShell(vars);
+    case 'yaml':
+      return formatYaml(vars);
   }
 }
 
-export { formatDotenv, formatJson, formatShell, formatWrangler };
+export { formatDotenv, formatJson, formatShell, formatWrangler, formatYaml };

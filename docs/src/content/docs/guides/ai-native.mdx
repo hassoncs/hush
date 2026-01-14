@@ -3,9 +3,21 @@ title: AI-Native Workflow
 description: Use Hush safely with AI coding assistants like Cursor, GitHub Copilot, and Claude.
 ---
 
-import { Aside, Steps } from '@astrojs/starlight/components';
+import { Aside, Steps, Code, Card, CardGrid } from '@astrojs/starlight/components';
 
 Hush provides commands specifically designed for AI coding assistants. These let AI agents reason about your secrets without ever seeing the actual values.
+
+<Aside type="tip" title="Quick Start">
+Copy this prompt into your AI assistant to set up Hush:
+
+```
+Set up Hush for AI-native secrets management. Install @chriscode/hush, 
+configure SOPS/age encryption, create hush.yaml, and help me encrypt 
+my .env files. Never read .env files directly - use hush commands.
+```
+
+For more prompts, see the [AI Prompts](/guides/ai-prompts/) guide.
+</Aside>
 
 ## The Problem
 
@@ -189,6 +201,84 @@ Never run:
 - echo $SECRET_KEY
 - Any command that would expose actual values
 ```
+
+## Claude Code / OpenCode Skill
+
+For [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [OpenCode](https://github.com/opencode-ai/opencode) users, Hush includes a ready-to-use **Agent Skill** that automatically teaches the AI to use Hush commands instead of reading `.env` files directly.
+
+### One-Click Installation
+
+Copy this prompt into Claude Code to install the skill:
+
+```markdown
+Install the Hush secrets skill for this project:
+
+1. Create .claude/skills/hush-secrets/examples directories
+2. Download skill files from https://github.com/hassoncs/hush repository:
+   - .claude/skills/hush-secrets/SKILL.md
+   - .claude/skills/hush-secrets/SETUP.md
+   - .claude/skills/hush-secrets/REFERENCE.md
+   - .claude/skills/hush-secrets/examples/workflows.md
+3. Verify the skill is available
+
+From now on, use hush commands instead of reading .env files.
+```
+
+### Manual Installation
+
+**Option 1: Project Skill (Recommended)**
+
+If you're using Hush in your project, copy the skill folder:
+
+```bash
+# From a Hush repository
+cp -r .claude/skills/hush-secrets /path/to/your/project/.claude/skills/
+```
+
+**Option 2: Personal Skill (All Projects)**
+
+Install globally so it's available in every project:
+
+```bash
+mkdir -p ~/.claude/skills
+cp -r .claude/skills/hush-secrets ~/.claude/skills/
+```
+
+### How It Works
+
+Once installed, Claude Code automatically:
+
+1. **Detects** when you're working with secrets, environment variables, or `.env` files
+2. **Loads** the Hush skill instructions
+3. **Uses** `hush inspect` and `hush has` instead of reading files directly
+4. **Guides** you through adding or modifying secrets safely
+
+### What the Skill Teaches Claude
+
+- Never read `.env`, `.env.*`, `.env.local`, or `.dev.vars` files
+- Use `hush inspect` to see what variables exist (with masked values)
+- Use `hush has <KEY>` to check if specific secrets are configured
+- Use `hush edit` to help users modify secrets
+- Guide users through `hush encrypt` after changes
+
+<Aside type="tip">
+The skill uses Claude Code's "allowed-tools" feature to restrict Claude to only Hush-related bash commands when the skill is active, providing an extra layer of protection.
+</Aside>
+
+### Skill Files
+
+The skill uses progressive disclosure - only loading detailed docs when needed:
+
+| File | Purpose |
+|------|---------|
+| `SKILL.md` | Core rules and daily commands (always loaded) |
+| `SETUP.md` | First-time setup instructions (loaded if Hush not configured) |
+| `REFERENCE.md` | Detailed command reference (loaded when needed) |
+| `examples/workflows.md` | Step-by-step workflow examples |
+
+<Aside type="note">
+For more copy-paste prompts for common tasks, see the [AI Prompts](/guides/ai-prompts/) guide.
+</Aside>
 
 ## Security Considerations
 

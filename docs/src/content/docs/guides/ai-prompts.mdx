@@ -1,0 +1,224 @@
+---
+title: AI Prompts
+description: Copy-paste prompts to set up and use Hush with your AI coding assistant.
+---
+
+import { Aside, Code, Tabs, TabItem } from '@astrojs/starlight/components';
+
+These prompts are designed to be copied and pasted directly into your AI coding assistant (Claude Code, Cursor, GitHub Copilot, etc.). The AI will handle the setup automatically.
+
+## Quick Start Prompt
+
+Copy this prompt to set up Hush in any project:
+
+<Aside type="tip" title="One prompt to rule them all">
+This single prompt will check prerequisites, install Hush, configure encryption, and set up your project.
+</Aside>
+
+```markdown
+I want to use Hush for AI-native secrets management in this project. Please:
+
+1. Check if sops and age are installed (brew install sops age if not on macOS)
+2. Check if I have an age key at ~/.config/sops/age/key.txt (create one if not)
+3. Install @chriscode/hush as a dev dependency
+4. Create .sops.yaml with my age public key
+5. Run `npx hush init` to generate hush.yaml
+6. Show me the generated configuration and suggest any improvements for my project structure
+7. Help me create initial .env files with placeholder values
+8. Run `npx hush encrypt` to encrypt them
+9. Update .gitignore to exclude plaintext env files but include encrypted ones
+10. Verify with `npx hush status` and `npx hush inspect`
+
+IMPORTANT: Never read .env files directly - use hush commands to check secrets.
+```
+
+---
+
+## Install the Claude Code Skill
+
+For Claude Code or OpenCode users, install the Hush skill so your AI automatically uses safe commands:
+
+<Tabs>
+  <TabItem label="Project Skill">
+    Copy this prompt to add the skill to your current project:
+
+    ```markdown
+    Download and install the Hush secrets skill for this project:
+
+    1. Create the directory: mkdir -p .claude/skills/hush-secrets/examples
+    2. Download the skill files from https://github.com/hassoncs/hush:
+       - .claude/skills/hush-secrets/SKILL.md
+       - .claude/skills/hush-secrets/SETUP.md
+       - .claude/skills/hush-secrets/REFERENCE.md
+       - .claude/skills/hush-secrets/examples/workflows.md
+    3. Verify the skill is loaded by checking available skills
+
+    After installation, you should automatically use `hush inspect` and `hush has` 
+    instead of reading .env files directly.
+    ```
+  </TabItem>
+  <TabItem label="Personal Skill">
+    Copy this prompt to install the skill globally for all your projects:
+
+    ```markdown
+    Download and install the Hush secrets skill to my personal skills folder:
+
+    1. Create the directory: mkdir -p ~/.claude/skills/hush-secrets/examples
+    2. Download the skill files from https://github.com/hassoncs/hush:
+       - Save to ~/.claude/skills/hush-secrets/SKILL.md
+       - Save to ~/.claude/skills/hush-secrets/SETUP.md
+       - Save to ~/.claude/skills/hush-secrets/REFERENCE.md
+       - Save to ~/.claude/skills/hush-secrets/examples/workflows.md
+    3. Verify installation
+
+    This skill will now be available in all my projects.
+    ```
+  </TabItem>
+</Tabs>
+
+---
+
+## Common Task Prompts
+
+### Check What Secrets Exist
+
+```markdown
+Use hush to show me what environment variables are configured in this project. 
+Don't read .env files directly - use the AI-safe hush inspect command.
+```
+
+### Add a New Secret
+
+```markdown
+Help me add a new environment variable called [SECRET_NAME] to this project.
+Guide me through using hush edit and hush encrypt. Don't write to .env files directly.
+```
+
+### Set Up for a New Team Member
+
+```markdown
+A new team member is joining. Help me document what they need to do to get secrets working:
+1. What key file do they need?
+2. How do they set it up?
+3. What commands do they run?
+
+Use hush commands, not direct .env file access.
+```
+
+### Debug Missing Variables
+
+```markdown
+My app says [VARIABLE_NAME] is missing. Use hush to help me debug:
+1. Check if it's configured with hush has
+2. Check which targets receive it with hush inspect
+3. Verify the hush.yaml configuration
+
+Never read .env files directly.
+```
+
+### Configure for Monorepo
+
+```markdown
+Help me configure Hush for my monorepo. I have:
+- A Next.js app at ./apps/web (needs NEXT_PUBLIC_* vars)
+- An API at ./apps/api (needs server secrets, no client vars)
+- Shared packages at ./packages/*
+
+Update hush.yaml to route the right variables to each target.
+```
+
+---
+
+## Framework-Specific Prompts
+
+### Next.js
+
+```markdown
+Set up Hush for my Next.js project:
+1. Configure include pattern for NEXT_PUBLIC_* variables for the client
+2. Set up a separate target for server-side secrets
+3. Make sure .env.local is gitignored
+```
+
+### Cloudflare Workers
+
+```markdown
+Set up Hush for my Cloudflare Worker:
+1. Use wrangler format to output .dev.vars
+2. Configure hush push for deploying secrets to Cloudflare
+3. Exclude any client-side prefixed variables
+```
+
+### Expo / React Native
+
+```markdown
+Set up Hush for my Expo project:
+1. Configure include pattern for EXPO_PUBLIC_* variables
+2. Set up app.config.js to read from the generated env file
+3. Make sure secrets don't end up in the client bundle
+```
+
+### Kubernetes
+
+```markdown
+Set up Hush for Kubernetes deployment:
+1. Use yaml format to generate ConfigMap-compatible files
+2. Create a target at ./k8s for Kubernetes manifests
+3. Exclude any client-side prefixed variables from server configs
+```
+
+---
+
+## Cursor Integration
+
+Add this to your `.cursorrules` file:
+
+```markdown
+## Secrets Management
+
+This project uses Hush for encrypted secrets. IMPORTANT RULES:
+
+1. NEVER read .env, .env.*, or .dev.vars files directly
+2. NEVER use cat, grep, or head on env files
+3. NEVER echo environment variable values
+
+Instead, use these AI-safe commands:
+- `npx hush inspect` - See what variables exist (masked values)
+- `npx hush has <KEY>` - Check if a specific variable is set
+- `npx hush status` - View configuration
+- `npx hush edit` - Modify secrets (user interaction required)
+
+These commands mask sensitive values, making them safe for AI to read.
+```
+
+---
+
+## Troubleshooting Prompts
+
+### Hush Not Working
+
+```markdown
+Hush isn't working in this project. Please diagnose:
+1. Check if @chriscode/hush is installed
+2. Check if hush.yaml exists
+3. Check if .sops.yaml exists with a valid age key
+4. Verify sops and age are installed
+5. Run npx hush status to see the current state
+
+Then help me fix any issues found.
+```
+
+### Encryption Key Issues
+
+```markdown
+I'm getting "no matching keys found" error with Hush. Help me fix it:
+1. Check if ~/.config/sops/age/key.txt exists
+2. Compare my public key with what's in .sops.yaml
+3. Guide me through getting the correct key from my team
+```
+
+---
+
+<Aside type="note" title="Why these prompts work">
+These prompts explicitly tell the AI to use Hush commands instead of reading .env files. This prevents your secrets from being sent to the LLM provider. The AI can still help you manage secrets - it just does so safely.
+</Aside>
