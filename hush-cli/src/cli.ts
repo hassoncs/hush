@@ -14,6 +14,7 @@ import { inspectCommand } from './commands/inspect.js';
 import { hasCommand } from './commands/has.js';
 import { checkCommand } from './commands/check.js';
 import { skillCommand } from './commands/skill.js';
+import { findConfigPath, loadConfig, checkSchemaVersion } from './config/loader.js';
 
 const VERSION = '2.3.0';
 
@@ -251,6 +252,36 @@ function parseArgs(args: string[]): ParsedArgs {
   return { command, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, file, key, target, cmdArgs };
 }
 
+function checkMigrationNeeded(root: string, command: string): void {
+  const skipCommands = ['', 'help', 'version', 'init', 'skill'];
+  if (skipCommands.includes(command)) return;
+
+  const configPath = findConfigPath(root);
+  if (!configPath) return;
+
+  const config = loadConfig(root);
+  const { needsMigration, from, to } = checkSchemaVersion(config);
+
+  if (needsMigration) {
+    console.log('');
+    console.log(pc.yellow('━'.repeat(60)));
+    console.log(pc.yellow(pc.bold('  Migration Required')));
+    console.log(pc.yellow('━'.repeat(60)));
+    console.log('');
+    console.log(`  Your ${pc.cyan('hush.yaml')} uses schema version ${pc.bold(String(from))}.`);
+    console.log(`  Hush ${VERSION} uses schema version ${pc.bold(String(to))}.`);
+    console.log('');
+    console.log(pc.dim('  Migration guide:'));
+    console.log(`  ${pc.cyan(`https://hush-docs.pages.dev/migrations/v${from}-to-v${to}`)}`);
+    console.log('');
+    console.log(pc.dim('  Or ask your AI assistant:'));
+    console.log(pc.dim(`  "Help me migrate hush.yaml from schema v${from} to v${to}"`));
+    console.log('');
+    console.log(pc.yellow('━'.repeat(60)));
+    console.log('');
+  }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
@@ -260,6 +291,8 @@ async function main(): Promise<void> {
   }
 
   const { command, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, file, key, target, cmdArgs } = parseArgs(args);
+
+  checkMigrationNeeded(root, command);
 
   try {
     switch (command) {

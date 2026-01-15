@@ -150,14 +150,14 @@ This runs:
 Edit `hush-cli/package.json`:
 ```json
 {
-  "version": "2.1.0"  // Bump this
+  "version": "2.3.0"  // Bump this
 }
 ```
 
 Then commit and publish:
 ```bash
 git add hush-cli/package.json
-git commit -m "chore: bump version to 2.1.0"
+git commit -m "chore: bump version to 2.3.0"
 pnpm release
 ```
 

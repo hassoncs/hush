@@ -14,6 +14,7 @@
     "docs:build": "pnpm --filter docs build",
     "docs:preview": "pnpm --filter docs preview",
     "docs:deploy": "pnpm --filter docs build && pnpm --filter docs deploy",
+    "changelog": "./scripts/changelog.sh",
     "release": "./scripts/release.sh"
   },
   "engines": {

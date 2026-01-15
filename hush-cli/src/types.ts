@@ -17,9 +17,12 @@ export interface SourceFiles {
 }
 
 export interface HushConfig {
+  schema_version?: number;
   sources: SourceFiles;
   targets: Target[];
 }
+
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export interface EnvVar {
   key: string;

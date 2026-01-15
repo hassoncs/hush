@@ -1,90 +1,129 @@
 #!/bin/bash
 set -e
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$ROOT_DIR"
 
-echo "🚀 Hush Release Script"
-echo ""
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
-# Get current version
-VERSION=$(node -p "require('./hush-cli/package.json').version")
-echo "📦 Version: $VERSION"
-echo ""
+log() { echo -e "${GREEN}[ok]${NC} $1"; }
+warn() { echo -e "${YELLOW}[warn]${NC} $1"; }
+error() { echo -e "${RED}[error]${NC} $1"; exit 1; }
 
-# Step 1: Build CLI
-echo "🔨 Building hush-cli..."
-cd hush-cli
-pnpm build
-echo "✓ CLI built"
+RELEASE_VERSION=""
+DRY_RUN=0
+SKIP_PUSH=0
 
-# Step 2: Run tests
-echo ""
-echo "🧪 Running tests..."
-pnpm test
-echo "✓ Tests passed"
-cd ..
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --version)
+            RELEASE_VERSION="$2"
+            shift 2
+            ;;
+        --dry-run)
+            DRY_RUN=1
+            shift
+            ;;
+        --skip-push)
+            SKIP_PUSH=1
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $0 --version X.Y.Z [OPTIONS]"
+            echo ""
+            echo "Mechanical release operations. Agent decides version and writes content."
+            echo ""
+            echo "Options:"
+            echo "  --version X.Y.Z   Release version (required)"
+            echo "  --dry-run         Preview without making changes"
+            echo "  --skip-push       Don't push to remote (for local testing)"
+            echo "  --help, -h        Show this help"
+            echo ""
+            echo "Pre-requisites (agent must do before running):"
+            echo "  1. Update hush-cli/package.json version"
+            echo "  2. Update CHANGELOG.md with release notes"
+            echo "  3. Write migration guide if major version"
+            echo "  4. Commit all changes"
+            exit 0
+            ;;
+        *)
+            error "Unknown option: $1"
+            ;;
+    esac
+done
 
-# Step 3: Build docs
-echo ""
-echo "📚 Building docs..."
-cd docs
-pnpm build
-echo "✓ Docs built"
-cd ..
-
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "✅ All builds complete! Ready to deploy."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-
-# Step 4: Get OTP
-read -p "🔑 Enter npm OTP: " OTP
-echo ""
-
-if [ -z "$OTP" ]; then
-    echo "❌ OTP required"
-    exit 1
+if [ -z "$RELEASE_VERSION" ]; then
+    error "Version required. Usage: $0 --version X.Y.Z"
 fi
 
-# Step 5: Deploy in parallel
-echo "🚀 Deploying..."
-echo ""
-
-(
-    cd hush-cli
-    echo "📦 Publishing to npm..."
-    npm publish --otp="$OTP" 2>&1 | sed 's/^/   [npm] /'
-    echo "✓ Published @chriscode/hush@$VERSION to npm"
-) &
-NPM_PID=$!
-
-(
-    cd docs
-    echo "🌐 Deploying docs to Cloudflare Pages..."
-    pnpm deploy 2>&1 | sed 's/^/   [docs] /'
-    echo "✓ Docs deployed"
-) &
-DOCS_PID=$!
-
-# Wait for both
-wait $NPM_PID
-NPM_EXIT=$?
-
-wait $DOCS_PID
-DOCS_EXIT=$?
+if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    error "Invalid version format: $RELEASE_VERSION. Use semver (e.g., 2.4.0)"
+fi
 
 echo ""
-if [ $NPM_EXIT -eq 0 ] && [ $DOCS_EXIT -eq 0 ]; then
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "🎉 Release complete!"
+echo "========================================"
+echo "  Release: v$RELEASE_VERSION"
+echo "========================================"
+echo ""
+
+if [ $DRY_RUN -eq 1 ]; then
+    warn "DRY RUN - no changes will be made"
     echo ""
-    echo "   npm: https://www.npmjs.com/package/@chriscode/hush"
-    echo "   docs: https://hush-docs.pages.dev"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-else
-    echo "❌ Release failed"
-    [ $NPM_EXIT -ne 0 ] && echo "   npm publish failed (exit $NPM_EXIT)"
-    [ $DOCS_EXIT -ne 0 ] && echo "   docs deploy failed (exit $DOCS_EXIT)"
-    exit 1
 fi
+
+CURRENT_BRANCH=$(git branch --show-current)
+if [ "$CURRENT_BRANCH" != "main" ]; then
+    error "Must be on main branch. Currently on: $CURRENT_BRANCH"
+fi
+
+if [ -n "$(git status --porcelain)" ]; then
+    error "Working tree not clean. Commit or stash changes first."
+fi
+
+PKG_VERSION=$(node -p "require('./hush-cli/package.json').version")
+if [ "$PKG_VERSION" != "$RELEASE_VERSION" ]; then
+    error "package.json version ($PKG_VERSION) doesn't match release version ($RELEASE_VERSION)"
+fi
+
+log "Version matches package.json: $RELEASE_VERSION"
+
+if ! grep -q "## \[$RELEASE_VERSION\]" CHANGELOG.md; then
+    warn "CHANGELOG.md doesn't have entry for [$RELEASE_VERSION]"
+    warn "Add changelog entry before release"
+fi
+
+if [ $DRY_RUN -eq 1 ]; then
+    echo ""
+    echo "Dry run complete. Would have:"
+    echo "  - Created tag: v$RELEASE_VERSION"
+    echo "  - Pushed to origin"
+    exit 0
+fi
+
+log "Creating tag: v$RELEASE_VERSION"
+git tag "v$RELEASE_VERSION"
+
+if [ $SKIP_PUSH -eq 0 ]; then
+    log "Pushing to origin..."
+    git push origin main
+    git push origin "v$RELEASE_VERSION"
+    log "Pushed tag v$RELEASE_VERSION"
+else
+    warn "Skipping push (--skip-push)"
+fi
+
+echo ""
+echo "========================================"
+echo "  Release v$RELEASE_VERSION complete"
+echo "========================================"
+echo ""
+echo "GitHub Actions will now:"
+echo "  - Run CI checks"
+echo "  - Publish to npm"
+echo "  - Deploy docs"
+echo ""
+echo "Monitor: https://github.com/hassoncs/hush/actions"

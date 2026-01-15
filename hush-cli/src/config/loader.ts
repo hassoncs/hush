@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import type { HushConfig, Target } from '../types.js';
-import { DEFAULT_SOURCES } from '../types.js';
+import type { HushConfig } from '../types.js';
+import { DEFAULT_SOURCES, CURRENT_SCHEMA_VERSION } from '../types.js';
 
 const CONFIG_FILENAMES = ['hush.yaml', 'hush.yml'];
 
@@ -30,8 +30,18 @@ export function loadConfig(root: string): HushConfig {
   const parsed = parseYaml(content) as Partial<HushConfig>;
 
   return {
+    schema_version: parsed.schema_version,
     sources: { ...DEFAULT_SOURCES, ...parsed.sources },
     targets: parsed.targets ?? [{ name: 'root', path: '.', format: 'dotenv' }],
+  };
+}
+
+export function checkSchemaVersion(config: HushConfig): { needsMigration: boolean; from: number; to: number } {
+  const configVersion = config.schema_version ?? 1;
+  return {
+    needsMigration: configVersion < CURRENT_SCHEMA_VERSION,
+    from: configVersion,
+    to: CURRENT_SCHEMA_VERSION,
   };
 }
 
@@ -52,7 +62,7 @@ export function validateConfig(config: HushConfig): string[] {
     if (!target.format) {
       errors.push(`Target "${target.name}" must have a format`);
     }
-    if (!['dotenv', 'wrangler', 'json', 'shell'].includes(target.format)) {
+    if (!['dotenv', 'wrangler', 'json', 'shell', 'yaml'].includes(target.format)) {
       errors.push(`Target "${target.name}" has invalid format "${target.format}"`);
     }
   }
