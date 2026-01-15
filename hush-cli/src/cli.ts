@@ -15,7 +15,7 @@ import { hasCommand } from './commands/has.js';
 import { checkCommand } from './commands/check.js';
 import { skillCommand } from './commands/skill.js';
 
-const VERSION = '2.2.0';
+const VERSION = '2.3.0';
 
 function printHelp(): void {
   console.log(`

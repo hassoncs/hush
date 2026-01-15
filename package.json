@@ -10,11 +10,11 @@
     "type-check": "pnpm -r run type-check",
     "cli:build": "pnpm --filter @chriscode/hush build",
     "cli:test": "pnpm --filter @chriscode/hush test",
-    "release": "pnpm --filter @chriscode/hush publish",
     "docs:dev": "pnpm --filter docs dev",
     "docs:build": "pnpm --filter docs build",
     "docs:preview": "pnpm --filter docs preview",
-    "deploy": "pnpm --filter docs build && pnpm --filter docs deploy"
+    "docs:deploy": "pnpm --filter docs build && pnpm --filter docs deploy",
+    "release": "./scripts/release.sh"
   },
   "engines": {
     "node": ">=18"
