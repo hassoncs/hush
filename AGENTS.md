@@ -23,8 +23,7 @@ hush/
 │       ├── guides/     # How-to guides
 │       ├── reference/  # Command/format reference
 │       └── migrations/ # Version migration guides
-├── scripts/            # Release automation (mechanical only)
-└── .github/workflows/  # CI/CD automation
+└── .github/workflows/  # CI/CD automation (auto-release on every push)
 ```
 
 ## Non-Negotiables
@@ -241,37 +240,6 @@ The agent decides the version bump based on understanding the changes made.
 
 ---
 
-## Changelog Management
-
-### Who writes the changelog
-
-**The AI agent writes changelog entries.** Not scripts.
-
-When preparing a release, the agent:
-1. Reviews all commits since last release
-2. Groups changes by type (Added, Fixed, Changed, etc.)
-3. Writes human-readable descriptions (not just commit subjects)
-4. Updates `CHANGELOG.md` following Keep a Changelog format
-
-### Changelog format
-
-```markdown
-## [2.4.0] - 2026-01-15
-
-### Added
-- YAML output format for Kubernetes ConfigMaps (`format: yaml`)
-- Variable interpolation in include/exclude patterns
-
-### Fixed
-- Empty targets array no longer causes crash
-- Wrangler format now properly escapes special characters
-
-### Changed
-- Improved error messages for missing SOPS configuration
-```
-
----
-
 ## Migration Documentation
 
 ### When to write migration docs
@@ -356,65 +324,79 @@ Steps:
 
 ## Release Process
 
-### Fully Automated Release
+### Fully Automatic Releases
 
-The release process is fully automated. When instructed to release:
+**Every push to main triggers a release.** No manual steps required.
+
+The CI workflow:
+1. Runs build + tests
+2. Analyzes commits since last npm version
+3. Determines version bump from conventional commits
+4. Updates `package.json` version
+5. Publishes to npm (OIDC trusted publishing)
+6. Creates git tag and GitHub release
+7. Deploys docs to Cloudflare Pages
+
+### Version Bump Logic
+
+| Commits since last release | Bump | Example |
+|---------------------------|------|---------|
+| Any with `!` (breaking) | major | 2.3.0 → 3.0.0 |
+| Any `feat:` | minor | 2.3.0 → 2.4.0 |
+| Only `fix:`, `docs:`, `chore:`, etc. | patch | 2.3.0 → 2.3.1 |
+| No conventional commits | skip | No release |
+
+### Idempotent Publishing
+
+The workflow is idempotent:
+- If version already exists on npm → skips publish
+- If no conventional commits since last release → skips release
+- Re-running CI on same commits → safe (no duplicate releases)
+
+### What Agents Do
+
+Agents just commit with conventional commit messages. That's it.
 
 ```bash
-# 1. Ensure on main, clean working tree
-git checkout main
-git pull origin main
-git status  # Should be clean
-
-# 2. Determine version bump from commits
-# Agent analyzes commits and decides: patch, minor, or major
-
-# 3. Update version in package.json
-cd hush-cli
-# Edit package.json version field
-
-# 4. Update CHANGELOG.md
-# Agent writes changelog entries
-
-# 5. If major version: write migration guide
-# Agent creates docs/src/content/docs/migrations/vX-to-vY.mdx
-
-# 6. Commit release (NO manual tagging needed!)
-git add -A
-git commit -m "chore(release): 2.4.0"
-
-# 7. Push (auto-tag workflow creates tag, triggers release)
+git commit -m "feat(cli): add new command"
 git push origin main
+# → CI auto-releases as next minor version
 ```
 
-### What Happens Automatically
+For breaking changes:
+```bash
+git commit -m "feat(cli)!: rename config key
 
-1. **Push to main** → CI runs build + tests
-2. **Auto-tag workflow** detects `chore(release): X.Y.Z` commit → creates `vX.Y.Z` tag
-3. **Release workflow** triggered by tag → publishes to npm (trusted publishing), deploys docs
+BREAKING CHANGE: The 'targets' key is now 'outputs'."
+git push origin main
+# → CI auto-releases as next major version
+```
 
-No manual tagging. No NPM_TOKEN needed (uses OIDC trusted publishing).
+### Changelog and Migration Docs
+
+**Changelogs are auto-generated** from commit messages in GitHub Releases.
+
+For **major versions**, agents should still write migration guides at `docs/src/content/docs/migrations/vX-to-vY.mdx` before the breaking change commit.
 
 ---
 
-## CI/CD Workflows
+## CI/CD Workflow
 
-### On every push/PR to main
+### Single Unified Workflow
 
+One workflow handles everything (`.github/workflows/release.yml`):
+
+**On every push/PR:**
 1. Install dependencies (`pnpm install`)
 2. Build all packages (`pnpm build`)
 3. Run all tests (`pnpm test`)
 4. Type check (`pnpm type-check`)
 
-### On release commit to main
-
-The auto-tag workflow detects commits matching `chore(release): X.Y.Z` and automatically creates a git tag.
-
-### On release tag (v*)
-
-1. All CI checks
-2. Publish to npm using OIDC trusted publishing (no token needed)
-3. Deploy docs to Cloudflare Pages using Hush-managed secrets
+**On push to main (after CI passes):**
+1. Calculate version bump from commits
+2. Publish to npm (if new version needed)
+3. Create git tag and GitHub release
+4. Deploy docs to Cloudflare Pages
 
 ---
 
@@ -442,46 +424,6 @@ hush encrypt
 # 4. Add the private key to GitHub secrets as SOPS_AGE_KEY
 # Get it from: cat ~/.config/sops/age/keys/{project}.txt
 ```
-
----
-
-## Scripts (Mechanical Operations Only)
-
-Scripts in `scripts/` do mechanical operations. They do NOT:
-- Write changelog content
-- Decide version bumps
-- Write migration docs
-
-### scripts/release.sh
-
-```bash
-# Bump version, commit, tag, push
-./scripts/release.sh --version 2.4.0
-
-# With dry-run
-./scripts/release.sh --version 2.4.0 --dry-run
-```
-
-### scripts/changelog.sh
-
-```bash
-# Show commits since last tag (for agent to review)
-./scripts/changelog.sh --show-commits
-```
-
----
-
-## Verification Checklist
-
-Before any release, verify:
-
-- [ ] `pnpm build` succeeds
-- [ ] `pnpm test` passes
-- [ ] `pnpm type-check` passes
-- [ ] Version bumped in `hush-cli/package.json`
-- [ ] `CHANGELOG.md` updated with human-readable entries
-- [ ] Migration guide written (if major version)
-- [ ] All changes committed
 
 ---
 
@@ -535,7 +477,5 @@ git log --oneline v2.3.0..HEAD  # Commits since last release
 | What | Where |
 |------|-------|
 | CLI version | `hush-cli/package.json` |
-| Changelog | `CHANGELOG.md` |
 | Migration guides | `docs/src/content/docs/migrations/` |
 | CI workflows | `.github/workflows/` |
-| Release script | `scripts/release.sh` |
