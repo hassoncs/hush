@@ -175,13 +175,16 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Commit the version bump
+          # Commit the version bump if there are changes
           git add hush-cli/package.json
           git commit -m "chore(release): $NEW_VERSION [skip ci]" || echo "No changes to commit"
           
-          # Create and push tag
-          git tag "$TAG"
-          git push origin main --follow-tags
+          # Create tag
+          git tag "$TAG" || echo "Tag already exists"
+          
+          # Push commit and tag separately to ensure tag is pushed
+          git push origin main || echo "No commits to push"
+          git push origin "$TAG"
           
           echo "Created and pushed tag $TAG"
       
