@@ -5,6 +5,8 @@
 [![npm](https://img.shields.io/npm/v/@chriscode/hush)](https://www.npmjs.com/package/@chriscode/hush)
 [![Documentation](https://img.shields.io/badge/docs-hush--docs.pages.dev-blue)](https://hush-docs.pages.dev)
 
+<img src="./hero.webp" alt="Hush - AI-native secrets manager" style="width: 100%; max-width: 1200px; height: auto; border-radius: 8px; margin: 1.5rem 0;">
+
 Hush keeps secrets **encrypted at rest** and only decrypts them in memory when running programs. AI assistants can help manage your secrets without ever seeing the actual values—because there are no plaintext files to read.
 
 **[Read the full documentation →](https://hush-docs.pages.dev)**
