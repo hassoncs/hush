@@ -15,7 +15,7 @@ import { hasCommand } from './commands/has.js';
 import { checkCommand } from './commands/check.js';
 import { skillCommand } from './commands/skill.js';
 
-const VERSION = '2.1.0';
+const VERSION = '2.2.0';
 
 function printHelp(): void {
   console.log(`
@@ -51,6 +51,7 @@ ${pc.bold('Options:')}
   --json            Output machine-readable JSON (check only)
   --only-changed    Only check git-modified files (check only)
   --require-source  Fail if source file is missing (check only)
+  --allow-plaintext Allow plaintext .env files (check only, not recommended)
   --global          Install skill to ~/.claude/skills/ (skill only)
   --local           Install skill to ./.claude/skills/ (skill/set only)
   -h, --help        Show this help message
@@ -91,6 +92,7 @@ interface ParsedArgs {
   json: boolean;
   onlyChanged: boolean;
   requireSource: boolean;
+  allowPlaintext: boolean;
   global: boolean;
   local: boolean;
   file?: FileKey;
@@ -123,6 +125,7 @@ function parseArgs(args: string[]): ParsedArgs {
   let json = false;
   let onlyChanged = false;
   let requireSource = false;
+  let allowPlaintext = false;
   let global = false;
   let local = false;
   let file: FileKey | undefined;
@@ -192,6 +195,11 @@ function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--allow-plaintext') {
+      allowPlaintext = true;
+      continue;
+    }
+
     if (arg === '--global') {
       global = true;
       continue;
@@ -240,7 +248,7 @@ function parseArgs(args: string[]): ParsedArgs {
     }
   }
 
-  return { command, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, global, local, file, key, target, cmdArgs };
+  return { command, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, file, key, target, cmdArgs };
 }
 
 async function main(): Promise<void> {
@@ -251,7 +259,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const { command, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, global, local, file, key, target, cmdArgs } = parseArgs(args);
+  const { command, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, file, key, target, cmdArgs } = parseArgs(args);
 
   try {
     switch (command) {
@@ -314,7 +322,7 @@ async function main(): Promise<void> {
         break;
 
       case 'check':
-        await checkCommand({ root, warn, json, quiet, onlyChanged, requireSource });
+        await checkCommand({ root, warn, json, quiet, onlyChanged, requireSource, allowPlaintext });
         break;
 
       case 'push':

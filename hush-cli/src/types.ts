@@ -78,6 +78,7 @@ export interface CheckOptions {
   quiet: boolean;
   onlyChanged: boolean;
   requireSource: boolean;
+  allowPlaintext?: boolean;
 }
 
 export type CheckErrorType = 'SOURCE_MISSING' | 'ENCRYPTED_MISSING' | 'DECRYPT_FAILED' | 'SOPS_NOT_INSTALLED';
@@ -92,9 +93,15 @@ export interface CheckFileResult {
   error?: CheckErrorType;
 }
 
+export interface PlaintextFileResult {
+  file: string;
+  keyCount: number;
+}
+
 export interface CheckResult {
-  status: 'ok' | 'drift' | 'error';
+  status: 'ok' | 'drift' | 'error' | 'plaintext';
   files: CheckFileResult[];
+  plaintextFiles?: PlaintextFileResult[];
 }
 
 export interface SkillOptions {

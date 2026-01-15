@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { execSync } from 'node:child_process';
 import pc from 'picocolors';
@@ -6,7 +6,7 @@ import { loadConfig, findConfigPath } from '../config/loader.js';
 import { parseEnvContent } from '../core/parse.js';
 import { decrypt as sopsDecrypt, isSopsInstalled } from '../core/sops.js';
 import { computeDiff, isInSync } from '../lib/diff.js';
-import type { CheckOptions, CheckFileResult, CheckResult, HushConfig } from '../types.js';
+import type { CheckOptions, CheckFileResult, CheckResult, HushConfig, PlaintextFileResult } from '../types.js';
 
 interface SourceEncryptedPair {
   source: string;
@@ -53,8 +53,43 @@ function getGitChangedFiles(root: string): Set<string> {
   }
 }
 
+function findPlaintextEnvFiles(root: string): PlaintextFileResult[] {
+  const results: PlaintextFileResult[] = [];
+  const plaintextPatterns = ['.env', '.env.development', '.env.production', '.env.local', '.env.staging', '.env.test', '.dev.vars'];
+  const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt']);
+  
+  function scanDir(dir: string, relativePath: string = '') {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    
+    for (const entry of entries) {
+      if (skipDirs.has(entry)) continue;
+      
+      const fullPath = join(dir, entry);
+      const relPath = relativePath ? `${relativePath}/${entry}` : entry;
+      
+      try {
+        if (statSync(fullPath).isDirectory()) {
+          scanDir(fullPath, relPath);
+        } else if (plaintextPatterns.includes(entry)) {
+          results.push({ file: relPath, keyCount: 0 });
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+  
+  scanDir(root);
+  return results;
+}
+
 export async function check(options: CheckOptions): Promise<CheckResult> {
-  const { root, requireSource, onlyChanged } = options;
+  const { root, requireSource, onlyChanged, allowPlaintext } = options;
 
   if (!isSopsInstalled()) {
     return {
@@ -71,16 +106,19 @@ export async function check(options: CheckOptions): Promise<CheckResult> {
     };
   }
 
-  const configPath = findConfigPath(root);
-  if (!configPath) {
-    const config = loadConfig(root);
-    const pairs = getSourceEncryptedPairs(config);
-    return checkPairs(root, pairs, requireSource, onlyChanged);
-  }
-
   const config = loadConfig(root);
   const pairs = getSourceEncryptedPairs(config);
-  return checkPairs(root, pairs, requireSource, onlyChanged);
+  const result = checkPairs(root, pairs, requireSource, onlyChanged);
+  
+  if (!allowPlaintext) {
+    const plaintextFiles = findPlaintextEnvFiles(root);
+    if (plaintextFiles.length > 0) {
+      result.plaintextFiles = plaintextFiles;
+      result.status = 'plaintext';
+    }
+  }
+  
+  return result;
 }
 
 function checkPairs(
@@ -190,6 +228,26 @@ function formatTextOutput(result: CheckResult): string {
   const lines: string[] = [];
   lines.push('Checking secrets...\n');
 
+  if (result.plaintextFiles && result.plaintextFiles.length > 0) {
+    lines.push(pc.red(pc.bold('⚠ PLAINTEXT SECRETS DETECTED')));
+    lines.push('');
+    lines.push(pc.red('The following unencrypted .env files were found:'));
+    for (const pf of result.plaintextFiles) {
+      lines.push(pc.red(`  • ${pf.file}`));
+    }
+    lines.push('');
+    lines.push(pc.yellow('These files contain plaintext secrets that could be exposed to AI assistants.'));
+    lines.push('');
+    lines.push(pc.bold('To fix:'));
+    lines.push(pc.dim('  1. Run: hush encrypt'));
+    lines.push(pc.dim('  2. Delete the plaintext files (the .encrypted versions are your source of truth)'));
+    lines.push(pc.dim('  3. Add to .gitignore: .env, .env.*, .dev.vars'));
+    lines.push('');
+    lines.push(pc.dim('To allow plaintext files (not recommended): --allow-plaintext'));
+    lines.push('');
+    return lines.join('\n');
+  }
+
   for (const file of result.files) {
     if (file.error === 'SOPS_NOT_INSTALLED') {
       lines.push(pc.red('Error: SOPS is not installed'));
@@ -269,6 +327,10 @@ export async function checkCommand(options: CheckOptions): Promise<void> {
     } else {
       console.log(formatTextOutput(result));
     }
+  }
+
+  if (result.status === 'plaintext' && !options.warn) {
+    process.exit(4);
   }
 
   if (result.status === 'error') {
