@@ -57,18 +57,21 @@ ${pc.bold('Options:')}
   --allow-plaintext Allow plaintext .env files (check only, not recommended)
   --global          Install skill to ~/.claude/skills/ (skill only)
   --local           Install skill to ./.claude/skills/ (skill/set only)
+  --gui             Use macOS dialog for input (set only, for AI agents)
   -h, --help        Show this help message
   -v, --version     Show version number
 
 ${pc.bold('Examples:')}
-  hush init                     Initialize hush.yaml config
+  hush init                     Initialize config + generate keys
   hush encrypt                  Encrypt .env files
   hush run -- npm start         Run with secrets in memory (AI-safe!)
   hush run -e prod -- npm build Run with production secrets
   hush run -t api -- wrangler dev  Run filtered for 'api' target
   hush set DATABASE_URL         Set a secret interactively (AI-safe)
+  hush set API_KEY --gui        Set secret via macOS dialog (for AI agents)
   hush set API_KEY -e prod      Set a production secret
-  hush set API_KEY --local      Set a personal local override
+  hush keys setup               Pull key from 1Password or verify local
+  hush keys generate            Generate new key + backup to 1Password
   hush edit                     Edit all shared secrets in $EDITOR
   hush edit development         Edit development secrets in $EDITOR
   hush edit local               Edit personal local overrides

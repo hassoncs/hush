@@ -2,15 +2,13 @@
 
 This guide walks through setting up Hush from scratch. Follow these steps in order.
 
-## Prerequisites Check
+## Prerequisites
 
-### 1. Check if SOPS and age are installed
+### Required: SOPS and age
 
 ```bash
-which sops && which age-keygen && echo "Prerequisites installed" || echo "Need to install prerequisites"
+which sops && which age-keygen && echo "Prerequisites installed" || echo "Need to install"
 ```
-
-If not installed:
 
 **macOS:**
 ```bash
@@ -20,36 +18,25 @@ brew install sops age
 **Linux (Debian/Ubuntu):**
 ```bash
 sudo apt install age
-# SOPS: Download from https://github.com/getsops/sops/releases
 wget https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64 -O /usr/local/bin/sops
 chmod +x /usr/local/bin/sops
 ```
 
-**Windows (Chocolatey):**
+**Windows:**
 ```powershell
 choco install sops age
 ```
 
-### 2. Check for age encryption key
+### Optional: 1Password CLI (recommended for teams)
+
+For automatic key backup and sharing:
 
 ```bash
-test -f ~/.config/sops/age/key.txt && echo "Key exists" || echo "Need to create key"
+brew install --cask 1password
+brew install 1password-cli
 ```
 
-If no key exists, create one:
-
-```bash
-mkdir -p ~/.config/sops/age
-age-keygen -o ~/.config/sops/age/key.txt
-```
-
-### 3. Get your public key
-
-```bash
-grep "public key:" ~/.config/sops/age/key.txt
-```
-
-Save this `age1...` value - you'll need it for the next step.
+Enable "Integrate with 1Password CLI" in 1Password desktop app settings.
 
 ---
 
@@ -63,25 +50,19 @@ npm install -D @chriscode/hush
 pnpm add -D @chriscode/hush
 ```
 
-### Step 2: Create `.sops.yaml`
-
-Create `.sops.yaml` in your repo root with your public key:
-
-```yaml
-creation_rules:
-  - encrypted_regex: '.*'
-    age: age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-Replace `age1xxx...` with your actual public key from the prerequisites step.
-
-### Step 3: Initialize Hush
+### Step 2: Initialize (auto-generates everything)
 
 ```bash
 npx hush init
 ```
 
-This creates `hush.yaml` with auto-detected targets based on your project structure.
+This will automatically:
+1. Detect your project structure
+2. Generate an age encryption key
+3. Back up the key to 1Password (if available)
+4. Create `hush.yaml` and `.sops.yaml`
+
+**No 1Password?** Keys are saved locally to `~/.config/sops/age/keys/`. Share securely with your team.
 
 ### Step 4: Review `hush.yaml`
 
@@ -200,14 +181,27 @@ git commit -m "chore: add Hush secrets management"
 
 ## Team Member Setup
 
-When a new team member joins:
+### With 1Password (easiest)
 
-1. **Get the age private key** from an existing team member
-2. **Save it** to `~/.config/sops/age/key.txt`
-3. **Run** `npx hush decrypt` to generate local env files
-4. **Start developing**
+```bash
+npx hush keys setup
+```
 
-The private key should be shared securely (password manager, encrypted channel, etc.)
+This automatically pulls the key from 1Password (triggers biometric auth).
+
+### Without 1Password
+
+1. **Get the private key** from an existing team member (via secure channel)
+2. **Save it** to `~/.config/sops/age/keys/{project}.txt`
+3. **Verify:** `npx hush status`
+
+### Key sharing commands
+
+```bash
+hush keys list       # See all keys (local + 1Password)
+hush keys push       # Push local key to 1Password (for sharing)
+hush keys pull       # Pull key from 1Password
+```
 
 ---
 

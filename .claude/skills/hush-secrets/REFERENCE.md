@@ -17,13 +17,57 @@ These options work with most commands:
 
 ### hush init
 
-Generate a `hush.yaml` configuration file with auto-detected targets.
+Initialize Hush with auto-detected configuration and key generation.
 
 ```bash
 hush init
 ```
 
-Scans for `package.json` and `wrangler.toml` files to auto-detect targets.
+**What it does:**
+1. Scans for `package.json` and `wrangler.toml` to auto-detect targets
+2. Generates an age encryption key
+3. Backs up the key to 1Password (if available)
+4. Creates `hush.yaml` and `.sops.yaml`
+
+---
+
+### hush run (RECOMMENDED)
+
+Run a command with secrets injected as environment variables. Secrets are decrypted to memory only - never written to disk.
+
+```bash
+hush run -- npm start               # Development (default)
+hush run -e production -- npm build # Production
+hush run -t api -- wrangler dev     # Filter for specific target
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-e, --env <env>` | Environment: `development` or `production` |
+| `-t, --target <name>` | Only include variables for this target |
+
+---
+
+### hush keys
+
+Manage age encryption keys with optional 1Password backup.
+
+```bash
+hush keys setup      # Pull from 1Password or verify local key
+hush keys generate   # Generate new key + backup to 1Password
+hush keys pull       # Pull key from 1Password to local
+hush keys push       # Push local key to 1Password
+hush keys list       # List all keys (local + 1Password)
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--vault <name>` | Specify 1Password vault |
+| `--force` | Overwrite existing key (generate only) |
 
 ---
 
@@ -61,14 +105,33 @@ hush decrypt -e prod            # Short form
 
 ---
 
-### hush set (alias: edit)
+### hush set
 
-Set or modify secrets. Opens encrypted file in your `$EDITOR`.
+Set a single secret interactively.
 
 ```bash
-hush set                        # Set shared secrets
-hush set development            # Set development secrets
-hush set production             # Set production secrets
+hush set API_KEY                # Prompt in terminal
+hush set API_KEY --gui          # macOS dialog (for AI agents)
+hush set API_KEY -e production  # Set in production env
+hush set API_KEY --local        # Set in local overrides
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--gui` | Open macOS dialog instead of TTY prompt (perfect for AI agents) |
+| `-e, --env <env>` | Target environment file |
+| `--local` | Set in `.env.local.encrypted` (personal overrides) |
+
+### hush edit
+
+Edit all secrets in your `$EDITOR`.
+
+```bash
+hush edit                       # Edit shared secrets
+hush edit development           # Edit development secrets
+hush edit production            # Edit production secrets
 ```
 
 Opens a temporary decrypted file, re-encrypts on save.

@@ -65,32 +65,27 @@ npm install -D @chriscode/hush
 brew install sops age
 ```
 
-Set up your age key:
-
+**Optional but recommended:** Install 1Password CLI for automatic key backup:
 ```bash
-mkdir -p ~/.config/sops/age
-age-keygen -o ~/.config/sops/age/key.txt
+brew install --cask 1password
+brew install 1password-cli
 ```
 
 ## Quick Start
 
-### 1. Create `.sops.yaml` in your repo root
-
-```yaml
-creation_rules:
-  - encrypted_regex: '.*'
-    age: YOUR_AGE_PUBLIC_KEY
-```
-
-Get your public key from `~/.config/sops/age/key.txt`.
-
-### 2. Initialize Hush
+### 1. Initialize Hush (auto-generates keys)
 
 ```bash
 npx hush init
 ```
 
-This creates `hush.yaml` with auto-detected targets.
+This will:
+- Auto-detect your project structure
+- Generate an age encryption key
+- Back up the key to 1Password (if available)
+- Create `hush.yaml` and `.sops.yaml`
+
+**No 1Password?** Keys are saved locally to `~/.config/sops/age/keys/`. Share them securely with your team.
 
 ### 3. Create your env files
 
@@ -182,11 +177,15 @@ targets:
 |---------|-------------|----------|
 | `hush run -- <cmd>` | Run command with secrets in memory | ✅ |
 | `hush set <KEY>` | Set a secret interactively | ✅ |
+| `hush set <KEY> --gui` | Set secret via macOS dialog (for AI agents) | ✅ |
 | `hush edit [env]` | Edit secrets in `$EDITOR` | ✅ |
 | `hush inspect` | List variables (masked values) | ✅ |
 | `hush has <KEY>` | Check if a secret exists | ✅ |
-| `hush init` | Generate `hush.yaml` config | ✅ |
+| `hush init` | Generate config + keys (auto 1Password backup) | ✅ |
 | `hush encrypt` | Encrypt `.env` files | ✅ |
+| `hush keys setup` | Pull key from 1Password or use local | ✅ |
+| `hush keys generate` | Generate new key + backup to 1Password | ✅ |
+| `hush keys list` | List local and 1Password keys | ✅ |
 | `hush push` | Push to Cloudflare Workers | ✅ |
 | `hush status` | Show configuration | ✅ |
 | `hush skill` | Install AI skill | ✅ |
@@ -392,21 +391,55 @@ const filtered = filterVarsForTarget(interpolated, config.targets[0]);
 const output = formatVars(filtered, 'dotenv');
 ```
 
+## Team Setup
+
+### New team member onboarding
+
+**With 1Password (recommended):**
+```bash
+npx hush keys setup   # Pulls key from 1Password automatically
+```
+
+**Without 1Password:**
+1. Get the private key from a team member (via secure channel)
+2. Save to `~/.config/sops/age/keys/{project}.txt`
+3. Run `npx hush status` to verify
+
+### Key management commands
+
+```bash
+hush keys setup      # Pull from 1Password or verify local key
+hush keys generate   # Generate new key + backup to 1Password
+hush keys pull       # Pull key from 1Password
+hush keys push       # Push local key to 1Password
+hush keys list       # List all keys (local + 1Password)
+```
+
 ## Troubleshooting
 
-### "No identity matched"
-Your age key doesn't match. Get the correct key from a team member.
-
-### "SOPS is not installed"
+### "SOPS is not installed" or "age not found"
 ```bash
 brew install sops age
+```
+
+### "No identity matched"
+Your age key doesn't match the one used to encrypt. Options:
+1. **With 1Password:** Run `hush keys setup` to pull the correct key
+2. **Without 1Password:** Get the private key from a team member
+
+### "1Password CLI not available"
+Hush works without 1Password - keys are stored locally. For backup:
+```bash
+brew install --cask 1password
+brew install 1password-cli
+# Enable "Integrate with 1Password CLI" in 1Password settings
 ```
 
 ### Target not receiving expected variables
 Check your `include`/`exclude` patterns in `hush.yaml`. Run `hush status` to see target configuration.
 
 ### AI assistant reading .env files directly
-Install the Claude Code skill: `cp -r .claude/skills/hush-secrets ~/.claude/skills/`
+Install the Claude Code skill: `npx hush skill --global`
 
 ## License
 

@@ -37,6 +37,16 @@ npx hush status
 
 ## Daily Usage (AI-Safe Commands)
 
+### Run programs with secrets (PREFERRED)
+
+```bash
+npx hush run -- npm start           # Development
+npx hush run -e prod -- npm build   # Production
+npx hush run -t api -- wrangler dev # Filter for specific target
+```
+
+Secrets are decrypted to memory only - never written to disk.
+
 ### See what variables exist
 
 ```bash
@@ -69,25 +79,19 @@ npx hush has API_KEY -q             # Quiet: exit code only (0=set, 1=missing)
 npx hush status
 ```
 
-### Set/modify secrets (requires user interaction)
+### Set a secret (AI-agent friendly)
 
 ```bash
-npx hush set                        # Set shared secrets
-npx hush set development            # Set dev secrets  
-npx hush set production             # Set prod secrets
+npx hush set API_KEY --gui          # Opens macOS dialog for input
+npx hush set DATABASE_URL --gui     # User enters value in popup
 ```
 
-After setting, encrypt:
+The `--gui` flag opens a native macOS dialog - perfect for AI agents that can't interact with TTY prompts.
+
+### Edit all secrets in editor
 
 ```bash
-npx hush encrypt
-```
-
-### Decrypt to targets
-
-```bash
-npx hush decrypt                    # Development
-npx hush decrypt -e production      # Production
+npx hush edit                       # Opens $EDITOR
 ```
 
 ---
@@ -104,16 +108,25 @@ npx hush inspect
 npx hush has DATABASE_URL
 ```
 
-### "Help user add a new secret"
-1. Tell user to run: `npx hush set`
-2. They add the variable in their editor
-3. They save and close
-4. Tell them to run: `npx hush encrypt`
-5. Verify: `npx hush inspect`
+### "Add a new secret" (as AI agent)
+```bash
+npx hush set NEW_SECRET_KEY --gui   # Opens dialog for user to enter value
+npx hush inspect                    # Verify it was set
+```
+
+### "Run the app with secrets"
+```bash
+npx hush run -- npm start           # Secrets injected to memory only
+```
 
 ### "Check all required secrets"
 ```bash
 npx hush has DATABASE_URL -q && npx hush has API_KEY -q && echo "All configured" || echo "Some missing"
+```
+
+### "Set up keys for a new developer"
+```bash
+npx hush keys setup                 # Pulls from 1Password if available
 ```
 
 ---
