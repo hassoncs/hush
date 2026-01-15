@@ -100,6 +100,7 @@ interface ParsedArgs {
   global: boolean;
   local: boolean;
   force: boolean;
+  gui: boolean;
   vault?: string;
   file?: FileKey;
   key?: string;
@@ -136,6 +137,7 @@ function parseArgs(args: string[]): ParsedArgs {
   let global = false;
   let local = false;
   let force = false;
+  let gui = false;
   let vault: string | undefined;
   let file: FileKey | undefined;
   let key: string | undefined;
@@ -224,6 +226,11 @@ function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--gui') {
+      gui = true;
+      continue;
+    }
+
     if (arg === '--vault') {
       vault = args[++i];
       continue;
@@ -272,7 +279,7 @@ function parseArgs(args: string[]): ParsedArgs {
     }
   }
 
-  return { command, subcommand, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, vault, file, key, target, cmdArgs };
+  return { command, subcommand, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, target, cmdArgs };
 }
 
 function checkMigrationNeeded(root: string, command: string): void {
@@ -313,7 +320,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const { command, subcommand, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, vault, file, key, target, cmdArgs } = parseArgs(args);
+  const { command, subcommand, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, target, cmdArgs } = parseArgs(args);
 
   checkMigrationNeeded(root, command);
 
@@ -353,7 +360,7 @@ async function main(): Promise<void> {
         } else if (envExplicit) {
           setFile = env;
         }
-        await setCommand({ root, file: setFile, key });
+        await setCommand({ root, file: setFile, key, gui });
         break;
       }
 

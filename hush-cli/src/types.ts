@@ -48,6 +48,7 @@ export interface SetOptions {
   root: string;
   file?: 'shared' | 'development' | 'production' | 'local';
   key?: string;
+  gui?: boolean;
 }
 
 export interface RunOptions {
