@@ -31,6 +31,7 @@ export function loadConfig(root: string): HushConfig {
 
   return {
     schema_version: parsed.schema_version,
+    project: parsed.project,
     sources: { ...DEFAULT_SOURCES, ...parsed.sources },
     targets: parsed.targets ?? [{ name: 'root', path: '.', format: 'dotenv' }],
   };

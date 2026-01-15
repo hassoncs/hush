@@ -6,7 +6,6 @@ on:
       - 'v*'
 
 jobs:
-  # Run CI checks first
   ci:
     runs-on: ubuntu-latest
     steps:
@@ -88,16 +87,29 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
       
+      - name: Install sops and age
+        run: |
+          curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
+          sudo mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
+          sudo chmod +x /usr/local/bin/sops
+          
+          curl -LO https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
+          tar -xzf age-v1.2.0-linux-amd64.tar.gz
+          sudo mv age/age /usr/local/bin/
+          sudo mv age/age-keygen /usr/local/bin/
+          sudo chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
+      
+      - name: Setup age key
+        run: |
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/key.txt
+          chmod 600 ~/.config/sops/age/key.txt
+      
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       
-      - name: Build docs
-        run: pnpm --filter docs build
+      - name: Build CLI and docs
+        run: pnpm build
       
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ./dist --project-name=hush-docs
-          workingDirectory: docs
+      - name: Deploy docs with Hush secrets
+        run: node ./hush-cli/bin/hush.js run -- pnpm --filter docs exec wrangler pages deploy ./dist --project-name=hush-docs

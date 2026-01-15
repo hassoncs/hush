@@ -14,6 +14,7 @@ import { inspectCommand } from './commands/inspect.js';
 import { hasCommand } from './commands/has.js';
 import { checkCommand } from './commands/check.js';
 import { skillCommand } from './commands/skill.js';
+import { keysCommand } from './commands/keys.js';
 import { findConfigPath, loadConfig, checkSchemaVersion } from './config/loader.js';
 
 const VERSION = '2.3.0';
@@ -38,6 +39,7 @@ ${pc.bold('Commands:')}
   push              Push secrets to Cloudflare Workers
   status            Show configuration and status
   skill             Install Claude Code / OpenCode skill
+  keys <cmd>        Manage SOPS age keys (setup, generate, pull, push, list)
   
 ${pc.bold('Deprecated Commands:')}
   decrypt           Write secrets to disk (unsafe - use 'run' instead)
@@ -84,6 +86,7 @@ type FileKey = 'shared' | 'development' | 'production' | 'local';
 
 interface ParsedArgs {
   command: string;
+  subcommand?: string;
   env: Environment;
   envExplicit: boolean;
   root: string;
@@ -96,6 +99,8 @@ interface ParsedArgs {
   allowPlaintext: boolean;
   global: boolean;
   local: boolean;
+  force: boolean;
+  vault?: string;
   file?: FileKey;
   key?: string;
   target?: string;
@@ -117,6 +122,7 @@ function parseFileKey(value: string): FileKey | null {
 
 function parseArgs(args: string[]): ParsedArgs {
   let command = '';
+  let subcommand: string | undefined;
   let env: Environment = 'development';
   let envExplicit = false;
   let root = process.cwd();
@@ -129,6 +135,8 @@ function parseArgs(args: string[]): ParsedArgs {
   let allowPlaintext = false;
   let global = false;
   let local = false;
+  let force = false;
+  let vault: string | undefined;
   let file: FileKey | undefined;
   let key: string | undefined;
   let target: string | undefined;
@@ -211,6 +219,16 @@ function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--force' || arg === '-f') {
+      force = true;
+      continue;
+    }
+
+    if (arg === '--vault') {
+      vault = args[++i];
+      continue;
+    }
+
     if (arg === '-t' || arg === '--target') {
       target = args[++i];
       continue;
@@ -247,9 +265,14 @@ function parseArgs(args: string[]): ParsedArgs {
       key = arg;
       continue;
     }
+
+    if (command === 'keys' && !arg.startsWith('-') && !subcommand) {
+      subcommand = arg;
+      continue;
+    }
   }
 
-  return { command, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, file, key, target, cmdArgs };
+  return { command, subcommand, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, vault, file, key, target, cmdArgs };
 }
 
 function checkMigrationNeeded(root: string, command: string): void {
@@ -290,7 +313,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const { command, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, file, key, target, cmdArgs } = parseArgs(args);
+  const { command, subcommand, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, vault, file, key, target, cmdArgs } = parseArgs(args);
 
   checkMigrationNeeded(root, command);
 
@@ -368,6 +391,15 @@ async function main(): Promise<void> {
 
       case 'skill':
         await skillCommand({ root, global, local });
+        break;
+
+      case 'keys':
+        if (!subcommand) {
+          console.error(pc.red('Usage: hush keys <command>'));
+          console.error(pc.dim('Commands: setup, generate, pull, push, list'));
+          process.exit(1);
+        }
+        await keysCommand({ root, subcommand, vault, force });
         break;
 
       default:

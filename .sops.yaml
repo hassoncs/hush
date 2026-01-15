@@ -1,0 +1,5 @@
+creation_rules:
+  - encrypted_regex: '.*'
+    age: >-
+      age1t3uyjjdzgr8rg0y56x8mncyyemhk5kxjv670fxuc35dzata5vpuslgunj5,
+      age1qt6acnjzzykvwgferxdg05f5hmmrpnxjkskmnyc3alvsknmzx59qptuku7

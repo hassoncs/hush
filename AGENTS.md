@@ -37,6 +37,63 @@ hush/
 
 ---
 
+## Key Management
+
+Hush uses per-project age keys backed up to 1Password.
+
+### Key Storage
+
+| Location | Purpose |
+|----------|---------|
+| `~/.config/sops/age/keys/{project}.txt` | Local private key |
+| 1Password: `SOPS Key - {project}` | Backup of private key |
+| `.sops.yaml` | Public key (committed) |
+
+The project identifier comes from `project` field in `hush.yaml` or auto-detected from `package.json` repository URL.
+
+### Commands
+
+```bash
+hush keys setup     # Pull from 1Password or check local
+hush keys generate  # Generate new key, save locally, backup to 1Password
+hush keys pull      # Pull key from 1Password
+hush keys push      # Push local key to 1Password
+hush keys list      # List local and 1Password keys
+```
+
+### 1Password Integration
+
+Hush integrates with 1Password CLI for secure key backup. When 1Password CLI is available:
+
+1. **Generate** automatically backs up to 1Password
+2. **Setup/Pull** retrieves keys from 1Password
+3. **Biometric auth** pops up automatically when needed
+
+Prerequisites:
+```bash
+brew install --cask 1password
+brew install 1password-cli
+```
+
+Enable "Integrate with 1Password CLI" in 1Password desktop app settings.
+
+### New Developer Setup
+
+```bash
+hush keys setup
+```
+
+This will:
+1. Check for existing local key
+2. If not found, pull from 1Password (triggers biometric auth)
+3. If still not found, prompt to generate
+
+### CI Setup
+
+For CI, the private key is stored as `SOPS_AGE_KEY` GitHub secret. All other secrets are Hush-managed via `.env.encrypted`.
+
+---
+
 ## Branching Strategy
 
 ### Default: Branch per task with PRs
@@ -299,9 +356,9 @@ Steps:
 
 ## Release Process
 
-### Local release (agent-driven)
+### Fully Automated Release
 
-When instructed to release:
+The release process is fully automated. When instructed to release:
 
 ```bash
 # 1. Ensure on main, clean working tree
@@ -322,20 +379,21 @@ cd hush-cli
 # 5. If major version: write migration guide
 # Agent creates docs/src/content/docs/migrations/vX-to-vY.mdx
 
-# 6. Commit release
+# 6. Commit release (NO manual tagging needed!)
 git add -A
 git commit -m "chore(release): 2.4.0"
-git tag v2.4.0
 
-# 7. Push (triggers GitHub Actions for publish)
-git push origin main --tags
+# 7. Push (auto-tag workflow creates tag, triggers release)
+git push origin main
 ```
 
-### GitHub Actions handles
+### What Happens Automatically
 
-Once the release commit is pushed:
-- **CI workflow**: Runs build + tests
-- **Release workflow**: Publishes to npm, deploys docs
+1. **Push to main** → CI runs build + tests
+2. **Auto-tag workflow** detects `chore(release): X.Y.Z` commit → creates `vX.Y.Z` tag
+3. **Release workflow** triggered by tag → publishes to npm (trusted publishing), deploys docs
+
+No manual tagging. No NPM_TOKEN needed (uses OIDC trusted publishing).
 
 ---
 
@@ -348,11 +406,15 @@ Once the release commit is pushed:
 3. Run all tests (`pnpm test`)
 4. Type check (`pnpm type-check`)
 
+### On release commit to main
+
+The auto-tag workflow detects commits matching `chore(release): X.Y.Z` and automatically creates a git tag.
+
 ### On release tag (v*)
 
 1. All CI checks
-2. Publish to npm using `NPM_TOKEN`
-3. Deploy docs to Cloudflare Pages
+2. Publish to npm using OIDC trusted publishing (no token needed)
+3. Deploy docs to Cloudflare Pages using Hush-managed secrets
 
 ---
 
@@ -360,9 +422,26 @@ Once the release commit is pushed:
 
 | Secret | Purpose |
 |--------|---------|
-| `NPM_TOKEN` | npm automation token for publishing |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare Pages deployment |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account identifier |
+| `SOPS_AGE_KEY` | Private age key for decrypting `.env.encrypted` |
+
+All other secrets (Cloudflare credentials, etc.) are stored in `.env.encrypted` and decrypted at runtime using `hush run`.
+
+### Setting Up CI Secrets
+
+```bash
+# 1. Generate CI key (separate from developer keys)
+hush keys generate
+
+# 2. Add secrets to encrypted file
+hush set CLOUDFLARE_API_TOKEN
+hush set CLOUDFLARE_ACCOUNT_ID
+
+# 3. Encrypt
+hush encrypt
+
+# 4. Add the private key to GitHub secrets as SOPS_AGE_KEY
+# Get it from: cat ~/.config/sops/age/keys/{project}.txt
+```
 
 ---
 

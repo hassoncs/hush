@@ -1,0 +1,13 @@
+schema_version: 2
+project: hassoncs/hush
+
+sources:
+  shared: .env
+  development: .env.development
+  production: .env.production
+  local: .env.local
+
+targets:
+  - name: root
+    path: .
+    format: dotenv
