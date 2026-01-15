@@ -1,10 +1,10 @@
 ---
 title: Hush
-description: The AI-native secrets manager. Encrypt secrets, commit safely, let AI help—without exposing values.
+description: The AI-native secrets manager. Secrets stay encrypted at rest—AI helps without seeing values.
 template: splash
 hero:
   title: The AI-native secrets manager
-  tagline: Encrypt secrets, commit to git, let AI help—without exposing values. Works with every framework.
+  tagline: Secrets stay encrypted at rest. AI helps—without ever seeing values. Works with every framework.
   image:
     html: |
       <div class="animated-terminal" aria-label="Hush CLI demo terminal">
@@ -23,10 +23,10 @@ hero:
           <span class="line ok">&#10003; Wrote .env.development.encrypted</span>
           <span class="line ok">&#10003; Wrote .env.production.encrypted</span>
           <span class="line">&nbsp;</span>
-          <span class="line"><span class="prompt"></span><span class="cmd">npx hush decrypt</span></span>
-          <span class="line dim">Decrypting for development...</span>
-          <span class="line ok">&#10003; app/.env.development (3 vars)</span>
-          <span class="line ok">&#10003; api/.dev.vars (5 vars)</span>
+          <span class="line"><span class="prompt"></span><span class="cmd">npx hush run -- npm start</span></span>
+          <span class="line dim">Decrypting to memory...</span>
+          <span class="line ok">&#10003; Loaded 8 secrets (never written to disk)</span>
+          <span class="line dim">Starting npm start...</span>
           <span class="line">&nbsp;</span>
           <span class="line"><span class="prompt"></span><span class="typing"></span></span>
         </div>
@@ -67,17 +67,17 @@ npx hush encrypt`} lang="bash" />
 ## Why Hush?
 
 <CardGrid stagger>
+  <Card title="Encrypted at Rest" icon="lock-closed">
+    Secrets stay encrypted on disk. No plaintext `.env` files for AI to accidentally read. `hush run` decrypts to memory only.
+  </Card>
   <Card title="AI-Native by Design" icon="approve-check">
-    Built for the AI coding era. Let Claude, Copilot, and Cursor help with secrets—without ever seeing the values. Includes a Claude Code Skill.
+    Built for AI coding assistants. `hush set` lets AI help add secrets without seeing values. Includes a Claude Code Skill.
   </Card>
   <Card title="Every Framework" icon="rocket">
     Next.js, Vite, Expo, Remix, Cloudflare Workers, Kubernetes—route `NEXT_PUBLIC_*` to frontend, server secrets to API.
   </Card>
-  <Card title="Encrypted in Git" icon="lock-closed">
+  <Card title="Encrypted in Git" icon="document">
     Commit `.env.encrypted` files safely. SOPS + age encryption your security team will approve. Single source of truth.
-  </Card>
-  <Card title="Multiple Formats" icon="document">
-    Output to dotenv, Wrangler `.dev.vars`, JSON, YAML, or shell exports. Each package gets secrets in the format it needs.
   </Card>
 </CardGrid>
 
@@ -87,14 +87,17 @@ npx hush encrypt`} lang="bash" />
 # Initialize configuration
 npx hush init
 
-# Encrypt your .env files
+# Encrypt your .env files  
 npx hush encrypt
 
-# Decrypt for development
-npx hush decrypt
+# Run with secrets (decrypts to memory only!)
+npx hush run -- npm start
 
-# Decrypt for production
-npx hush decrypt -e production
+# Run with production secrets
+npx hush run -e production -- npm build
+
+# Add a secret interactively (AI-safe)
+npx hush set DATABASE_URL
 
 # Push to Cloudflare Workers
 npx hush push
@@ -102,18 +105,19 @@ npx hush push
 
 ## The Problem
 
-In a monorepo, you have multiple packages that each need different subsets of environment variables:
+AI coding assistants are incredibly helpful, but they can accidentally expose your secrets:
 
-- Your **Expo app** needs `EXPO_PUBLIC_*` variables
-- Your **Next.js web app** needs `NEXT_PUBLIC_*` variables  
-- Your **Cloudflare Worker** needs API keys but not public variables
-- Your **root** needs everything for local development
-
-Copying `.env` files manually is error-prone. Committing unencrypted secrets is a security risk.
+- Even with instructions to "not read .env files", LLMs find creative ways using `cat`, `grep`, or shell tricks
+- Traditional secrets management leaves plaintext files on disk—easy targets for accidental exposure
+- In monorepos, different packages need different subsets of environment variables
 
 ## The Solution
 
-Hush gives you a single encrypted source of truth that automatically distributes the right secrets to the right places:
+Hush keeps secrets **encrypted at rest**—there are no plaintext `.env` files to read:
+
+- **`hush run -- <command>`** decrypts secrets to memory and runs your command
+- **`hush set <KEY>`** lets AI help add secrets without seeing the values
+- Monorepo-aware routing sends `NEXT_PUBLIC_*` to frontend, server secrets to API
 
 ```yaml
 # hush.yaml

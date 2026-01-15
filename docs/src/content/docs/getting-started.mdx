@@ -122,13 +122,13 @@ Hush uses [SOPS](https://github.com/getsops/sops) with [age](https://github.com/
 
    This creates encrypted versions of your env files (`.env.encrypted`, etc.) that are safe to commit.
 
-6. **Decrypt for development**
+6. **Run with secrets**
 
    ```bash
-   npx hush decrypt
+   npx hush run -- npm start
    ```
 
-   This decrypts and distributes secrets to all configured targets.
+   This decrypts secrets to memory and runs your command with them as environment variables. Secrets never touch the disk!
 
 </Steps>
 
@@ -150,5 +150,5 @@ This shows your configuration, encrypted files, and target distribution.
 - See the full [Command Reference](/reference/commands/)
 
 <Aside type="tip">
-Add `*.encrypted` files to git and `.env.development`, `.env.production`, `.dev.vars` to `.gitignore`. The encrypted files are your source of truth.
+Add `*.encrypted` files to git. With `hush run`, plaintext env files are never created—secrets only exist in memory when your program runs.
 </Aside>

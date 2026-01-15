@@ -1,11 +1,11 @@
 # @chriscode/hush
 
-> **The AI-native secrets manager.** Encrypt secrets, commit safely, let AI help—without exposing values.
+> **The AI-native secrets manager.** Secrets stay encrypted at rest. AI helps—without ever seeing values.
 
 [![npm](https://img.shields.io/npm/v/@chriscode/hush)](https://www.npmjs.com/package/@chriscode/hush)
 [![Documentation](https://img.shields.io/badge/docs-hush--docs.pages.dev-blue)](https://hush-docs.pages.dev)
 
-Hush is a SOPS-based secrets management tool designed for the AI coding era. It encrypts your `.env` files so they can be safely committed to git, distributes secrets to any framework in your monorepo, and includes an **Agent Skill** that teaches AI assistants to work with secrets without ever seeing the actual values.
+Hush keeps secrets **encrypted at rest** and only decrypts them in memory when running programs. AI assistants can help manage your secrets without ever seeing the actual values—because there are no plaintext files to read.
 
 **[Read the full documentation →](https://hush-docs.pages.dev)**
 
@@ -19,18 +19,19 @@ That's it. Once installed, ask your AI assistant: *"Set up Hush for this project
 
 ## Why Hush?
 
-**The Problem:** AI coding assistants are incredibly helpful, but they can accidentally expose your secrets. When Claude, Copilot, or Cursor reads your `.env` file, those secrets get sent to the LLM provider.
+**The Problem:** AI coding assistants are incredibly helpful, but they can accidentally expose your secrets. Even with instructions to "not read .env files", LLMs find creative ways to access them using `cat`, `grep`, or shell tricks.
 
-**The Solution:** Hush provides AI-safe commands (`hush inspect`, `hush has`) that let AI agents reason about your secrets—checking which exist, their types, and where they're routed—without ever seeing the actual values. Plus, the included **Claude Code Skill** automatically teaches AI to use these commands.
+**The Solution:** Hush keeps secrets **encrypted at rest**—there are no plaintext `.env` files to read. When you need to run a program, `hush run -- <command>` decrypts secrets to memory and injects them as environment variables. The secrets never touch the disk.
 
 ## Features
 
-- **Encrypted secrets in git** - Commit `.env.encrypted` files safely, decrypt anywhere
-- **Every framework supported** - Next.js, Vite, Remix, Expo, Cloudflare Workers, and more
+- **Encrypted at rest** - No plaintext secrets on disk, ever
+- **Run with secrets** - `hush run -- npm start` decrypts to memory only
+- **AI-safe commands** - `hush inspect`, `hush has`, `hush set` never expose values
+- **Interactive secret input** - `hush set API_KEY` prompts user, AI never sees value
+- **Every framework** - Next.js, Vite, Remix, Expo, Cloudflare Workers, and more
 - **Smart routing** - Route `NEXT_PUBLIC_*` to frontend, server secrets to API
-- **Multiple output formats** - dotenv, Wrangler, JSON, shell, YAML
-- **AI-native by design** - Query secrets without exposing values to LLMs
-- **Claude Code Skill included** - AI automatically uses safe commands
+- **Claude Code Skill** - AI automatically uses safe commands
 
 ## Framework Support
 
@@ -108,13 +109,13 @@ API_BASE=https://api.example.com
 DEBUG=false
 ```
 
-### 4. Encrypt and use
+### 4. Encrypt and run
 
 ```bash
-npx hush encrypt          # Encrypt secrets
-npx hush decrypt          # Decrypt for development
-npx hush decrypt -e prod  # Decrypt for production
-npx hush status           # Check your setup
+npx hush encrypt              # Encrypt secrets
+npx hush run -- npm start     # Run with secrets (never written to disk!)
+npx hush run -e prod -- npm build  # Run with production secrets
+npx hush status               # Check your setup
 ```
 
 ## Configuration
@@ -177,25 +178,47 @@ targets:
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `hush init` | Generate `hush.yaml` with auto-detected targets |
-| `hush encrypt` | Encrypt `.env` files to `.env.encrypted` |
-| `hush decrypt` | Decrypt and distribute to all targets |
-| `hush decrypt -e prod` | Decrypt with production values |
-| `hush set` | Set/edit secrets in `$EDITOR` |
-| `hush set development` | Set development secrets |
-| `hush list` | List all variables (shows values) |
-| `hush inspect` | List all variables (masked values, AI-safe) |
-| `hush has <KEY>` | Check if a secret exists (exit 0/1) |
-| `hush check` | Verify encrypted files are in sync (for pre-commit hooks) |
-| `hush push` | Push production secrets to Cloudflare Workers |
-| `hush status` | Show configuration and file status |
-| `hush skill` | Install Claude Code / OpenCode skill |
+| Command | Description | AI-Safe? |
+|---------|-------------|----------|
+| `hush run -- <cmd>` | Run command with secrets in memory | ✅ |
+| `hush set <KEY>` | Set a secret interactively | ✅ |
+| `hush edit [env]` | Edit secrets in `$EDITOR` | ✅ |
+| `hush inspect` | List variables (masked values) | ✅ |
+| `hush has <KEY>` | Check if a secret exists | ✅ |
+| `hush init` | Generate `hush.yaml` config | ✅ |
+| `hush encrypt` | Encrypt `.env` files | ✅ |
+| `hush push` | Push to Cloudflare Workers | ✅ |
+| `hush status` | Show configuration | ✅ |
+| `hush skill` | Install AI skill | ✅ |
+| `hush check` | Verify encryption sync | ✅ |
+| `hush list` | List variables (shows values!) | ⚠️ |
+| `hush decrypt` | Write secrets to disk (deprecated) | ⚠️ |
 
 ## AI-Native Design
 
-Hush is built for a world where AI helps write code. Traditional secrets management exposes values when AI reads `.env` files. Hush solves this with AI-safe commands.
+Hush is built for a world where AI helps write code. Traditional secrets management fails because LLMs can read `.env` files using `cat`, `grep`, or other tools—even when told not to.
+
+**Hush solves this by keeping secrets encrypted at rest.** There are no plaintext files to read. When you need secrets, `hush run` decrypts them to memory and injects them as environment variables.
+
+### `hush run` - Run Programs with Secrets
+
+The primary way to use secrets. Decrypts to memory, never writes to disk.
+
+```bash
+$ hush run -- npm start           # Development
+$ hush run -e prod -- npm build   # Production
+$ hush run -t api -- wrangler dev # Filter for specific target
+```
+
+### `hush set <KEY>` - Add Secrets Safely
+
+AI invokes this command, user enters the value. The secret is never visible to the AI.
+
+```bash
+$ hush set DATABASE_URL
+Enter value for DATABASE_URL: ••••••••••••••••
+✓ DATABASE_URL set (45 chars, encrypted)
+```
 
 ### `hush inspect` - See What's Configured
 
@@ -211,10 +234,6 @@ Secrets for development:
   API_KEY           = (not set)
 
 Total: 3 variables
-
-Target distribution:
-  web (./apps/web) - 1 var (include: NEXT_PUBLIC_*)
-  api (./apps/api) - 2 vars (exclude: NEXT_PUBLIC_*)
 ```
 
 ### `hush has <KEY>` - Check Specific Secrets
@@ -225,9 +244,6 @@ DATABASE_URL is set (45 chars)
 
 $ hush has MISSING_KEY
 MISSING_KEY not found
-
-# Quiet mode for scripts
-$ hush has API_KEY -q && echo "configured" || echo "missing"
 ```
 
 ### Claude Code / OpenCode Skill
@@ -293,21 +309,21 @@ API_BASE=http://localhost:8787
 API_BASE=https://api.myapp.com
 ```
 
-After `hush decrypt`:
-- `apps/web/.env.development` contains only `NEXT_PUBLIC_*` variables
-- `apps/api/.dev.vars` contains `DATABASE_URL`, `STRIPE_SECRET_KEY` (no public vars)
+When running with `hush run -t web -- npm start`:
+- Web app receives only `NEXT_PUBLIC_*` variables in memory
+- API receives `DATABASE_URL`, `STRIPE_SECRET_KEY` (no public vars)
 
 ## How It Works
 
 ### Source File Merging
 
-When you run `hush decrypt`:
+When you run `hush run`:
 
 1. **Shared** (`.env.encrypted`) - Base variables
 2. **Environment** (`.env.development.encrypted` or `.env.production.encrypted`) - Overrides
-3. **Local** (`.env.local`, unencrypted) - Personal overrides (not committed)
+3. **Local** (`.env.local.encrypted`) - Personal overrides (not committed)
 
-Later files override earlier ones for the same key.
+Later files override earlier ones for the same key. All decryption happens in memory.
 
 ### Variable Interpolation
 
@@ -353,10 +369,9 @@ Bypass when needed: `HUSH_SKIP_CHECK=1 git commit -m "emergency fix"`
 | `.env.encrypted` | Yes | Encrypted shared secrets |
 | `.env.development.encrypted` | Yes | Encrypted dev secrets |
 | `.env.production.encrypted` | Yes | Encrypted prod secrets |
-| `.env.local` | No | Personal overrides (unencrypted) |
-| `.env.development` | No | Generated dev env |
-| `.env.production` | No | Generated prod env |
-| `*/.dev.vars` | No | Generated Wrangler secrets |
+| `.env.local.encrypted` | No | Encrypted personal overrides |
+
+**Note:** With the new `hush run` command, plaintext `.env` files are no longer generated. Secrets only exist in memory when running programs.
 
 ## Programmatic Usage
 

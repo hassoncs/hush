@@ -13,6 +13,7 @@ export interface SourceFiles {
   shared: string;
   development: string;
   production: string;
+  local: string;
 }
 
 export interface HushConfig {
@@ -36,7 +37,20 @@ export interface EncryptOptions {
 
 export interface EditOptions {
   root: string;
-  file?: 'shared' | 'development' | 'production';
+  file?: 'shared' | 'development' | 'production' | 'local';
+}
+
+export interface SetOptions {
+  root: string;
+  file?: 'shared' | 'development' | 'production' | 'local';
+  key?: string;
+}
+
+export interface RunOptions {
+  root: string;
+  env: Environment;
+  target?: string;
+  command: string[];
 }
 
 export interface PushOptions {
@@ -93,6 +107,7 @@ export const DEFAULT_SOURCES: SourceFiles = {
   shared: '.env',
   development: '.env.development',
   production: '.env.production',
+  local: '.env.local',
 };
 
 export const FORMAT_OUTPUT_FILES: Record<OutputFormat, Record<Environment, string>> = {

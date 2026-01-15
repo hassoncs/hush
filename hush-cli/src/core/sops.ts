@@ -1,6 +1,7 @@
 import { execSync, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 function getAgeKeyFile(): string | undefined {
   if (process.env.SOPS_AGE_KEY_FILE) {
@@ -112,5 +113,64 @@ export function edit(filePath: string): void {
 
   if (result.status !== 0) {
     throw new Error(`SOPS edit failed with exit code ${result.status}`);
+  }
+}
+
+/**
+ * Set a single key in an encrypted file.
+ * Decrypts to memory, updates the key, re-encrypts.
+ */
+export function setKey(filePath: string, key: string, value: string): void {
+  if (!isSopsInstalled()) {
+    throw new Error('SOPS is not installed. Install with: brew install sops');
+  }
+
+  let content = '';
+  
+  // If file exists, decrypt it first
+  if (existsSync(filePath)) {
+    content = decrypt(filePath);
+  }
+
+  // Parse existing content into lines
+  const lines = content.split('\n').filter(line => line.trim() !== '');
+  
+  // Find and update or add the key
+  let found = false;
+  const updatedLines = lines.map(line => {
+    const match = line.match(/^([^=]+)=/);
+    if (match && match[1] === key) {
+      found = true;
+      return `${key}=${value}`;
+    }
+    return line;
+  });
+
+  if (!found) {
+    updatedLines.push(`${key}=${value}`);
+  }
+
+  const newContent = updatedLines.join('\n') + '\n';
+
+  const tempFile = join(tmpdir(), `hush-temp-${Date.now()}.env`);
+  
+  try {
+    writeFileSync(tempFile, newContent, 'utf-8');
+    
+    // Encrypt temp file to the target
+    execSync(
+      `sops --input-type dotenv --output-type dotenv --encrypt "${tempFile}" > "${filePath}"`,
+      {
+        encoding: 'utf-8',
+        shell: '/bin/bash',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: getSopsEnv(),
+      }
+    );
+  } finally {
+    // Always clean up temp file
+    if (existsSync(tempFile)) {
+      unlinkSync(tempFile);
+    }
   }
 }

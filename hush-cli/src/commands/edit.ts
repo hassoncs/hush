@@ -5,7 +5,7 @@ import { loadConfig } from '../config/loader.js';
 import { edit as sopsEdit } from '../core/sops.js';
 import type { EditOptions } from '../types.js';
 
-type FileKey = 'shared' | 'development' | 'production';
+type FileKey = 'shared' | 'development' | 'production' | 'local';
 
 export async function editCommand(options: EditOptions): Promise<void> {
   const { root, file } = options;

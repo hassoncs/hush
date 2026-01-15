@@ -11,6 +11,17 @@ import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 hush <command> [options]
 ```
 
+Hush keeps secrets **encrypted at rest**. The primary way to use secrets is `hush run -- <command>`, which decrypts to memory and injects environment variables—secrets never touch the disk.
+
+### Command Categories
+
+| Category | Commands | Description |
+|----------|----------|-------------|
+| **Primary (AI-Safe)** | `run`, `set`, `edit`, `inspect`, `has` | Safe for AI assistants—never expose secret values |
+| **Setup** | `init`, `encrypt`, `status`, `skill` | Configuration and encryption |
+| **Deployment** | `push`, `check` | CI/CD and cloud deployment |
+| **Deprecated** | `decrypt`, `unsafe:decrypt` | Writes secrets to disk (avoid) |
+
 ### Global Options
 
 | Option | Description |
@@ -19,6 +30,140 @@ hush <command> [options]
 | `-r, --root <dir>` | Root directory (default: current directory) |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
+
+---
+
+## run
+
+Run a command with secrets injected as environment variables. **This is the primary way to use secrets.** Secrets are decrypted to memory only—they never touch the disk.
+
+```bash
+# Run with development secrets (default)
+hush run -- npm start
+
+# Run with production secrets
+hush run -e production -- npm build
+hush run -e prod -- npm build
+
+# Run with secrets filtered for a specific target
+hush run -t api -- wrangler dev
+hush run --target web -- npm start
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-e, --env <env>` | Environment: `development` or `production` |
+| `-t, --target <name>` | Filter secrets for a specific target from `hush.yaml` |
+| `-- <command>` | The command to run (everything after `--`) |
+
+### How It Works
+
+1. Decrypts secrets to memory (never written to disk)
+2. Merges shared → environment → local secrets
+3. Optionally filters by target (`-t`)
+4. Spawns the child process with secrets as environment variables
+5. Inherits stdin/stdout/stderr for full interactivity
+
+### Examples
+
+```bash
+# Local development
+hush run -- npm run dev
+
+# Production build
+hush run -e prod -- npm run build
+
+# Wrangler with API secrets only
+hush run -t api -- wrangler dev
+
+# Docker with secrets
+hush run -- docker compose up
+
+# Any command that needs secrets
+hush run -- node scripts/migrate.js
+```
+
+<Aside type="tip">
+Use `-t` (target) to filter secrets. For example, your frontend might only need `NEXT_PUBLIC_*` variables, while your API needs database credentials.
+</Aside>
+
+---
+
+## set
+
+Set a secret interactively. The AI assistant invokes this command, and the user enters the value—**the AI never sees the secret**.
+
+```bash
+# Set a secret in shared (.env.encrypted)
+hush set DATABASE_URL
+
+# Set a secret in a specific environment
+hush set API_KEY -e production
+hush set DEBUG -e development
+
+# Set a secret in local overrides (.env.local.encrypted)
+hush set MY_OVERRIDE --local
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-e, --env <env>` | Target environment file (default: shared `.env.encrypted`) |
+| `--local` | Set in `.env.local.encrypted` (personal overrides, not committed) |
+
+### How It Works
+
+1. Prompts for the value with hidden input (like a password)
+2. Decrypts the target file
+3. Sets or updates the key
+4. Re-encrypts the file
+5. Confirms success with character count (no value shown)
+
+### Example Output
+
+```
+$ hush set DATABASE_URL
+Enter value for DATABASE_URL: ••••••••••••••••
+✓ DATABASE_URL set in .env.encrypted (45 chars)
+```
+
+<Aside type="tip">
+This is the recommended way for AI assistants to help add secrets. The AI can suggest `hush set DATABASE_URL` and guide the user, without ever seeing the actual value.
+</Aside>
+
+---
+
+## edit
+
+Edit secrets in your `$EDITOR`. Opens the decrypted file, and re-encrypts on save.
+
+```bash
+# Edit shared secrets
+hush edit
+
+# Edit environment-specific secrets
+hush edit development
+hush edit production
+hush edit dev
+hush edit prod
+
+# Edit local overrides
+hush edit local
+```
+
+### How It Works
+
+1. Decrypts the target file to a temporary location
+2. Opens in `$EDITOR` (vim, nano, code --wait, etc.)
+3. Re-encrypts when you save and close
+4. Deletes the temporary file
+
+<Aside type="caution">
+Make sure your `$EDITOR` environment variable is set. For VS Code, use `code --wait` so hush knows when you're done editing.
+</Aside>
 
 ---
 
@@ -72,78 +217,6 @@ Based on your `hush.yaml` sources configuration:
 
 <Aside type="tip">
 Encrypted files are safe to commit to git. Add them to version control as your source of truth.
-</Aside>
-
----
-
-## decrypt
-
-Decrypt and distribute secrets to all configured targets.
-
-```bash
-# Decrypt for development (default)
-hush decrypt
-
-# Decrypt for production
-hush decrypt -e production
-hush decrypt --env prod
-```
-
-### How It Works
-
-1. Loads and decrypts encrypted source files
-2. Merges shared → environment → local overrides
-3. Interpolates variable references (`${VAR}`)
-4. Filters variables per target using `include`/`exclude` patterns
-5. Writes to each target in the configured format
-
-### Source File Priority
-
-Later sources override earlier ones:
-
-1. **Shared** (`.env.encrypted`) - Base variables
-2. **Environment** (`.env.development.encrypted` or `.env.production.encrypted`) - Environment overrides
-3. **Local** (`.env.local`, unencrypted) - Personal overrides (not committed)
-
----
-
-## set
-
-Set or modify secrets. Opens encrypted file in your `$EDITOR`. Alias: `edit`
-
-```bash
-# Set shared secrets
-hush set
-
-# Set development secrets
-hush set development
-
-# Set production secrets
-hush set production
-```
-
-This temporarily decrypts the file, opens it in your editor, and re-encrypts on save.
-
-<Aside type="caution">
-Make sure your `$EDITOR` environment variable is set (e.g., `vim`, `nano`, `code --wait`).
-</Aside>
-
----
-
-## list
-
-List all variables with their actual values.
-
-```bash
-# List development variables
-hush list
-
-# List production variables
-hush list -e production
-```
-
-<Aside type="danger">
-This command shows actual secret values. Use `hush inspect` for AI-safe output.
 </Aside>
 
 ---
@@ -359,3 +432,51 @@ hush skill --local
 <Aside type="tip">
 Once installed, the skill teaches AI assistants to use `hush inspect` and `hush has` instead of reading `.env` files directly.
 </Aside>
+
+---
+
+## Deprecated Commands
+
+<Aside type="caution">
+These commands write plaintext secrets to disk. Use `hush run` instead for better security.
+</Aside>
+
+### list
+
+List all variables with their actual values.
+
+```bash
+hush list
+hush list -e production
+```
+
+<Aside type="danger">
+This command shows actual secret values in the terminal. Use `hush inspect` for AI-safe output.
+</Aside>
+
+### decrypt / unsafe:decrypt
+
+Decrypt and write secrets to disk. **Deprecated** — use `hush run` instead.
+
+```bash
+# These write unencrypted .env files to disk (not recommended)
+hush decrypt
+hush decrypt -e production
+hush unsafe:decrypt
+```
+
+<Aside type="danger">
+**Why this is deprecated:** Writing secrets to disk creates files that AI assistants might accidentally read. With `hush run`, secrets stay in memory and are never written to disk.
+
+**Migration:** Replace `hush decrypt && npm start` with `hush run -- npm start`
+</Aside>
+
+### How decrypt worked
+
+1. Loads and decrypts encrypted source files
+2. Merges shared → environment → local overrides
+3. Interpolates variable references (`${VAR}`)
+4. Filters variables per target using `include`/`exclude` patterns
+5. **Writes plaintext files** to each target path
+
+This is now considered unsafe because it leaves secrets on disk where they can be accidentally read.

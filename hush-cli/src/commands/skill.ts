@@ -8,51 +8,81 @@ import type { SkillOptions } from '../types.js';
 const SKILL_FILES = {
   'SKILL.md': `---
 name: hush-secrets
-description: Manage secrets safely using Hush CLI. Use when working with .env files, environment variables, secrets, API keys, database URLs, credentials, or configuration. NEVER read .env files directly - always use hush commands instead to prevent exposing secrets to the LLM.
-allowed-tools: Bash(hush:*), Bash(npx hush:*), Bash(brew:*), Bash(npm:*), Bash(pnpm:*), Bash(age-keygen:*), Read, Grep, Glob, Write
+description: Manage secrets safely using Hush CLI. Use when working with .env files, environment variables, secrets, API keys, database URLs, credentials, or configuration. Secrets are always encrypted at rest - .env files contain only encrypted data.
+allowed-tools: Bash(hush:*), Bash(npx hush:*), Bash(brew:*), Bash(npm:*), Bash(pnpm:*), Bash(age-keygen:*), Read, Grep, Glob, Write, Bash(cat:*), Bash(grep:*)
 ---
 
 # Hush - AI-Native Secrets Management
 
-Hush encrypts secrets so they can be committed to git, and provides AI-safe commands that let you work with secrets without exposing values to LLMs.
+Hush keeps secrets **encrypted at rest**. All \`.env\` files contain encrypted data only—you can freely read them with \`cat\` or \`grep\` and you'll only see encrypted gibberish, never actual secrets.
 
-## CRITICAL RULES
+## How It Works
 
-### NEVER do these things:
-- Read \`.env\`, \`.env.*\`, \`.env.local\`, or \`.dev.vars\` files directly
-- Use \`cat\`, \`grep\`, \`head\`, \`tail\`, \`less\`, \`more\` on env files
-- Echo or print environment variable values like \`echo $SECRET\`
-- Include actual secret values in your responses
-- Write secrets directly to \`.env\` files
+Secrets are stored encrypted on disk. When you need to use them:
+- \`hush run -- <command>\` decrypts to memory and runs your command
+- \`hush set <KEY>\` adds secrets interactively (you invoke, user enters value)
+- \`hush inspect\` shows what exists with masked values
+- \`hush edit\` opens encrypted file in editor, re-encrypts on save
 
-### ALWAYS use Hush commands instead:
-- \`npx hush inspect\` to see what variables exist (values are masked)
-- \`npx hush has <KEY>\` to check if a specific variable is set
-- \`npx hush set\` to add or modify secrets (opens secure editor)
-- \`npx hush status\` to view configuration
+## Safe to Read (Always Encrypted)
+
+You CAN freely read these files—they only contain encrypted data:
+- \`.env.encrypted\`, \`.env.*.encrypted\` - encrypted secrets
+- \`.env\`, \`.env.*\` - if they exist, they're encrypted too (Hush doesn't create plaintext files)
+
+Feel free to use \`cat\`, \`grep\`, \`Read\` on any \`.env\` file. You'll see encrypted content like:
+\`\`\`
+DATABASE_URL=ENC[AES256_GCM,data:abc123...,type:str]
+\`\`\`
+
+## Commands Reference
+
+### Primary Commands:
+- \`npx hush run -- <command>\` - Run programs with secrets (decrypts to memory only!)
+- \`npx hush set <KEY>\` - Add a secret interactively (you invoke, user enters value)
+- \`npx hush edit\` - Let user edit all secrets in $EDITOR
+- \`npx hush inspect\` - See what variables exist (values are masked)
+- \`npx hush has <KEY>\` - Check if a specific variable is set
+- \`npx hush status\` - View configuration
+
+### Avoid These (Deprecated):
+- \`hush decrypt\` / \`hush unsafe:decrypt\` - Writes unencrypted secrets to disk (defeats the purpose!)
 
 ## Quick Check: Is Hush Set Up?
-
-Run this first to check if Hush is configured:
 
 \`\`\`bash
 npx hush status
 \`\`\`
 
-**If this fails or shows errors**, see [SETUP.md](SETUP.md) for first-time setup instructions.
+**If this fails**, see [SETUP.md](SETUP.md) for first-time setup instructions.
 
 ---
 
-## Daily Usage (AI-Safe Commands)
+## Running Programs with Secrets
 
-### See what variables exist
+**This is the primary way to use secrets - they never touch disk!**
+
+\`\`\`bash
+npx hush run -- npm start              # Run with development secrets
+npx hush run -e production -- npm build   # Run with production secrets
+npx hush run -t api -- wrangler dev       # Run filtered for 'api' target
+\`\`\`
+
+The secrets are decrypted to memory and injected as environment variables.
+The child process inherits them. No plaintext files are written.
+
+---
+
+## Checking Secrets
+
+### See what variables exist (human-readable)
 
 \`\`\`bash
 npx hush inspect                    # Development
 npx hush inspect -e production      # Production
 \`\`\`
 
-Output shows **masked values** - safe for AI to read:
+Output shows **masked values**:
 
 \`\`\`
 Secrets for development:
@@ -71,73 +101,66 @@ npx hush has DATABASE_URL           # Verbose output
 npx hush has API_KEY -q             # Quiet: exit code only (0=set, 1=missing)
 \`\`\`
 
-### View configuration
+### Read encrypted files directly
 
+You can also just read the encrypted files:
 \`\`\`bash
-npx hush status
+cat .env.encrypted                  # See encrypted content (safe!)
+grep DATABASE .env.encrypted        # Search for keys in encrypted file
 \`\`\`
 
-### Set/modify secrets (requires user interaction)
+---
+
+## Adding/Modifying Secrets
+
+### Add a single secret interactively
 
 \`\`\`bash
-npx hush set                        # Set shared secrets
-npx hush set development            # Set dev secrets  
-npx hush set production             # Set prod secrets
+npx hush set DATABASE_URL           # You invoke this, user types value
+npx hush set API_KEY -e production  # Set in production secrets
+npx hush set DEBUG --local          # Set personal local override
 \`\`\`
 
-After setting, encrypt:
+The user will be prompted to enter the value (hidden input).
+You never see the actual secret - just invoke the command!
+
+### Edit all secrets in editor
 
 \`\`\`bash
-npx hush encrypt
-\`\`\`
-
-### Decrypt to targets
-
-\`\`\`bash
-npx hush decrypt                    # Development
-npx hush decrypt -e production      # Production
+npx hush edit                       # Edit shared secrets
+npx hush edit development           # Edit development secrets
+npx hush edit local                 # Edit personal overrides
 \`\`\`
 
 ---
 
 ## Common Workflows
 
-### "What secrets are configured?"
+### "Help user add DATABASE_URL"
 \`\`\`bash
-npx hush inspect
+npx hush set DATABASE_URL
 \`\`\`
-
-### "Is DATABASE_URL set?"
-\`\`\`bash
-npx hush has DATABASE_URL
-\`\`\`
-
-### "Help user add a new secret"
-1. Tell user to run: \`npx hush set\`
-2. They add the variable in their editor
-3. They save and close
-4. Tell them to run: \`npx hush encrypt\`
-5. Verify: \`npx hush inspect\`
+Tell user: "Enter your database URL when prompted"
 
 ### "Check all required secrets"
 \`\`\`bash
 npx hush has DATABASE_URL -q && npx hush has API_KEY -q && echo "All configured" || echo "Some missing"
 \`\`\`
 
----
+### "Run the development server"
+\`\`\`bash
+npx hush run -- npm run dev
+\`\`\`
 
-## Files You Must NOT Read
+### "Build for production"
+\`\`\`bash
+npx hush run -e production -- npm run build
+\`\`\`
 
-These contain plaintext secrets - NEVER read them:
-- \`.env\`, \`.env.local\`, \`.env.development\`, \`.env.production\`
-- \`.dev.vars\`
-- Any \`*/.env\` or \`*/.env.*\` files
-
-## Files That Are Safe to Read
-
-- \`hush.yaml\` - Configuration (no secrets)
-- \`.sops.yaml\` - SOPS config (public key only)
-- \`.env.encrypted\`, \`.env.*.encrypted\` - Encrypted files
+### "See what's in the encrypted file"
+\`\`\`bash
+cat .env.encrypted                  # Safe! Shows encrypted data only
+\`\`\`
 
 ---
 
@@ -354,8 +377,8 @@ When a new team member joins:
 
 1. **Get the age private key** from an existing team member
 2. **Save it** to \`~/.config/sops/age/key.txt\`
-3. **Run** \`npx hush decrypt\` to generate local env files
-4. **Start developing**
+3. **Run** \`npx hush run -- npm install\` to verify decryption works
+4. **Start developing** with \`npx hush run -- npm run dev\`
 
 The private key should be shared securely (password manager, encrypted channel, etc.)
 
@@ -367,7 +390,7 @@ After setup, verify everything works:
 
 - [ ] \`npx hush status\` shows configuration
 - [ ] \`npx hush inspect\` shows masked variables
-- [ ] \`npx hush decrypt\` creates local env files
+- [ ] \`npx hush run -- env\` can decrypt and run (secrets stay in memory!)
 - [ ] \`.env.encrypted\` files are committed to git
 - [ ] Plaintext \`.env\` files are in \`.gitignore\`
 
@@ -399,28 +422,104 @@ Edit \`hush.yaml\` and add your source files under \`sources:\`.
 
 Complete reference for all Hush CLI commands with flags, options, and examples.
 
-## Global Options
+## Security Model: Encrypted at Rest
 
-These options work with most commands:
+All secrets are stored encrypted on disk. You can safely read any \`.env\` file—they contain only encrypted data. No special precautions needed for file reading.
+
+## Global Options
 
 | Option | Description |
 |--------|-------------|
-| \`-e, --env <env>\` | Environment: \`development\` (or \`dev\`) / \`production\` (or \`prod\`). Default: \`development\` |
+| \`-e, --env <env>\` | Environment: \`development\` / \`production\`. Default: \`development\` |
 | \`-r, --root <dir>\` | Root directory containing \`hush.yaml\`. Default: current directory |
+| \`-t, --target <name>\` | Target name from hush.yaml (for \`run\` command) |
+| \`--local\` | Use local overrides (for \`set\` command) |
 | \`-h, --help\` | Show help message |
 | \`-v, --version\` | Show version number |
 
-## Commands
+---
+
+## Primary Commands
+
+### hush run -- <command> ⭐
+
+**The recommended way to run programs with secrets!**
+
+Decrypts secrets to memory and runs a command with them as environment variables.
+Secrets never touch the disk as plaintext.
+
+\`\`\`bash
+hush run -- npm start              # Run with development secrets
+hush run -e production -- npm build   # Run with production secrets
+hush run -t api -- wrangler dev       # Run filtered for 'api' target
+\`\`\`
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| \`-e, --env\` | Environment (development/production) |
+| \`-t, --target\` | Filter secrets for a specific target from hush.yaml |
+
+---
+
+### hush set <KEY> ⭐
+
+Add or update a single secret interactively. You invoke this, user enters the value.
+
+\`\`\`bash
+hush set DATABASE_URL              # Set in shared secrets
+hush set API_KEY -e production     # Set in production secrets
+hush set DEBUG --local             # Set personal local override
+\`\`\`
+
+User will be prompted with hidden input - the value is never visible.
+
+---
+
+### hush edit [file]
+
+Open all secrets in \`$EDITOR\` for bulk editing.
+
+\`\`\`bash
+hush edit                          # Edit shared secrets
+hush edit development              # Edit development secrets
+hush edit production               # Edit production secrets
+hush edit local                    # Edit personal local overrides
+\`\`\`
+
+---
+
+### hush inspect
+
+List all variables with **masked values** (human-readable format).
+
+\`\`\`bash
+hush inspect                       # Development
+hush inspect -e production         # Production
+\`\`\`
+
+---
+
+### hush has <KEY>
+
+Check if a specific secret exists.
+
+\`\`\`bash
+hush has DATABASE_URL              # Verbose output
+hush has API_KEY -q                # Quiet: exit code only (0=set, 1=missing)
+\`\`\`
+
+---
+
+## Setup Commands
 
 ### hush init
 
-Generate a \`hush.yaml\` configuration file with auto-detected targets.
+Generate \`hush.yaml\` configuration with auto-detected targets.
 
 \`\`\`bash
 hush init
 \`\`\`
-
-Scans for \`package.json\` and \`wrangler.toml\` files to auto-detect targets.
 
 ---
 
@@ -432,58 +531,57 @@ Encrypt source \`.env\` files to \`.env.encrypted\` files.
 hush encrypt
 \`\`\`
 
-**What gets encrypted** (based on \`hush.yaml\` sources):
-- \`.env\` -> \`.env.encrypted\`
-- \`.env.development\` -> \`.env.development.encrypted\`
-- \`.env.production\` -> \`.env.production.encrypted\`
+---
+
+### hush status
+
+Show configuration and file status.
+
+\`\`\`bash
+hush status
+\`\`\`
 
 ---
 
-### hush decrypt
+## Deployment Commands
 
-Decrypt and distribute secrets to all configured targets.
+### hush push
+
+Push production secrets to Cloudflare Workers.
 
 \`\`\`bash
-hush decrypt                    # Development (default)
-hush decrypt -e production      # Production
-hush decrypt -e prod            # Short form
+hush push                          # Push secrets
+hush push --dry-run                # Preview without pushing
 \`\`\`
-
-**Process:**
-1. Decrypts encrypted source files
-2. Merges: shared -> environment -> local overrides
-3. Interpolates variable references (\`\${VAR}\`)
-4. Filters per target using \`include\`/\`exclude\` patterns
-5. Writes to each target in configured format
 
 ---
 
-### hush set (alias: edit)
+## Deprecated Commands (Avoid)
 
-Set or modify secrets. Opens encrypted file in your \`$EDITOR\`.
+### hush decrypt / hush unsafe:decrypt ⚠️
+
+**DEPRECATED:** Writes unencrypted secrets to disk, defeating the "encrypted at rest" model.
 
 \`\`\`bash
-hush set                        # Set shared secrets
-hush set development            # Set development secrets
-hush set production             # Set production secrets
+hush decrypt                       # Writes plaintext .env files (avoid!)
+hush unsafe:decrypt                # Same, explicit unsafe mode
 \`\`\`
 
-Opens a temporary decrypted file, re-encrypts on save.
-
-**Tip:** Set your editor with \`export EDITOR=vim\` or use \`code --wait\` for VS Code.
+Use \`hush run -- <command>\` instead.
 
 ---
 
-### hush list
+## Quick Reference
 
-List all variables with their **actual values**.
-
-\`\`\`bash
-hush list                       # Development
-hush list -e production         # Production
-\`\`\`
-
-**WARNING:** This shows real secret values. Use \`hush inspect\` for AI-safe output.
+| Command | Purpose |
+|---------|---------|
+| \`hush run -- <cmd>\` | Run with secrets (memory only) |
+| \`hush set <KEY>\` | Add secret interactively |
+| \`hush edit\` | Edit secrets in $EDITOR |
+| \`hush inspect\` | See variables (masked) |
+| \`hush has <KEY>\` | Check if variable exists |
+| \`hush status\` | View configuration |
+| \`cat .env.encrypted\` | Read encrypted file (safe!) |
 
 ---
 
@@ -701,17 +799,47 @@ targets:
 
   'examples/workflows.md': `# Hush Workflow Examples
 
-Step-by-step examples for common AI assistant workflows when working with secrets.
+Step-by-step examples for common workflows when working with secrets.
 
-## Checking Configuration
+**Remember:** All \`.env\` files are encrypted at rest. You can freely read them with \`cat\` or \`grep\`—you'll only see encrypted data, never actual secrets.
+
+## Running Programs (Most Common)
+
+### "Start the development server"
+
+\`\`\`bash
+hush run -- npm run dev
+\`\`\`
+
+### "Build for production"
+
+\`\`\`bash
+hush run -e production -- npm run build
+\`\`\`
+
+### "Run tests with secrets"
+
+\`\`\`bash
+hush run -- npm test
+\`\`\`
+
+### "Run Wrangler for Cloudflare Worker"
+
+\`\`\`bash
+hush run -t api -- wrangler dev
+\`\`\`
+
+---
+
+## Checking Secrets
 
 ### "What environment variables does this project use?"
 
 \`\`\`bash
-hush inspect
+hush inspect                    # Human-readable masked output
+# or
+cat .env.encrypted              # Raw encrypted file (safe!)
 \`\`\`
-
-Read the output to see all configured variables, their approximate lengths, and which targets receive them.
 
 ### "Is the database configured?"
 
@@ -719,141 +847,85 @@ Read the output to see all configured variables, their approximate lengths, and 
 hush has DATABASE_URL
 \`\`\`
 
-If the output says "not found", guide the user to add it.
+If "not found", help user add it with \`hush set DATABASE_URL\`.
 
-### "Are all required secrets set?"
+### "Check all required secrets"
 
-\`\`\`bash
-# Check each required secret
-hush has DATABASE_URL -q || echo "Missing: DATABASE_URL"
-hush has API_KEY -q || echo "Missing: API_KEY"
-hush has STRIPE_SECRET_KEY -q || echo "Missing: STRIPE_SECRET_KEY"
-\`\`\`
-
-Or check all at once:
 \`\`\`bash
 hush has DATABASE_URL -q && \\
 hush has API_KEY -q && \\
-hush has STRIPE_SECRET_KEY -q && \\
-echo "All secrets configured" || \\
-echo "Some secrets missing"
+echo "All configured" || \\
+echo "Some missing"
+\`\`\`
+
+### "Search for a key in encrypted files"
+
+\`\`\`bash
+grep DATABASE .env.encrypted    # Safe! Shows encrypted line
 \`\`\`
 
 ---
 
-## Helping Users Add Secrets
+## Adding Secrets
 
-### "Help me add a new API key"
+### "Help me add DATABASE_URL"
 
-1. **Check if it already exists:**
-   \`\`\`bash
-   hush has NEW_API_KEY
-   \`\`\`
+\`\`\`bash
+hush set DATABASE_URL
+\`\`\`
 
-2. **If not set, guide the user:**
-   > To add \`NEW_API_KEY\`, run:
-   > \`\`\`bash
-   > hush set
-   > \`\`\`
-   > Add a line like: \`NEW_API_KEY=your_actual_key_here\`
-   > Save and close the editor, then run:
-   > \`\`\`bash
-   > hush encrypt
-   > \`\`\`
+Tell user: "Enter your database URL when prompted (input will be hidden)"
 
-3. **Verify it was added:**
-   \`\`\`bash
-   hush has NEW_API_KEY
-   \`\`\`
+### "Add a production-only secret"
 
-### "I need to add secrets for production"
+\`\`\`bash
+hush set STRIPE_SECRET_KEY -e production
+\`\`\`
 
-Guide the user:
-> Run \`hush set production\` to set production secrets.
-> After saving, run \`hush encrypt\` to encrypt the changes.
-> To deploy, run \`hush decrypt -e production\`.
+### "Add a personal local override"
+
+\`\`\`bash
+hush set DEBUG --local
+\`\`\`
+
+### "Edit multiple secrets at once"
+
+\`\`\`bash
+hush edit
+\`\`\`
+
+Tell user: "Your editor will open. Add or modify secrets, then save and close."
 
 ---
 
-## Debugging Issues
+## Debugging
 
 ### "My app can't find DATABASE_URL"
 
-1. **Check if the variable exists:**
+1. Check if it exists:
    \`\`\`bash
    hush has DATABASE_URL
    \`\`\`
 
-2. **If it exists, check target distribution:**
-   \`\`\`bash
-   hush inspect
-   \`\`\`
-   Look at the "Target distribution" section to see which targets receive it.
-
-3. **Check if it's filtered out:**
-   \`\`\`bash
-   cat hush.yaml
-   \`\`\`
-   Look for \`include\`/\`exclude\` patterns that might filter the variable.
-
-4. **Regenerate env files:**
-   \`\`\`bash
-   hush decrypt
-   \`\`\`
-
-### "Secrets aren't reaching my API folder"
-
-1. **Check target configuration:**
-   \`\`\`bash
-   hush status
-   \`\`\`
-   Verify the API target path and format are correct.
-
-2. **Check filters:**
-   \`\`\`bash
-   cat hush.yaml
-   \`\`\`
-   If there's an \`exclude: EXPO_PUBLIC_*\` pattern, that's intentional.
-   If there's an \`include\` pattern, only matching variables are sent.
-
-3. **Run inspect to see distribution:**
+2. Check target distribution:
    \`\`\`bash
    hush inspect
    \`\`\`
 
----
+3. Check hush.yaml for filtering:
+   \`\`\`bash
+   cat hush.yaml
+   \`\`\`
 
-## Deployment Workflows
+4. Look at the encrypted file:
+   \`\`\`bash
+   grep DATABASE .env.encrypted    # Safe to read!
+   \`\`\`
 
-### "Deploy to production"
-
-\`\`\`bash
-# Decrypt production secrets to all targets
-hush decrypt -e production
-\`\`\`
-
-### "Push secrets to Cloudflare Workers"
-
-\`\`\`bash
-# Preview what would be pushed
-hush push --dry-run
-
-# Actually push (requires wrangler auth)
-hush push
-\`\`\`
-
-### "Verify before deploying"
-
-\`\`\`bash
-# Check all encrypted files are up to date
-hush check
-
-# If drift detected, encrypt first
-hush encrypt
-
-# Then decrypt for production
-hush decrypt -e production
-\`\`\`
+5. Try running directly:
+   \`\`\`bash
+   hush run -- env | grep DATABASE
+   \`\`\`
 
 ---
 
@@ -864,30 +936,32 @@ hush decrypt -e production
 Guide them:
 > 1. Get the age private key from a team member
 > 2. Save it to \`~/.config/sops/age/key.txt\`
-> 3. Run \`hush decrypt\` to generate local env files
-> 4. Start developing!
+> 3. Run \`hush run -- npm install\` to verify setup
+> 4. Start developing with \`hush run -- npm run dev\`
 
-### "Someone added new secrets, my app is broken"
+### "Someone added new secrets"
 
 \`\`\`bash
-# Pull latest changes
 git pull
-
-# Regenerate env files
-hush decrypt
+hush inspect   # See what's new
 \`\`\`
 
-### "Check if I forgot to encrypt changes"
+---
+
+## Deployment
+
+### "Push to Cloudflare Workers"
 
 \`\`\`bash
-hush check
+hush push --dry-run   # Preview first
+hush push             # Actually push
 \`\`\`
 
-If drift detected:
+### "Build and deploy"
+
 \`\`\`bash
-hush encrypt
-git add .env*.encrypted
-git commit -m "chore: encrypt new secrets"
+hush run -e production -- npm run build
+hush push
 \`\`\`
 
 ---
@@ -921,17 +995,15 @@ Target distribution:
 - The \`app\` folder only gets \`EXPO_PUBLIC_*\` variables
 - The \`api\` folder gets everything except \`EXPO_PUBLIC_*\`
 
-### hush has output explained
+### Reading encrypted files directly
 
 \`\`\`bash
-$ hush has DATABASE_URL
-DATABASE_URL is set (45 chars)
-
-$ hush has MISSING_VAR
-MISSING_VAR not found
+$ cat .env.encrypted
+DATABASE_URL=ENC[AES256_GCM,data:7xH2kL9...,iv:abc...,tag:xyz...,type:str]
+STRIPE_SECRET_KEY=ENC[AES256_GCM,data:mN3pQ8...,iv:def...,tag:uvw...,type:str]
 \`\`\`
 
-The character count helps identify if the value looks reasonable (e.g., a 45-char DATABASE_URL is plausible, a 3-char one might be wrong).
+This is safe to view—the actual values are encrypted. You can see what keys exist without exposing secrets.
 `,
 };
 

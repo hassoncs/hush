@@ -7,6 +7,10 @@ import { Aside, FileTree } from '@astrojs/starlight/components';
 
 This page documents all files that Hush creates, reads, and manages.
 
+<Aside type="tip">
+With Hush's "encrypted at rest" model, secrets are **never written to disk** during normal use. The `hush run` command decrypts secrets to memory and injects them as environment variables.
+</Aside>
+
 ## File Overview
 
 | File | Committed | Purpose |
@@ -16,10 +20,7 @@ This page documents all files that Hush creates, reads, and manages.
 | `.env.encrypted` | Yes | Encrypted shared secrets |
 | `.env.development.encrypted` | Yes | Encrypted development secrets |
 | `.env.production.encrypted` | Yes | Encrypted production secrets |
-| `.env.local` | **No** | Personal overrides (unencrypted) |
-| `.env.development` | No | Generated development env |
-| `.env.production` | No | Generated production env |
-| `.dev.vars` | No | Generated Wrangler secrets |
+| `.env.local.encrypted` | **No** | Encrypted personal overrides (not committed) |
 
 ## Configuration Files
 
@@ -57,12 +58,12 @@ creation_rules:
 **Commit:** Yes  
 **Created by:** Manually (SOPS requirement)
 
-## Source Files (Unencrypted)
+## Source Files (For Initial Setup Only)
 
-These are your original `.env` files before encryption.
+These plaintext `.env` files are only used during **initial setup** when you first encrypt your secrets. After running `hush encrypt`, you can delete them.
 
 <Aside type="caution">
-Never commit these files. They contain plaintext secrets.
+**Never commit plaintext `.env` files.** After initial encryption, use `hush edit` to modify secrets or `hush set <KEY>` to add new ones.
 </Aside>
 
 ### .env
@@ -93,110 +94,137 @@ API_BASE=https://api.example.com
 DEBUG=false
 ```
 
-### .env.local
+### .env.local (deprecated)
 
-Personal overrides. Never encrypted, never committed.
+In older versions, `.env.local` was unencrypted. Now, personal overrides should use:
 
 ```bash
-# Your personal settings
-DEBUG=verbose
-SKIP_AUTH=true
+# Add a local override (encrypted)
+hush set MY_VAR --local
+
+# Edit all local overrides
+hush edit local
 ```
 
+This creates `.env.local.encrypted` which keeps your personal overrides encrypted too.
+
 <Aside type="tip">
-Use `.env.local` for personal development settings that shouldn't be shared with the team.
+Use `hush set <KEY> --local` for personal development settings that shouldn't be shared with the team.
 </Aside>
 
 ## Encrypted Files
 
-These are the SOPS-encrypted versions of your source files. Safe to commit.
+These are the SOPS-encrypted versions of your secrets. **Safe to commit** (except `.env.local.encrypted`).
 
 ### .env.encrypted
 
-Encrypted version of `.env` (shared secrets).
+Encrypted shared secrets used across all environments.
+
+**Commit:** Yes
 
 ### .env.development.encrypted
 
-Encrypted version of `.env.development`.
+Encrypted development-specific secrets.
+
+**Commit:** Yes
 
 ### .env.production.encrypted
 
-Encrypted version of `.env.production`.
+Encrypted production-specific secrets.
 
-**Created by:** `hush encrypt`  
-**Commit:** Yes  
-**Used by:** `hush decrypt`, `hush set`
+**Commit:** Yes
 
-## Generated Files
+### .env.local.encrypted
 
-These are created by `hush decrypt` and should not be committed.
+Encrypted personal overrides for your machine only.
+
+**Commit:** No (add to `.gitignore`)
+
+---
+
+**Created by:** `hush encrypt`, `hush set`, `hush edit`  
+**Used by:** `hush run`, `hush inspect`, `hush has`, `hush edit`
+
+## Generated Files (Deprecated Workflow)
+
+<Aside type="caution">
+These files are only created by the **deprecated** `hush decrypt` command. With `hush run`, secrets stay in memory and these files are never created.
+</Aside>
+
+If you use `hush decrypt` (not recommended), these files are created:
 
 ### .env.development / .env.production
 
 Generated dotenv files for the current environment.
 
-**Created by:** `hush decrypt`  
-**Location:** Each target's path  
+**Created by:** `hush decrypt` (deprecated)  
 **Commit:** No
 
 ### .dev.vars
 
 Generated Wrangler secrets file.
 
-**Created by:** `hush decrypt` (for `format: wrangler` targets)  
-**Location:** Target's path  
+**Created by:** `hush decrypt` for `format: wrangler` targets (deprecated)  
 **Commit:** No
 
-### .env.*.json
+### .env.*.json / .env.*.sh / .env.*.yaml
 
-Generated JSON format.
+Generated files for JSON, shell, and YAML formats.
 
-**Created by:** `hush decrypt` (for `format: json` targets)  
+**Created by:** `hush decrypt` (deprecated)  
 **Commit:** No
 
-### .env.*.sh
-
-Generated shell script.
-
-**Created by:** `hush decrypt` (for `format: shell` targets)  
-**Commit:** No
+<Aside type="tip">
+**Migration:** Instead of `hush decrypt && npm start`, use `hush run -- npm start`. Secrets stay encrypted at rest and are only decrypted to memory when needed.
+</Aside>
 
 ## Typical Project Structure
 
+With the "encrypted at rest" model, your project should look like this:
+
 <FileTree>
-- .sops.yaml            # SOPS config (committed)
-- hush.yaml             # Hush config (committed)
-- .env.encrypted        # Encrypted shared (committed)
-- .env.development.encrypted  # Encrypted dev (committed)
-- .env.production.encrypted   # Encrypted prod (committed)
-- .env.local            # Personal overrides (NOT committed)
-- .env.development      # Generated (NOT committed)
+- .sops.yaml                    # SOPS config (committed)
+- hush.yaml                     # Hush config (committed)
+- .env.encrypted                # Encrypted shared (committed)
+- .env.development.encrypted    # Encrypted dev (committed)
+- .env.production.encrypted     # Encrypted prod (committed)
+- .env.local.encrypted          # Personal overrides (NOT committed)
 - packages/
   - app/
-    - .env.development  # Generated (NOT committed)
+    - package.json
   - api/
-    - .dev.vars         # Generated (NOT committed)
+    - package.json
+    - wrangler.toml
 </FileTree>
+
+**Note:** No plaintext `.env` files! Secrets are decrypted to memory by `hush run`.
 
 ## Recommended .gitignore
 
 Add these entries to your `.gitignore`:
 
 ```bash
-# Hush - Source files (unencrypted)
+# Hush - Plaintext env files (should not exist after initial setup)
 .env
 .env.development
 .env.production
 .env.local
 
-# Hush - Generated files
+# Hush - Personal encrypted overrides (not shared)
+.env.local.encrypted
+
+# Hush - Generated files (from deprecated `hush decrypt`)
 .env.*.json
 .env.*.sh
+.env.*.yaml
 .dev.vars
+*/.env.*
+*/.dev.vars
 
-# Keep encrypted files
+# Keep encrypted files (these ARE committed)
 !.env.encrypted
-!.env.*.encrypted
+!.env.development.encrypted
+!.env.production.encrypted
 ```
 
 ## Age Key File
