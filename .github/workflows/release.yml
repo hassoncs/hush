@@ -151,9 +151,15 @@ jobs:
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
         run: |
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
-          cd hush-cli
-          npm version "$NEW_VERSION" --no-git-tag-version
-          echo "Updated package.json to version $NEW_VERSION"
+          CURRENT_VERSION=$(node -p "require('./hush-cli/package.json').version")
+          
+          if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
+            echo "package.json already at version $NEW_VERSION"
+          else
+            cd hush-cli
+            npm version "$NEW_VERSION" --no-git-tag-version --allow-same-version
+            echo "Updated package.json to version $NEW_VERSION"
+          fi
       
       - name: Publish to npm (trusted publishing)
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
@@ -247,4 +253,6 @@ jobs:
         run: pnpm build
       
       - name: Deploy docs with Hush secrets
-        run: node ./hush-cli/bin/hush.js run -- pnpm --filter docs exec wrangler pages deploy ./dist --project-name=hush-docs
+        run: |
+          export SOPS_AGE_KEY_FILE=~/.config/sops/age/key.txt
+          node ./hush-cli/bin/hush.js run -- pnpm --filter docs exec wrangler pages deploy ./dist --project-name=hush-docs
