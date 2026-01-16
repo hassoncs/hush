@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from 'node:module';
 import pc from 'picocolors';
 import type { Environment } from './types.js';
 import { decryptCommand } from './commands/decrypt.js';
@@ -18,7 +19,8 @@ import { keysCommand } from './commands/keys.js';
 import { findConfigPath, loadConfig, checkSchemaVersion } from './config/loader.js';
 import { checkForUpdate } from './utils/version-check.js';
 
-const VERSION = '2.5.1';
+const require = createRequire(import.meta.url);
+const { version: VERSION } = require('../package.json');
 
 function printHelp(): void {
   console.log(`
