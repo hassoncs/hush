@@ -27,5 +27,5 @@ export async function editCommand(options: EditOptions): Promise<void> {
   sopsEdit(encryptedPath);
 
   console.log(pc.green('\nEdit complete'));
-  console.log(pc.dim('Run "hush decrypt" to regenerate local env files'));
+  console.log(pc.dim('Run "hush run -- <command>" to use updated secrets'));
 }

@@ -30,11 +30,6 @@ export interface EnvVar {
   value: string;
 }
 
-export interface DecryptOptions {
-  env: Environment;
-  root: string;
-}
-
 export interface EncryptOptions {
   root: string;
 }

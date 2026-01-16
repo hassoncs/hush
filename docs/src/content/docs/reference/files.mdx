@@ -145,38 +145,21 @@ Encrypted personal overrides for your machine only.
 **Created by:** `hush encrypt`, `hush set`, `hush edit`  
 **Used by:** `hush run`, `hush inspect`, `hush has`, `hush edit`
 
-## Generated Files (Deprecated Workflow)
+## Plaintext Files (Never Generated)
 
-<Aside type="caution">
-These files are only created by the **deprecated** `hush decrypt` command. With `hush run`, secrets stay in memory and these files are never created.
+<Aside type="note">
+Hush's "encrypted at rest" model means plaintext `.env` files are **never written to disk** during normal operation. With `hush run`, secrets are decrypted to memory and injected as environment variables—they never touch the filesystem.
 </Aside>
 
-If you use `hush decrypt` (not recommended), these files are created:
+The following files should **not exist** in a properly configured Hush project:
 
-### .env.development / .env.production
+| File | Why It Shouldn't Exist |
+|------|----------------------|
+| `.env.development` / `.env.production` | Use `hush run` instead |
+| `.dev.vars` | Use `hush run` or `hush push` for Cloudflare Workers |
+| `.env.*.json` / `.env.*.sh` / `.env.*.yaml` | Use `hush run` to inject secrets |
 
-Generated dotenv files for the current environment.
-
-**Created by:** `hush decrypt` (deprecated)  
-**Commit:** No
-
-### .dev.vars
-
-Generated Wrangler secrets file.
-
-**Created by:** `hush decrypt` for `format: wrangler` targets (deprecated)  
-**Commit:** No
-
-### .env.*.json / .env.*.sh / .env.*.yaml
-
-Generated files for JSON, shell, and YAML formats.
-
-**Created by:** `hush decrypt` (deprecated)  
-**Commit:** No
-
-<Aside type="tip">
-**Migration:** Instead of `hush decrypt && npm start`, use `hush run -- npm start`. Secrets stay encrypted at rest and are only decrypted to memory when needed.
-</Aside>
+If you see these files, they were created manually or by legacy tooling. You can safely delete them—Hush doesn't need them.
 
 ## Typical Project Structure
 
@@ -213,7 +196,7 @@ Add these entries to your `.gitignore`:
 # Hush - Personal encrypted overrides (not shared)
 .env.local.encrypted
 
-# Hush - Generated files (from deprecated `hush decrypt`)
+# Hush - Plaintext files (should not exist)
 .env.*.json
 .env.*.sh
 .env.*.yaml

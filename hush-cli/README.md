@@ -193,7 +193,6 @@ targets:
 | `hush skill` | Install AI skill | ✅ |
 | `hush check` | Verify encryption sync | ✅ |
 | `hush list` | List variables (shows values!) | ⚠️ |
-| `hush decrypt` | Write secrets to disk (deprecated) | ⚠️ |
 
 ## AI-Native Design
 

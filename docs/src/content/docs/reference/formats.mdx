@@ -269,15 +269,17 @@ targets:
 
 ### Creating a Kubernetes ConfigMap
 
+For Kubernetes deployments, use `hush run` to inject secrets into your kubectl commands:
+
 ```bash
-# Generate the YAML
-hush decrypt -e production
+# Run kubectl with secrets injected
+hush run -e production -- kubectl apply -f k8s/
 
-# Create ConfigMap from the generated file
-kubectl create configmap my-app-config --from-file=k8s/.env.production.yaml
-
-# Or use the file directly in your manifests
+# Or use hush push for Cloudflare Workers
+hush push
 ```
+
+For ConfigMaps, consider using external secrets operators or injecting secrets at runtime rather than writing them to files.
 
 ### Docker Compose Integration
 

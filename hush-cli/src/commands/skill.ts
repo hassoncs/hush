@@ -102,8 +102,8 @@ npx hush run -e production -- npm build   # Production
 | \`npx hush keys setup\` | Set up encryption keys | New team member |
 
 ### Commands to AVOID:
-- \`hush decrypt\` - Writes plaintext to disk (security risk!)
 - \`cat .env\` - Never read plaintext .env files directly
+- \`hush list\` - Shows actual secret values (use \`hush inspect\` instead)
 
 ---
 
@@ -635,21 +635,6 @@ hush trace STRIPE_SECRET_KEY       # Trace another variable
 - Which targets include/exclude it (and why)
 
 **Use when:** You need to understand why a variable appears in some places but not others
-
----
-
-## Deprecated Commands (Avoid)
-
-### hush decrypt / hush unsafe:decrypt ⚠️
-
-**DEPRECATED:** Writes unencrypted secrets to disk, defeating the "encrypted at rest" model.
-
-\`\`\`bash
-hush decrypt                       # Writes plaintext .env files (avoid!)
-hush unsafe:decrypt                # Same, explicit unsafe mode
-\`\`\`
-
-Use \`hush run -- <command>\` instead.
 
 ---
 

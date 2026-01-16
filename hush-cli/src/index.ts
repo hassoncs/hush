@@ -5,7 +5,6 @@ export type {
   SourceFiles,
   HushConfig,
   EnvVar,
-  DecryptOptions,
   EncryptOptions,
   EditOptions,
   PushOptions,
@@ -28,7 +27,6 @@ export type { MaskedVar } from './core/mask.js';
 
 export { formatVars, formatDotenv, formatWrangler, formatJson, formatShell } from './formats/index.js';
 
-export { decryptCommand } from './commands/decrypt.js';
 export { encryptCommand } from './commands/encrypt.js';
 export { editCommand } from './commands/edit.js';
 export { statusCommand } from './commands/status.js';

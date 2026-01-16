@@ -2,7 +2,6 @@
 import { createRequire } from 'node:module';
 import pc from 'picocolors';
 import type { Environment } from './types.js';
-import { decryptCommand } from './commands/decrypt.js';
 import { encryptCommand } from './commands/encrypt.js';
 import { editCommand } from './commands/edit.js';
 import { setCommand } from './commands/set.js';
@@ -49,9 +48,6 @@ ${pc.bold('Commands:')}
 ${pc.bold('Debugging Commands:')}
   resolve <target>  Show what variables a target receives (AI-safe)
   trace <key>       Trace a variable through sources and targets (AI-safe)
-  
-${pc.bold('Deprecated Commands:')}
-  decrypt           Write secrets to disk (unsafe - use 'run' instead)
 
 ${pc.bold('Options:')}
   -e, --env <env>   Environment: development or production (default: development)
@@ -366,21 +362,6 @@ async function main(): Promise<void> {
 
       case 'encrypt':
         await encryptCommand({ root });
-        break;
-
-      case 'decrypt':
-        console.warn(pc.yellow('⚠️  Warning: "hush decrypt" is deprecated and writes unencrypted secrets to disk.'));
-        console.warn(pc.yellow('   Use "hush run -- <command>" instead for better security.'));
-        console.warn(pc.dim('   To suppress this warning, use "hush unsafe:decrypt"'));
-        console.warn('');
-        await decryptCommand({ root, env });
-        break;
-
-      case 'unsafe:decrypt':
-        console.warn(pc.red('⚠️  UNSAFE MODE: Writing unencrypted secrets to disk.'));
-        console.warn(pc.red('   These files will be readable by AI assistants and other tools.'));
-        console.warn('');
-        await decryptCommand({ root, env });
         break;
 
       case 'run':

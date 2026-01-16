@@ -21,7 +21,6 @@ Hush keeps secrets **encrypted at rest**. The primary way to use secrets is `hus
 | **Setup** | `init`, `encrypt`, `status`, `skill` | Configuration and encryption |
 | **Deployment** | `push`, `check` | CI/CD and cloud deployment |
 | **Debugging** | `resolve`, `trace` | Debug secret filtering and routing |
-| **Deprecated** | `decrypt`, `unsafe:decrypt` | Writes secrets to disk (avoid) |
 
 ### Global Options
 
@@ -528,13 +527,11 @@ Once installed, the skill teaches AI assistants to use `hush inspect` and `hush 
 
 ---
 
-## Deprecated Commands
+## list (Caution)
 
 <Aside type="caution">
-These commands write plaintext secrets to disk. Use `hush run` instead for better security.
+This command shows actual secret values. Use `hush inspect` for AI-safe output.
 </Aside>
-
-### list
 
 List all variables with their actual values.
 
@@ -544,32 +541,5 @@ hush list -e production
 ```
 
 <Aside type="danger">
-This command shows actual secret values in the terminal. Use `hush inspect` for AI-safe output.
+This command shows actual secret values in the terminal. Use `hush inspect` instead when working with AI assistants.
 </Aside>
-
-### decrypt / unsafe:decrypt
-
-Decrypt and write secrets to disk. **Deprecated** — use `hush run` instead.
-
-```bash
-# These write unencrypted .env files to disk (not recommended)
-hush decrypt
-hush decrypt -e production
-hush unsafe:decrypt
-```
-
-<Aside type="danger">
-**Why this is deprecated:** Writing secrets to disk creates files that AI assistants might accidentally read. With `hush run`, secrets stay in memory and are never written to disk.
-
-**Migration:** Replace `hush decrypt && npm start` with `hush run -- npm start`
-</Aside>
-
-### How decrypt worked
-
-1. Loads and decrypts encrypted source files
-2. Merges shared → environment → local overrides
-3. Interpolates variable references (`${VAR}`)
-4. Filters variables per target using `include`/`exclude` patterns
-5. **Writes plaintext files** to each target path
-
-This is now considered unsafe because it leaves secrets on disk where they can be accidentally read.

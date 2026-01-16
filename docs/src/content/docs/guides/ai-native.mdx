@@ -150,8 +150,6 @@ Primary commands:
 - `hush inspect` - See variables in human-readable format (masked)
 - `hush has <KEY>` - Check if a variable exists
 - `cat .env.encrypted` - Safe to read! Shows encrypted content
-
-Avoid `hush decrypt` (deprecated) - it writes plaintext to disk.
 ```
 
 ## Common AI Workflows
@@ -245,7 +243,7 @@ For [Cursor](https://cursor.sh/), add to your `.cursorrules`:
 - Use `hush run -- <command>` to run programs with secrets
 - Use `hush set <KEY>` to add secrets (invoke, user enters value)
 - Use `hush inspect` for human-readable masked output
-- Avoid `hush decrypt` (deprecated - writes plaintext to disk)
+- Secrets never touch disk - only decrypted to memory
 ```
 
 ## Claude Integration
@@ -257,15 +255,14 @@ For Claude's project knowledge:
 
 This project uses Hush. All .env files contain ENCRYPTED data only.
 
-Safe to do:
-- cat .env.encrypted         # Shows encrypted content
-- grep KEY .env.encrypted    # Search encrypted files
+Commands:
+- cat .env.encrypted         # Shows encrypted content (safe!)
+- grep KEY .env.encrypted    # Search encrypted files (safe!)
 - hush run -- npm start      # Run with secrets (memory only)
 - hush set DATABASE_URL      # Add secret (invoke, user enters)
 - hush inspect               # Human-readable masked output
 
-Avoid:
-- hush decrypt (deprecated - writes plaintext to disk)
+Secrets are never written to disk - they're decrypted to memory only.
 ```
 
 ## Claude Code / OpenCode Skill

@@ -63,7 +63,7 @@ targets:
       - NEXT_PUBLIC_*
 ```
 
-One `hush decrypt` command distributes the right secrets to every package.
+Use `hush run` to inject secrets to any package, with automatic filtering based on targets.
 
 ## Common Patterns
 
@@ -272,20 +272,23 @@ targets:
 ### Development
 
 ```bash
-# Decrypt for local development
-hush decrypt
+# Run from root with all secrets
+hush run -- npm run dev
 
-# Each package now has its .env.development file
-# api/ has .dev.vars for wrangler
+# Run mobile app with filtered secrets
+hush run -t mobile -- npm run start
+
+# Run API with its secrets only
+hush run -t api -- wrangler dev
 ```
 
 ### Deployment
 
 ```bash
-# Decrypt production secrets
-hush decrypt -e production
+# Build with production secrets
+hush run -e production -- npm run build
 
-# Push to Cloudflare Workers
+# Push secrets to Cloudflare Workers
 hush push
 ```
 
@@ -294,19 +297,20 @@ hush push
 In your GitHub Actions or CI pipeline:
 
 ```yaml
-- name: Decrypt secrets
+- name: Setup secrets
   run: |
+    mkdir -p $HOME/.config/sops/age
     echo "${{ secrets.AGE_SECRET_KEY }}" > $HOME/.config/sops/age/key.txt
-    npx hush decrypt -e production
 
-- name: Deploy API
-  run: |
-    cd packages/api
-    wrangler deploy
+- name: Build
+  run: npx hush run -e production -- npm run build
+
+- name: Deploy API secrets
+  run: npx hush push
 ```
 
 <Aside type="tip">
-Store your age private key as a CI secret. It's the only secret you need to manage outside of Hush.
+Store your age private key as a CI secret. Hush handles everything else—secrets are decrypted to memory and never written to disk.
 </Aside>
 
 ## Verifying Your Setup
