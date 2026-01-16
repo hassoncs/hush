@@ -15,26 +15,22 @@ jobs:
         with:
           fetch-depth: 0  # Full history for version calculation
       
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
         with:
-          node-version: '20'
-          cache: 'pnpm'
+          bun-version: latest
       
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
       
       - name: Build
-        run: pnpm build
+        run: bun run build
       
       - name: Type check
-        run: pnpm type-check
+        run: bun run type-check
       
       - name: Run tests
-        run: pnpm test
+        run: bun run test
 
   release:
     needs: ci
@@ -51,24 +47,25 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-      
-      - name: Setup Node.js
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js (for npm publish)
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
       
       - name: Upgrade npm for trusted publishing
         run: npm install -g npm@latest
       
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
       
       - name: Build
-        run: pnpm build
+        run: bun run build
       
       - name: Calculate version bump
         id: version
@@ -222,14 +219,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
         with:
-          node-version: '20'
-          cache: 'pnpm'
+          bun-version: latest
       
       - name: Install sops and age
         run: |
@@ -250,12 +243,12 @@ jobs:
           chmod 600 ~/.config/sops/age/key.txt
       
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
       
       - name: Build CLI and docs
-        run: pnpm build
+        run: bun run build
       
       - name: Deploy docs with Hush secrets
         run: |
           export SOPS_AGE_KEY_FILE=~/.config/sops/age/key.txt
-          node ./hush-cli/bin/hush.js run -- pnpm --filter docs exec wrangler pages deploy ./dist --project-name=hush-docs
+          node ./hush-cli/bin/hush.js run -- bun --filter docs run wrangler pages deploy ./dist --project-name=hush-docs

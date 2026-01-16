@@ -110,7 +110,7 @@ export function edit(filePath: string): void {
     {
       stdio: 'inherit',
       env: getSopsEnv(),
-      shell: true // Required to find executable on Windows
+      shell: true
     }
   );
 
@@ -119,10 +119,6 @@ export function edit(filePath: string): void {
   }
 }
 
-/**
- * Set a single key in an encrypted file.
- * Decrypts to memory, updates the key, re-encrypts.
- */
 export function setKey(filePath: string, key: string, value: string): void {
   if (!isSopsInstalled()) {
     throw new Error('SOPS is not installed. Install with: brew install sops');

@@ -10,4 +10,3 @@ export default new Map([
 ["src/content/docs/reference/commands.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Freference%2Fcommands.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/reference/formats.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Freference%2Fformats.mdx&astroContentModuleFlag=true")],
 ["src/content/docs/reference/files.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Freference%2Ffiles.mdx&astroContentModuleFlag=true")]]);
-		
