@@ -16,8 +16,9 @@ import { checkCommand } from './commands/check.js';
 import { skillCommand } from './commands/skill.js';
 import { keysCommand } from './commands/keys.js';
 import { findConfigPath, loadConfig, checkSchemaVersion } from './config/loader.js';
+import { checkForUpdate } from './utils/version-check.js';
 
-const VERSION = '2.3.0';
+const VERSION = '2.5.1';
 
 function printHelp(): void {
   console.log(`
@@ -324,6 +325,10 @@ async function main(): Promise<void> {
   }
 
   const { command, subcommand, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, target, cmdArgs } = parseArgs(args);
+
+  if (command !== 'run' && !json && !quiet) {
+    checkForUpdate(VERSION);
+  }
 
   checkMigrationNeeded(root, command);
 

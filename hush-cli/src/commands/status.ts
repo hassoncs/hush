@@ -1,11 +1,72 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import pc from 'picocolors';
 import { findConfigPath, loadConfig } from '../config/loader.js';
 import { describeFilter } from '../core/filter.js';
 import { isAgeKeyConfigured, isSopsInstalled } from '../core/sops.js';
+import { keyExists } from '../lib/age.js';
+import { opAvailable, opListKeys } from '../lib/onepassword.js';
 import type { StatusOptions } from '../types.js';
 import { FORMAT_OUTPUT_FILES } from '../types.js';
+
+function findPlaintextEnvFiles(root: string): string[] {
+  const results: string[] = [];
+  const plaintextPatterns = ['.env', '.env.development', '.env.production', '.env.local', '.env.staging', '.env.test', '.dev.vars'];
+  const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt']);
+
+  function scanDir(dir: string, relativePath: string = '') {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (skipDirs.has(entry)) continue;
+      if (entry.endsWith('.encrypted')) continue;
+
+      const fullPath = join(dir, entry);
+      const relPath = relativePath ? `${relativePath}/${entry}` : entry;
+
+      try {
+        if (statSync(fullPath).isDirectory()) {
+          scanDir(fullPath, relPath);
+        } else if (plaintextPatterns.includes(entry)) {
+          results.push(relPath);
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  scanDir(root);
+  return results;
+}
+
+function getProjectFromConfig(root: string): string | null {
+  const config = loadConfig(root);
+  if (config.project) return config.project;
+
+  const pkgPath = join(root, 'package.json');
+  if (existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(require('fs').readFileSync(pkgPath, 'utf-8'));
+      if (typeof pkg.repository === 'string') {
+        const match = pkg.repository.match(/github\.com[/:]([\w-]+\/[\w-]+)/);
+        if (match) return match[1];
+      }
+      if (pkg.repository?.url) {
+        const match = pkg.repository.url.match(/github\.com[/:]([\w-]+\/[\w-]+)/);
+        if (match) return match[1];
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 
 export async function statusCommand(options: StatusOptions): Promise<void> {
   const { root } = options;
@@ -14,11 +75,36 @@ export async function statusCommand(options: StatusOptions): Promise<void> {
 
   console.log(pc.blue('Hush Status\n'));
 
+  const plaintextFiles = findPlaintextEnvFiles(root);
+  if (plaintextFiles.length > 0) {
+    console.log(pc.bgRed(pc.white(pc.bold(' SECURITY WARNING '))));
+    console.log(pc.red(pc.bold('\nUnencrypted .env files detected!\n')));
+    for (const file of plaintextFiles) {
+      console.log(pc.red(`  ${file}`));
+    }
+    console.log('');
+    console.log(pc.yellow('These files may expose secrets to AI assistants and version control.'));
+    console.log(pc.bold('\nTo fix:'));
+    console.log(pc.dim('  1. Run: npx hush encrypt'));
+    console.log(pc.dim('  2. The plaintext files will be automatically deleted after encryption'));
+    console.log(pc.dim('  3. Add to .gitignore: .env, .env.*, .dev.vars\n'));
+  }
+
   console.log(pc.bold('Config:'));
   if (configPath) {
     console.log(pc.green(`  ${configPath.replace(root + '/', '')}`));
   } else {
     console.log(pc.dim('  No hush.yaml found (using defaults)'));
+  }
+
+  const project = getProjectFromConfig(root);
+  if (configPath) {
+    if (project) {
+      console.log(pc.green(`  Project: ${project}`));
+    } else {
+      console.log(pc.yellow('  Project: not set'));
+      console.log(pc.dim('    Add "project: my-org/my-repo" to hush.yaml for key management'));
+    }
   }
 
   console.log(pc.bold('\nPrerequisites:'));
@@ -32,6 +118,36 @@ export async function statusCommand(options: StatusOptions): Promise<void> {
       ? pc.green('  age key configured')
       : pc.yellow('  age key not found at ~/.config/sops/age/key.txt')
   );
+
+  if (project) {
+    const hasLocalKey = keyExists(project);
+    const has1PasswordBackup = opAvailable() && opListKeys().includes(project);
+
+    console.log(pc.bold('\nKey Status:'));
+    console.log(
+      hasLocalKey
+        ? pc.green(`  Local key: ~/.config/sops/age/keys/${project.replace(/\//g, '-')}.txt`)
+        : pc.yellow('  Local key: not found')
+    );
+
+    if (opAvailable()) {
+      console.log(
+        has1PasswordBackup
+          ? pc.green('  1Password backup: synced')
+          : pc.yellow('  1Password backup: not synced')
+      );
+      if (!has1PasswordBackup && hasLocalKey) {
+        console.log(pc.dim('    Run "npx hush keys push" to backup to 1Password'));
+      }
+    } else {
+      console.log(pc.dim('  1Password CLI: not available'));
+    }
+
+    if (!hasLocalKey) {
+      console.log(pc.bold('\n  To set up keys:'));
+      console.log(pc.dim('    npx hush keys setup   # Pull from 1Password or generate'));
+    }
+  }
 
   console.log(pc.bold('\nSource Files:'));
   const sources = [
