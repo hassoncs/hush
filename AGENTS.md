@@ -120,10 +120,28 @@ git pull origin main
 # Make changes
 git add .
 git commit -m "fix(cli): handle empty config gracefully"
+git pull --rebase origin main  # ALWAYS pull before push (CI may have bumped version)
 git push origin main
 ```
 
 **Only do this when explicitly instructed.** Default is always branch + PR.
+
+### IMPORTANT: Always Pull Before Push
+
+**Every push to main triggers an auto-release** that bumps `package.json` version and creates a commit. This means remote `main` is often ahead of your local branch.
+
+**Always run `git pull --rebase origin main` before pushing.** This avoids rejected pushes due to the CI's version bump commits.
+
+```bash
+# Wrong - will likely fail
+git commit -m "fix(cli): something"
+git push origin main  # ❌ Rejected - remote has version bump
+
+# Correct - always pull first
+git commit -m "fix(cli): something"
+git pull --rebase origin main  # ✅ Get CI's version bump
+git push origin main           # ✅ Success
+```
 
 ---
 
