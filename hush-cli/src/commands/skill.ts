@@ -107,6 +107,41 @@ npx hush run -e production -- npm build   # Production
 
 ---
 
+## Debugging Secret Issues
+
+When a variable is missing or not appearing where expected, use these commands:
+
+### Why is my variable missing from a target?
+
+\`\`\`bash
+npx hush resolve <target>           # See what variables a target receives
+npx hush resolve api-workers        # Example: check api-workers target
+npx hush resolve api-workers -e prod   # Check with production env
+\`\`\`
+
+This shows:
+- ✅ **Included variables** - what the target will receive
+- 🚫 **Excluded variables** - what was filtered out and WHY (which pattern matched)
+
+### Where does a specific variable go?
+
+\`\`\`bash
+npx hush trace <KEY>                # Trace a variable through all targets
+npx hush trace DATABASE_URL         # Example: trace DATABASE_URL
+\`\`\`
+
+This shows:
+- Which source files contain the variable
+- Which targets include/exclude it and why
+
+### Preview what would be pushed
+
+\`\`\`bash
+npx hush push --dry-run --verbose   # See exactly what would be pushed
+\`\`\`
+
+---
+
 ## Running Programs with Secrets
 
 **This is the primary way to use secrets - they never touch disk!**
@@ -562,7 +597,44 @@ Push production secrets to Cloudflare Workers.
 \`\`\`bash
 hush push                          # Push secrets
 hush push --dry-run                # Preview without pushing
+hush push --dry-run --verbose      # Detailed preview of what would be pushed
 \`\`\`
+
+---
+
+## Debugging Commands
+
+### hush resolve <target>
+
+Show what variables a specific target will receive, with filtering details.
+
+\`\`\`bash
+hush resolve api-workers           # Check api-workers target
+hush resolve api-workers -e prod   # Check with production environment
+\`\`\`
+
+**Output shows:**
+- ✅ Included variables (with source file)
+- 🚫 Excluded variables (with matching pattern)
+
+**Use when:** A target is missing expected variables
+
+---
+
+### hush trace <KEY>
+
+Trace a specific variable through all sources and targets.
+
+\`\`\`bash
+hush trace DATABASE_URL            # Trace DATABASE_URL
+hush trace STRIPE_SECRET_KEY       # Trace another variable
+\`\`\`
+
+**Output shows:**
+- Which source files contain the variable
+- Which targets include/exclude it (and why)
+
+**Use when:** You need to understand why a variable appears in some places but not others
 
 ---
 
@@ -938,25 +1010,46 @@ Tell user: "Your editor will open. Add or modify secrets, then save and close."
 
 ### "My app can't find DATABASE_URL"
 
-1. Check if it exists:
+1. **Trace the variable** to see where it exists and where it goes:
+   \`\`\`bash
+   npx hush trace DATABASE_URL
+   \`\`\`
+   This shows which source files have it and which targets include/exclude it.
+
+2. **Check if it exists** in your current environment:
    \`\`\`bash
    npx hush has DATABASE_URL
    \`\`\`
 
-2. Check target distribution:
+3. **Resolve the target** to see what variables it receives:
    \`\`\`bash
-   npx hush inspect
+   npx hush resolve api-workers
    \`\`\`
 
-3. Check hush.yaml for filtering:
-   \`\`\`bash
-   cat hush.yaml        # Safe - this is config, not secrets
-   \`\`\`
+### "Target is missing expected variables"
 
-4. Try running directly:
-   \`\`\`bash
-   npx hush run -- env | grep DATABASE
-   \`\`\`
+\`\`\`bash
+npx hush resolve <target-name>      # See included/excluded variables
+npx hush resolve <target-name> -e prod   # Check production
+\`\`\`
+
+Look at the 🚫 EXCLUDED section to see which pattern is filtering out your variable.
+
+### "Variable appears in wrong places"
+
+\`\`\`bash
+npx hush trace <VARIABLE_NAME>
+\`\`\`
+
+This shows the full disposition across all targets - which include it and which exclude it.
+
+### "Push is missing some secrets"
+
+\`\`\`bash
+npx hush push --dry-run --verbose
+\`\`\`
+
+This shows exactly what would be pushed to each target.
 
 ---
 

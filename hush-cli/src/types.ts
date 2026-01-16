@@ -61,6 +61,7 @@ export interface RunOptions {
 export interface PushOptions {
   root: string;
   dryRun: boolean;
+  verbose: boolean;
 }
 
 export interface StatusOptions {
@@ -113,6 +114,18 @@ export interface SkillOptions {
   root: string;
   global?: boolean;
   local?: boolean;
+}
+
+export interface ResolveOptions {
+  root: string;
+  env: Environment;
+  target: string;
+}
+
+export interface TraceOptions {
+  root: string;
+  env: Environment;
+  key: string;
 }
 
 export const DEFAULT_SOURCES: SourceFiles = {

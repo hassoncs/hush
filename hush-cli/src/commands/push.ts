@@ -10,9 +10,13 @@ import { parseEnvContent } from '../core/parse.js';
 import { decrypt as sopsDecrypt } from '../core/sops.js';
 import type { EnvVar, PushOptions } from '../types.js';
 
-function pushSecret(key: string, value: string, targetDir: string, dryRun: boolean): boolean {
+function pushSecret(key: string, value: string, targetDir: string, dryRun: boolean, verbose: boolean): boolean {
   if (dryRun) {
-    console.log(pc.dim(`    [dry-run] ${key}`));
+    if (verbose) {
+      console.log(pc.green(`    + ${key}`));
+    } else {
+      console.log(pc.dim(`    [dry-run] ${key}`));
+    }
     return true;
   }
 
@@ -31,12 +35,15 @@ function pushSecret(key: string, value: string, targetDir: string, dryRun: boole
 }
 
 export async function pushCommand(options: PushOptions): Promise<void> {
-  const { root, dryRun } = options;
+  const { root, dryRun, verbose } = options;
   const config = loadConfig(root);
 
   console.log(pc.blue('Pushing production secrets to Cloudflare Workers...'));
   if (dryRun) {
     console.log(pc.yellow('(dry-run mode)'));
+    if (verbose) {
+      console.log(pc.dim('(verbose output enabled)'));
+    }
   }
 
   const sharedEncrypted = join(root, config.sources.shared + '.encrypted');
@@ -73,13 +80,17 @@ export async function pushCommand(options: PushOptions): Promise<void> {
     const targetDir = join(root, target.path);
     const filtered = filterVarsForTarget(interpolated, target);
 
-    console.log(pc.blue(`\n${target.name} (${target.path}/)`));
+    if (dryRun && verbose) {
+      console.log(pc.blue(`\n[DRY RUN] Would push to ${target.name} (${target.path}/):`));
+    } else {
+      console.log(pc.blue(`\n${target.name} (${target.path}/)`));
+    }
 
     let success = 0;
     let failed = 0;
 
     for (const { key, value } of filtered) {
-      if (pushSecret(key, value, targetDir, dryRun)) {
+      if (pushSecret(key, value, targetDir, dryRun, verbose)) {
         if (!dryRun) console.log(pc.green(`    ${key}`));
         success++;
       } else {

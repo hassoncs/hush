@@ -16,6 +16,8 @@ import { hasCommand } from './commands/has.js';
 import { checkCommand } from './commands/check.js';
 import { skillCommand } from './commands/skill.js';
 import { keysCommand } from './commands/keys.js';
+import { resolveCommand } from './commands/resolve.js';
+import { traceCommand } from './commands/trace.js';
 import { findConfigPath, loadConfig, checkSchemaVersion } from './config/loader.js';
 import { checkForUpdate } from './utils/version-check.js';
 
@@ -43,6 +45,10 @@ ${pc.bold('Commands:')}
   status            Show configuration and status
   skill             Install Claude Code / OpenCode skill
   keys <cmd>        Manage SOPS age keys (setup, generate, pull, push, list)
+
+${pc.bold('Debugging Commands:')}
+  resolve <target>  Show what variables a target receives (AI-safe)
+  trace <key>       Trace a variable through sources and targets (AI-safe)
   
 ${pc.bold('Deprecated Commands:')}
   decrypt           Write secrets to disk (unsafe - use 'run' instead)
@@ -50,9 +56,10 @@ ${pc.bold('Deprecated Commands:')}
 ${pc.bold('Options:')}
   -e, --env <env>   Environment: development or production (default: development)
   -r, --root <dir>  Root directory (default: current directory)
-  -t, --target <t>  Target name from hush.yaml (run only)
+  -t, --target <t>  Target name from hush.yaml (run/resolve only)
   -q, --quiet       Suppress output (has/check commands)
   --dry-run         Preview changes without applying (push only)
+  --verbose         Show detailed output (push --dry-run only)
   --warn            Warn but exit 0 on drift (check only)
   --json            Output machine-readable JSON (check only)
   --only-changed    Only check git-modified files (check only)
@@ -97,6 +104,7 @@ interface ParsedArgs {
   envExplicit: boolean;
   root: string;
   dryRun: boolean;
+  verbose: boolean;
   quiet: boolean;
   warn: boolean;
   json: boolean;
@@ -134,6 +142,7 @@ function parseArgs(args: string[]): ParsedArgs {
   let envExplicit = false;
   let root = process.cwd();
   let dryRun = false;
+  let verbose = false;
   let quiet = false;
   let warn = false;
   let json = false;
@@ -184,6 +193,11 @@ function parseArgs(args: string[]): ParsedArgs {
 
     if (arg === '--dry-run') {
       dryRun = true;
+      continue;
+    }
+
+    if (arg === '--verbose') {
+      verbose = true;
       continue;
     }
 
@@ -279,13 +293,23 @@ function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (command === 'trace' && !arg.startsWith('-') && !key) {
+      key = arg;
+      continue;
+    }
+
+    if (command === 'resolve' && !arg.startsWith('-') && !target) {
+      target = arg;
+      continue;
+    }
+
     if (command === 'keys' && !arg.startsWith('-') && !subcommand) {
       subcommand = arg;
       continue;
     }
   }
 
-  return { command, subcommand, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, target, cmdArgs };
+  return { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, target, cmdArgs };
 }
 
 function checkMigrationNeeded(root: string, command: string): void {
@@ -326,7 +350,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const { command, subcommand, env, envExplicit, root, dryRun, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, target, cmdArgs } = parseArgs(args);
+  const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, target, cmdArgs } = parseArgs(args);
 
   if (command !== 'run' && !json && !quiet) {
     checkForUpdate(VERSION);
@@ -399,7 +423,7 @@ async function main(): Promise<void> {
         break;
 
       case 'push':
-        await pushCommand({ root, dryRun });
+        await pushCommand({ root, dryRun, verbose });
         break;
 
       case 'status':
@@ -417,6 +441,24 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         await keysCommand({ root, subcommand, vault, force });
+        break;
+
+      case 'resolve':
+        if (!target) {
+          console.error(pc.red('Usage: hush resolve <target>'));
+          console.error(pc.dim('Example: hush resolve api-workers'));
+          process.exit(1);
+        }
+        await resolveCommand({ root, env, target });
+        break;
+
+      case 'trace':
+        if (!key) {
+          console.error(pc.red('Usage: hush trace <KEY>'));
+          console.error(pc.dim('Example: hush trace DATABASE_URL'));
+          process.exit(1);
+        }
+        await traceCommand({ root, env, key });
         break;
 
       default:
