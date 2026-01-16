@@ -42,18 +42,24 @@ npx hush encrypt`} lang="bash" />
 
 ## Why Hush?
 
+Is Hush just a wrapper around [SOPS](https://github.com/getsops/sops) and [dotenv](https://github.com/motdotla/dotenv)?
+
+**Yes, and that's the point.**
+
+Hush is an **orchestration layer** that solves the "Human + AI" workflow problem that raw tools ignore:
+
 <CardGrid stagger>
+  <Card title="Orchestration" icon="random">
+    `sops exec` handles one file. Hush merges multiple sources (`shared` + `env` + `local`), interpolates variables (`${API_URL}`), and routes them to specific monorepo targets.
+  </Card>
+  <Card title="AI Safety" icon="approve-check">
+    Standard tools assume a human operator. Hush assumes an AI assistant. `hush set` and `hush inspect` allow AI agents to manage secrets **without ever seeing the plaintext values**.
+  </Card>
+  <Card title="Cross-Platform" icon="laptop">
+    Works on macOS, Linux, and Windows. Handles shell differences and provides native GUI prompts for secret entry when running in non-interactive modes (like AI agent sessions).
+  </Card>
   <Card title="Encrypted at Rest" icon="lock-closed">
-    Secrets stay encrypted on disk. No plaintext `.env` files for AI to accidentally read. `hush run` decrypts to memory only.
-  </Card>
-  <Card title="AI-Native by Design" icon="approve-check">
-    Built for AI coding assistants. `hush set` lets AI help add secrets without seeing values. Includes a Claude Code Skill.
-  </Card>
-  <Card title="Every Framework" icon="rocket">
-    Next.js, Vite, Expo, Remix, Cloudflare Workers, Kubernetes—route `NEXT_PUBLIC_*` to frontend, server secrets to API.
-  </Card>
-  <Card title="Encrypted in Git" icon="document">
-    Commit `.env.encrypted` files safely. SOPS + age encryption your security team will approve. Single source of truth.
+    Secrets stay encrypted on disk. `hush run` decrypts to memory only. No plaintext `.env` files for AI to accidentally read.
   </Card>
 </CardGrid>
 

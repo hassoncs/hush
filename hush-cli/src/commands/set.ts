@@ -22,6 +22,79 @@ function promptViaMacOSDialog(key: string): string | null {
   }
 }
 
+function promptViaWindowsDialog(key: string): string | null {
+  try {
+    const psScript = `
+      Add-Type -AssemblyName System.Windows.Forms
+      Add-Type -AssemblyName System.Drawing
+      
+      $form = New-Object System.Windows.Forms.Form
+      $form.Text = 'Hush - Set Secret'
+      $form.Size = New-Object System.Drawing.Size(300,150)
+      $form.StartPosition = 'CenterScreen'
+      
+      $label = New-Object System.Windows.Forms.Label
+      $label.Location = New-Object System.Drawing.Point(10,20)
+      $label.Size = New-Object System.Drawing.Size(280,20)
+      $label.Text = 'Enter value for ${key}:'
+      $form.Controls.Add($label)
+      
+      $textBox = New-Object System.Windows.Forms.TextBox
+      $textBox.Location = New-Object System.Drawing.Point(10,50)
+      $textBox.Size = New-Object System.Drawing.Size(260,20)
+      $textBox.PasswordChar = '*'
+      $form.Controls.Add($textBox)
+      
+      $okButton = New-Object System.Windows.Forms.Button
+      $okButton.Location = New-Object System.Drawing.Point(10,80)
+      $okButton.Size = New-Object System.Drawing.Size(75,23)
+      $okButton.Text = 'OK'
+      $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+      $form.AcceptButton = $okButton
+      $form.Controls.Add($okButton)
+      
+      $form.TopMost = $true
+      
+      $result = $form.ShowDialog()
+      
+      if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+        Write-Output $textBox.Text
+      } else {
+        exit 1
+      }
+    `;
+    
+    const encodedCommand = Buffer.from(psScript, 'utf16le').toString('base64');
+    const result = execSync(`powershell -EncodedCommand "${encodedCommand}"`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return result.trim();
+  } catch {
+    return null;
+  }
+}
+
+function promptViaLinuxDialog(key: string): string | null {
+  try {
+    const result = execSync(`zenity --password --title="Hush - Set Secret" --text="Enter value for ${key}:"`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return result.trim();
+  } catch {
+    try {
+      const result = execSync(`kdialog --password "Enter value for ${key}:" --title "Hush - Set Secret"`, {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return result.trim();
+    } catch {
+      return null;
+    }
+  }
+}
+
 function promptViaTTY(key: string): Promise<string> {
   return new Promise((resolve, reject) => {
     process.stdout.write(`Enter value for ${pc.cyan(key)}: `);
@@ -69,29 +142,35 @@ function promptViaTTY(key: string): Promise<string> {
 }
 
 async function promptForValue(key: string, forceGui: boolean): Promise<string> {
-  if (forceGui && platform() === 'darwin') {
-    console.log(pc.dim('Opening dialog for secret input...'));
-    const value = promptViaMacOSDialog(key);
-    if (value !== null) {
-      return value;
-    }
-    throw new Error('Dialog cancelled or failed');
-  }
-  
-  if (process.stdin.isTTY) {
+  if (process.stdin.isTTY && !forceGui) {
     return promptViaTTY(key);
   }
   
-  if (platform() === 'darwin') {
-    console.log(pc.dim('Opening dialog for secret input...'));
-    const value = promptViaMacOSDialog(key);
-    if (value !== null) {
-      return value;
-    }
-    throw new Error('Dialog cancelled or failed');
+  console.log(pc.dim('Opening dialog for secret input...'));
+  
+  let value: string | null = null;
+  
+  switch (platform()) {
+    case 'darwin':
+      value = promptViaMacOSDialog(key);
+      break;
+    case 'win32':
+      value = promptViaWindowsDialog(key);
+      break;
+    case 'linux':
+      value = promptViaLinuxDialog(key);
+      break;
   }
   
-  throw new Error('Interactive input requires a terminal (TTY) or macOS');
+  if (value !== null) {
+    return value;
+  }
+  
+  if (platform() === 'linux') {
+    throw new Error('GUI prompt failed. Please install "zenity" or "kdialog".');
+  }
+  
+  throw new Error('Dialog cancelled or failed. Interactive input requires a terminal (TTY) or a supported GUI environment.');
 }
 
 export async function setCommand(options: SetOptions): Promise<void> {

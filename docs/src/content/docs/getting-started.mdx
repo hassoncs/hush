@@ -9,7 +9,10 @@ Get up and running with Hush in just a few minutes.
 
 ## Prerequisites
 
-Hush uses [SOPS](https://github.com/getsops/sops) with [age](https://github.com/FiloSottile/age) encryption. Install them first:
+Hush requires **Node.js 18+** and delegates encryption to standard tools.
+
+1.  **[SOPS](https://github.com/getsops/sops)** - The standard for secret operations
+2.  **[age](https://github.com/FiloSottile/age)** - Modern, simple key management
 
 <Tabs>
   <TabItem label="macOS">
@@ -38,6 +41,7 @@ Hush uses [SOPS](https://github.com/getsops/sops) with [age](https://github.com/
     # Or using chocolatey
     choco install sops age
     ```
+    *Note: Hush fully supports Windows (PowerShell/CMD).*
   </TabItem>
 </Tabs>
 

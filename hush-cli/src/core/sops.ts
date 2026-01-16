@@ -1,14 +1,14 @@
 import { execSync, spawnSync } from 'node:child_process';
 import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 
 function getAgeKeyFile(): string | undefined {
   if (process.env.SOPS_AGE_KEY_FILE) {
     return process.env.SOPS_AGE_KEY_FILE;
   }
 
-  const defaultPath = join(process.env.HOME || '~', '.config/sops/age/key.txt');
+  const defaultPath = join(homedir(), '.config', 'sops', 'age', 'key.txt');
   if (existsSync(defaultPath)) {
     return defaultPath;
   }
@@ -26,8 +26,11 @@ function getSopsEnv(): NodeJS.ProcessEnv {
 
 export function isSopsInstalled(): boolean {
   try {
-    execSync('which sops', { stdio: 'ignore' });
-    return true;
+    const result = spawnSync('sops', ['--version'], { 
+      stdio: 'ignore',
+      shell: true 
+    });
+    return result.status === 0;
   } catch {
     return false;
   }
@@ -43,7 +46,7 @@ export function decrypt(filePath: string): string {
   }
 
   if (!isSopsInstalled()) {
-    throw new Error('SOPS is not installed. Install with: brew install sops');
+    throw new Error('SOPS is not installed. Install with: brew install sops (Mac) or scoop install sops (Windows)');
   }
 
   try {
@@ -74,7 +77,7 @@ export function encrypt(inputPath: string, outputPath: string): void {
   }
 
   if (!isSopsInstalled()) {
-    throw new Error('SOPS is not installed. Install with: brew install sops');
+    throw new Error('SOPS is not installed. Install with: brew install sops (Mac) or scoop install sops (Windows)');
   }
 
   try {
@@ -82,7 +85,6 @@ export function encrypt(inputPath: string, outputPath: string): void {
       `sops --input-type dotenv --output-type dotenv --encrypt "${inputPath}" > "${outputPath}"`,
       {
         encoding: 'utf-8',
-        shell: '/bin/bash',
         stdio: ['pipe', 'pipe', 'pipe'],
         env: getSopsEnv(),
       }
@@ -108,6 +110,7 @@ export function edit(filePath: string): void {
     {
       stdio: 'inherit',
       env: getSopsEnv(),
+      shell: true // Required to find executable on Windows
     }
   );
 
@@ -127,15 +130,12 @@ export function setKey(filePath: string, key: string, value: string): void {
 
   let content = '';
   
-  // If file exists, decrypt it first
   if (existsSync(filePath)) {
     content = decrypt(filePath);
   }
 
-  // Parse existing content into lines
   const lines = content.split('\n').filter(line => line.trim() !== '');
   
-  // Find and update or add the key
   let found = false;
   const updatedLines = lines.map(line => {
     const match = line.match(/^([^=]+)=/);
@@ -157,18 +157,15 @@ export function setKey(filePath: string, key: string, value: string): void {
   try {
     writeFileSync(tempFile, newContent, 'utf-8');
     
-    // Encrypt temp file to the target
     execSync(
       `sops --input-type dotenv --output-type dotenv --encrypt "${tempFile}" > "${filePath}"`,
       {
         encoding: 'utf-8',
-        shell: '/bin/bash',
         stdio: ['pipe', 'pipe', 'pipe'],
         env: getSopsEnv(),
       }
     );
   } finally {
-    // Always clean up temp file
     if (existsSync(tempFile)) {
       unlinkSync(tempFile);
     }
