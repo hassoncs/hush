@@ -57,7 +57,8 @@
   },
   "files": [
     "dist",
-    "bin"
+    "bin",
+    "schema.json"
   ],
   "publishConfig": {
     "access": "public"

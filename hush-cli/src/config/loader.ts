@@ -48,23 +48,30 @@ export function checkSchemaVersion(config: HushConfig): { needsMigration: boolea
 
 export function validateConfig(config: HushConfig): string[] {
   const errors: string[] = [];
+  const validFormats = ['dotenv', 'wrangler', 'json', 'shell', 'yaml'];
 
   if (!config.sources.shared) {
     errors.push('sources.shared is required');
   }
 
-  for (const target of config.targets) {
+  if (!config.targets || config.targets.length === 0) {
+    errors.push('At least one target is required');
+  }
+
+  for (let i = 0; i < config.targets.length; i++) {
+    const target = config.targets[i];
+    const prefix = target.name ? `Target "${target.name}"` : `Target at index ${i}`;
+
     if (!target.name) {
-      errors.push('Each target must have a name');
+      errors.push(`${prefix}: missing required field "name"`);
     }
     if (!target.path) {
-      errors.push(`Target "${target.name}" must have a path`);
+      errors.push(`${prefix}: missing required field "path" (e.g., "." or "./apps/web")`);
     }
     if (!target.format) {
-      errors.push(`Target "${target.name}" must have a format`);
-    }
-    if (!['dotenv', 'wrangler', 'json', 'shell', 'yaml'].includes(target.format)) {
-      errors.push(`Target "${target.name}" has invalid format "${target.format}"`);
+      errors.push(`${prefix}: missing required field "format" (one of: ${validFormats.join(', ')})`);
+    } else if (!validFormats.includes(target.format)) {
+      errors.push(`${prefix}: invalid format "${target.format}" (must be one of: ${validFormats.join(', ')})`);
     }
   }
 

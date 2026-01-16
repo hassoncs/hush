@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://hush-docs.pages.dev/schema.json",
+  "title": "Hush Configuration",
+  "description": "Configuration file for Hush secrets management",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "description": "Schema version (current: 2)",
+      "minimum": 1,
+      "maximum": 2,
+      "default": 2
+    },
+    "project": {
+      "type": "string",
+      "description": "Project identifier for key management (e.g., 'my-org/my-repo')",
+      "pattern": "^[a-zA-Z0-9_-]+(/[a-zA-Z0-9_-]+)?$"
+    },
+    "sources": {
+      "type": "object",
+      "description": "Source .env files (plaintext, before encryption)",
+      "properties": {
+        "shared": {
+          "type": "string",
+          "description": "Shared secrets file (default: .env)",
+          "default": ".env"
+        },
+        "development": {
+          "type": "string",
+          "description": "Development secrets file (default: .env.development)",
+          "default": ".env.development"
+        },
+        "production": {
+          "type": "string",
+          "description": "Production secrets file (default: .env.production)",
+          "default": ".env.production"
+        },
+        "local": {
+          "type": "string",
+          "description": "Local overrides file (default: .env.local)",
+          "default": ".env.local"
+        }
+      },
+      "additionalProperties": false
+    },
+    "targets": {
+      "type": "array",
+      "description": "Output targets for decrypted secrets",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "format"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Target identifier"
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory path for output file"
+          },
+          "format": {
+            "type": "string",
+            "description": "Output format",
+            "enum": ["dotenv", "wrangler", "json", "shell", "yaml"]
+          },
+          "include": {
+            "type": "array",
+            "description": "Glob patterns to include (e.g., NEXT_PUBLIC_*)",
+            "items": { "type": "string" }
+          },
+          "exclude": {
+            "type": "array",
+            "description": "Glob patterns to exclude",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "minItems": 1
+    }
+  },
+  "required": ["targets"],
+  "additionalProperties": false
+}

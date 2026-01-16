@@ -195,15 +195,17 @@ export async function initCommand(options: InitOptions): Promise<void> {
   const targets = detectTargets(root);
 
   const config: HushConfig = {
+    version: 2,
     sources: DEFAULT_SOURCES,
     targets,
     ...(project && { project }),
   };
 
   const yaml = stringifyYaml(config, { indent: 2 });
+  const schemaComment = '# yaml-language-server: $schema=https://unpkg.com/@chriscode/hush/schema.json\n';
   const configPath = join(root, 'hush.yaml');
 
-  writeFileSync(configPath, yaml, 'utf-8');
+  writeFileSync(configPath, schemaComment + yaml, 'utf-8');
 
   console.log(pc.green(`\nCreated ${configPath}`));
   console.log(pc.dim('\nDetected targets:'));

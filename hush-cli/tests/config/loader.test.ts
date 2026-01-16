@@ -62,7 +62,7 @@ describe('validateConfig', () => {
       targets: [{ name: '', path: '.', format: 'dotenv' }],
     };
     const errors = validateConfig(config);
-    expect(errors).toContain('Each target must have a name');
+    expect(errors.some(e => e.includes('missing required field "name"'))).toBe(true);
   });
 
   it('returns error for missing target path', () => {
@@ -71,7 +71,7 @@ describe('validateConfig', () => {
       targets: [{ name: 'test', path: '', format: 'dotenv' }],
     };
     const errors = validateConfig(config);
-    expect(errors.some(e => e.includes('must have a path'))).toBe(true);
+    expect(errors.some(e => e.includes('missing required field "path"'))).toBe(true);
   });
 
   it('returns error for invalid format', () => {
