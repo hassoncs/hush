@@ -31,8 +31,8 @@ hush/
 1. **No interactive prompts** - All scripts must work non-interactively
 2. **No secrets in commits** - Never commit `.env` files, API keys, tokens
 3. **No type errors** - Never use `as any`, `@ts-ignore`, `@ts-expect-error`
-4. **Tests must pass** - Run `pnpm test` before any commit
-5. **Build must succeed** - Run `pnpm build` before releases
+4. **Tests must pass** - Run `bun test` before any commit
+5. **Build must succeed** - Run `bun run build` before releases
 6. **Keep docs in sync** - Every CLI change must update implementation, skill, AND docs together
 
 ---
@@ -57,14 +57,14 @@ hush/
   - Add to REFERENCE.md with full documentation
   - Add usage examples to workflows.md if applicable
 - [ ] Update docs in `docs/src/content/docs/reference/commands.mdx`
-- [ ] Run `pnpm build && pnpm test` to verify
+- [ ] Run `bun run build && bun test` to verify
 
 ### Checklist for Modified Commands
 
 - [ ] Update implementation
 - [ ] Update skill documentation if behavior/options changed
 - [ ] Update docs if behavior/options changed
-- [ ] Run `pnpm build && pnpm test` to verify
+- [ ] Run `bun run build && bun test` to verify
 
 **Why this matters:** The skill teaches AI assistants how to use Hush. If the skill is outdated, AI will give users wrong instructions. The docs are the user's reference. All three must stay in sync.
 
@@ -439,10 +439,10 @@ For **major versions**, agents should still write migration guides at `docs/src/
 One workflow handles everything (`.github/workflows/release.yml`):
 
 **On every push/PR:**
-1. Install dependencies (`pnpm install`)
-2. Build all packages (`pnpm build`)
-3. Run all tests (`pnpm test`)
-4. Type check (`pnpm type-check`)
+1. Install dependencies (`bun install`)
+2. Build all packages (`bun run build`)
+3. Run all tests (`bun test`)
+4. Type check (`bun run type-check`)
 
 **On push to main (after CI passes):**
 1. Calculate version bump from commits
@@ -498,7 +498,7 @@ hush encrypt
 
 1. Check Cloudflare Pages logs
 2. Verify `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`
-3. Try manual deploy: `cd docs && pnpm deploy`
+3. Try manual deploy: `cd docs && bun run deploy`
 
 ---
 
@@ -508,17 +508,17 @@ hush encrypt
 
 ```bash
 # Development
-pnpm install          # Install deps
-pnpm build            # Build all
-pnpm test             # Run tests
-pnpm dev              # Watch mode
+bun install           # Install deps
+bun run build         # Build all
+bun test              # Run tests
+bun run dev           # Watch mode
 
 # CLI testing
-cd hush-cli && pnpm test:watch
+cd hush-cli && bun test:watch
 
 # Docs
-cd docs && pnpm dev   # Dev server
-cd docs && pnpm build # Build
+cd docs && bun run dev   # Dev server
+cd docs && bun run build # Build
 
 # Release prep
 git log --oneline v2.3.0..HEAD  # Commits since last release
