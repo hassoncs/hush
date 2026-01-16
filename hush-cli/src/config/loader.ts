@@ -30,7 +30,7 @@ export function loadConfig(root: string): HushConfig {
   const parsed = parseYaml(content) as Partial<HushConfig>;
 
   return {
-    schema_version: parsed.schema_version,
+    version: parsed.version,
     project: parsed.project,
     sources: { ...DEFAULT_SOURCES, ...parsed.sources },
     targets: parsed.targets ?? [{ name: 'root', path: '.', format: 'dotenv' }],
@@ -38,7 +38,7 @@ export function loadConfig(root: string): HushConfig {
 }
 
 export function checkSchemaVersion(config: HushConfig): { needsMigration: boolean; from: number; to: number } {
-  const configVersion = config.schema_version ?? 1;
+  const configVersion = config.version ?? 1;
   return {
     needsMigration: configVersion < CURRENT_SCHEMA_VERSION,
     from: configVersion,

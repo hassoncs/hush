@@ -17,7 +17,7 @@ export interface SourceFiles {
 }
 
 export interface HushConfig {
-  schema_version?: number;
+  version?: number;
   project?: string;
   sources: SourceFiles;
   targets: Target[];
