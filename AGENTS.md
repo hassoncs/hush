@@ -33,6 +33,40 @@ hush/
 3. **No type errors** - Never use `as any`, `@ts-ignore`, `@ts-expect-error`
 4. **Tests must pass** - Run `pnpm test` before any commit
 5. **Build must succeed** - Run `pnpm build` before releases
+6. **Keep docs in sync** - Every CLI change must update implementation, skill, AND docs together
+
+---
+
+## CLI Changes: Required Updates
+
+**CRITICAL: When adding or modifying any CLI command, ALL THREE must be updated in the same commit:**
+
+| Location | What to Update |
+|----------|----------------|
+| `hush-cli/src/commands/*.ts` | Implementation |
+| `hush-cli/src/commands/skill.ts` | AI skill documentation (SKILL.md, REFERENCE.md, workflows.md) |
+| `docs/src/content/docs/reference/commands.mdx` | User-facing documentation |
+
+### Checklist for New Commands
+
+- [ ] Create command file in `hush-cli/src/commands/`
+- [ ] Add types to `hush-cli/src/types.ts` if needed
+- [ ] Register in `hush-cli/src/cli.ts` (import, help text, argument parsing, switch case)
+- [ ] Update skill in `hush-cli/src/commands/skill.ts`:
+  - Add to SKILL.md command table
+  - Add to REFERENCE.md with full documentation
+  - Add usage examples to workflows.md if applicable
+- [ ] Update docs in `docs/src/content/docs/reference/commands.mdx`
+- [ ] Run `pnpm build && pnpm test` to verify
+
+### Checklist for Modified Commands
+
+- [ ] Update implementation
+- [ ] Update skill documentation if behavior/options changed
+- [ ] Update docs if behavior/options changed
+- [ ] Run `pnpm build && pnpm test` to verify
+
+**Why this matters:** The skill teaches AI assistants how to use Hush. If the skill is outdated, AI will give users wrong instructions. The docs are the user's reference. All three must stay in sync.
 
 ---
 

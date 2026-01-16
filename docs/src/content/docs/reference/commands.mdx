@@ -20,6 +20,7 @@ Hush keeps secrets **encrypted at rest**. The primary way to use secrets is `hus
 | **Primary (AI-Safe)** | `run`, `set`, `edit`, `inspect`, `has` | Safe for AI assistants—never expose secret values |
 | **Setup** | `init`, `encrypt`, `status`, `skill` | Configuration and encryption |
 | **Deployment** | `push`, `check` | CI/CD and cloud deployment |
+| **Debugging** | `resolve`, `trace` | Debug secret filtering and routing |
 | **Deprecated** | `decrypt`, `unsafe:decrypt` | Writes secrets to disk (avoid) |
 
 ### Global Options
@@ -299,6 +300,9 @@ hush push
 
 # Preview without pushing
 hush push --dry-run
+
+# Detailed preview showing each variable
+hush push --dry-run --verbose
 ```
 
 ### Options
@@ -306,6 +310,7 @@ hush push --dry-run
 | Option | Description |
 |--------|-------------|
 | `--dry-run` | Preview what would be pushed without making changes |
+| `--verbose` | Show detailed output (with `--dry-run`) |
 
 ### How It Works
 
@@ -399,6 +404,94 @@ npx hush check || exit 1
 ```
 
 Bypass with: `HUSH_SKIP_CHECK=1 git commit -m "message"`
+
+---
+
+## resolve
+
+Show what variables a specific target will receive, with filtering details. **Essential for debugging why a variable is missing from a target.**
+
+```bash
+# Check what variables api-workers receives
+hush resolve api-workers
+
+# Check with production environment
+hush resolve api-workers -e production
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-e, --env <env>` | Environment: `development` or `production` |
+
+### Example Output
+
+```
+Target: api-workers
+Path: ./api/
+Format: wrangler (.dev.vars)
+Environment: development
+
+✅ INCLUDED VARIABLES (11):
+  SUPABASE_URL               (source: .env.development)
+  STRIPE_SECRET_KEY          (source: .env)
+  R2_ACCESS_KEY_ID           (source: .env)
+  ...
+
+🚫 EXCLUDED VARIABLES (8):
+  EXPO_PUBLIC_API_URL        (matches: EXPO_PUBLIC_*)
+  FASTLANE_APPLE_ID          (matches: FASTLANE_*)
+  ASC_KEY_ID                 (matches: ASC_*)
+  ...
+```
+
+<Aside type="tip">
+When a variable is missing, check the 🚫 EXCLUDED section to see which pattern filtered it out. This immediately tells you whether to adjust your `include`/`exclude` patterns.
+</Aside>
+
+---
+
+## trace
+
+Trace a specific variable through all sources and targets. **Use this to understand why a variable appears in some places but not others.**
+
+```bash
+# Trace a variable
+hush trace DATABASE_URL
+
+# Trace with production environment
+hush trace STRIPE_SECRET_KEY -e production
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-e, --env <env>` | Environment: `development` or `production` |
+
+### Example Output
+
+```
+Tracing variable: SUPABASE_URL
+
+Source Status:
+  .env             : ❌ Not found
+  .env.development : ✅ Present
+  .env.production  : ✅ Present
+  .env.local       : (file not found)
+
+Target Disposition (Environment: development):
+  [root]        : ✅ Included
+  [app]         : 🚫 Not included (not in include: EXPO_PUBLIC_*)
+  [api]         : ✅ Included
+  [api-workers] : ✅ Included
+  [landing]     : 🚫 Not included (not in include: EXPO_PUBLIC_SUPABASE_*)
+```
+
+<Aside type="tip">
+This shows the complete picture: which source files have the variable, and which targets will receive it (or exclude it, and why).
+</Aside>
 
 ---
 
