@@ -416,6 +416,16 @@ Run \`npx hush init\` to generate configuration.
 
 ### "No sources defined in hush.yaml"
 Edit \`hush.yaml\` and add your source files under \`sources:\`.
+
+### "npm warn Unknown project config node-linker"
+This warning appears when running \`npx hush\` in a pnpm workspace because npm doesn't recognize pnpm-specific config in \`.npmrc\`.
+
+**Fix:** Add \`loglevel=error\` to the project's \`.npmrc\`:
+\`\`\`bash
+echo "loglevel=error" >> .npmrc
+\`\`\`
+
+This suppresses npm warnings while still showing errors. This is a per-project fix for any project using pnpm.
 `,
 
   'REFERENCE.md': `# Hush Command Reference
