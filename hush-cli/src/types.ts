@@ -34,6 +34,12 @@ export interface EncryptOptions {
   root: string;
 }
 
+export interface DecryptOptions {
+  root: string;
+  env: Environment;
+  force: boolean;
+}
+
 export interface EditOptions {
   root: string;
   file?: 'shared' | 'development' | 'production' | 'local';

@@ -527,6 +527,50 @@ Once installed, the skill teaches AI assistants to use `hush inspect` and `hush 
 
 ---
 
+## decrypt --force (Last Resort)
+
+<Aside type="danger">
+This command writes plaintext secrets to disk. Use `hush run` instead whenever possible.
+</Aside>
+
+Write decrypted secrets to disk as plaintext files. **Requires `--force` flag and interactive confirmation.**
+
+```bash
+hush decrypt --force
+hush decrypt --force -e production
+```
+
+### Why This Exists
+
+Some edge cases genuinely require plaintext files on disk:
+- Docker builds that can't use `hush run`
+- Legacy tooling that reads `.env` files directly
+- CI systems without TTY support for `hush run`
+
+### Safety Features
+
+1. **Requires `--force` flag** - Won't run without explicit opt-in
+2. **Interactive confirmation** - Must type "yes" to proceed
+3. **Blocks non-TTY** - Cannot be run by AI agents or in scripts
+
+### How It Works
+
+1. Decrypts encrypted source files
+2. Merges shared → environment → local overrides
+3. Interpolates variable references (`${VAR}`)
+4. Filters variables per target using `include`/`exclude` patterns
+5. **Writes plaintext files** to each target path
+
+<Aside type="tip">
+After using `decrypt --force`, delete the plaintext files when done:
+```bash
+rm .env.development .env.production .dev.vars
+```
+Or better yet, switch to `hush run -- <command>` for future use.
+</Aside>
+
+---
+
 ## list (Caution)
 
 <Aside type="caution">

@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import pc from 'picocolors';
 import type { Environment } from './types.js';
 import { encryptCommand } from './commands/encrypt.js';
+import { decryptCommand } from './commands/decrypt.js';
 import { editCommand } from './commands/edit.js';
 import { setCommand } from './commands/set.js';
 import { runCommand } from './commands/run.js';
@@ -48,6 +49,9 @@ ${pc.bold('Commands:')}
 ${pc.bold('Debugging Commands:')}
   resolve <target>  Show what variables a target receives (AI-safe)
   trace <key>       Trace a variable through sources and targets (AI-safe)
+
+${pc.bold('Advanced Commands:')}
+  decrypt --force   Write secrets to disk (requires confirmation, last resort)
 
 ${pc.bold('Options:')}
   -e, --env <env>   Environment: development or production (default: development)
@@ -362,6 +366,10 @@ async function main(): Promise<void> {
 
       case 'encrypt':
         await encryptCommand({ root });
+        break;
+
+      case 'decrypt':
+        await decryptCommand({ root, env, force });
         break;
 
       case 'run':

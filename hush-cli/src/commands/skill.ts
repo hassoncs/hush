@@ -104,6 +104,7 @@ npx hush run -e production -- npm build   # Production
 ### Commands to AVOID:
 - \`cat .env\` - Never read plaintext .env files directly
 - \`hush list\` - Shows actual secret values (use \`hush inspect\` instead)
+- \`hush decrypt --force\` - Writes plaintext to disk (use \`hush run\` instead)
 
 ---
 

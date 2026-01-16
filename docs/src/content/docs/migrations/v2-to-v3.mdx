@@ -1,6 +1,6 @@
 ---
 title: "Migration: v2 to v3"
-description: Migrating from Hush v2 to v3 - removal of decrypt command
+description: Migrating from Hush v2 to v3 - decrypt now requires --force
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
@@ -21,18 +21,23 @@ If you were already using `hush run` exclusively, no changes are needed. Just up
 
 ## What Changed
 
-### Removed: `hush decrypt` and `hush unsafe:decrypt`
+### Changed: `hush decrypt` now requires `--force`
 
-These commands have been **removed entirely** in v3. They were deprecated in v2 because they wrote plaintext secrets to disk, which defeats Hush's "encrypted at rest" security model.
+The old `hush decrypt` and `hush unsafe:decrypt` commands have been replaced with `hush decrypt --force`, which:
 
-**Why removed:**
-- Writing plaintext `.env` files to disk creates security risks
-- AI assistants could accidentally read these files
-- Secrets should only exist in memory when needed
+1. **Requires the `--force` flag** - Won't run without it
+2. **Requires interactive confirmation** - Must type "yes" to proceed
+3. **Blocks non-TTY environments** - Cannot be run by AI agents or scripts
+
+This makes it much harder to accidentally write plaintext secrets to disk.
 
 ### What to Use Instead: `hush run`
 
-The `hush run` command decrypts secrets to memory and injects them as environment variables into your command. Secrets never touch the disk.
+The `hush run` command decrypts secrets to memory and injects them as environment variables into your command. Secrets never touch the disk. **This is the recommended approach.**
+
+<Aside type="note">
+If you genuinely need plaintext files (Docker builds, legacy tooling), `hush decrypt --force` is still available as a last resort.
+</Aside>
 
 ## Migration Steps
 
