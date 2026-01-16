@@ -2,23 +2,26 @@
   "name": "hush-monorepo",
   "version": "0.0.0",
   "private": true,
+  "workspaces": [
+    "hush-cli",
+    "docs"
+  ],
   "description": "Hush CLI and documentation monorepo",
   "scripts": {
-    "build": "pnpm -r run build",
-    "test": "pnpm -r run test",
-    "dev": "pnpm -r run dev",
-    "type-check": "pnpm -r run type-check",
-    "cli:build": "pnpm --filter @chriscode/hush build",
-    "cli:test": "pnpm --filter @chriscode/hush test",
-    "docs:dev": "pnpm --filter docs dev",
-    "docs:build": "pnpm --filter docs build",
-    "docs:preview": "pnpm --filter docs preview",
-    "docs:deploy": "pnpm --filter docs build && pnpm --filter docs deploy",
+    "build": "bun run --filter '*' build",
+    "test": "bun run --filter '*' test",
+    "dev": "bun run --filter '*' dev",
+    "type-check": "bun run --filter '*' type-check",
+    "cli:build": "bun run --filter @chriscode/hush build",
+    "cli:test": "bun run --filter @chriscode/hush test",
+    "docs:dev": "bun run --filter docs dev",
+    "docs:build": "bun run --filter docs build",
+    "docs:preview": "bun run --filter docs preview",
+    "docs:deploy": "bun run --filter docs build && bun run --filter docs deploy",
     "changelog": "./scripts/changelog.sh",
     "release": "./scripts/release.sh"
   },
   "engines": {
     "node": ">=18"
-  },
-  "packageManager": "pnpm@9.15.4"
+  }
 }

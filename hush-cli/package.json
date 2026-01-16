@@ -17,7 +17,7 @@
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "pnpm build && pnpm test",
+    "prepublishOnly": "bun run build && bun run test",
     "type-check": "tsc --noEmit"
   },
   "keywords": [
