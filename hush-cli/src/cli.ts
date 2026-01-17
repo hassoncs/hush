@@ -86,7 +86,7 @@ ${pc.bold('Variable Expansion (v4+):')}
     EXPO_PUBLIC_API_URL=\${API_URL}
     PORT=\${PORT:-3000}
   
-  Template files are safe to commit - they contain no secrets.
+  Subdirectory templates are safe to commit - they contain no secrets.
 
 ${pc.bold('Examples:')}
   hush init                     Initialize config + generate keys
