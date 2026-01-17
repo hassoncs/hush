@@ -125,6 +125,82 @@ PORT=\${PORT:-8081}                  # Default value
 
 ---
 
+## Subdirectory Templates (Pull-Based)
+
+When a subdirectory needs to rename, transform, or add defaults to root secrets, create a \`.env\` template file in that subdirectory.
+
+### Step-by-Step Setup
+
+**1. Ensure root secrets exist:**
+\`\`\`bash
+npx hush inspect   # From repo root - verify secrets are configured
+\`\`\`
+
+**2. Create subdirectory template (this file is committed to git):**
+\`\`\`bash
+# apps/mobile/.env
+EXPO_PUBLIC_API_URL=\${API_URL}           # Pull API_URL from root, rename it
+EXPO_PUBLIC_STRIPE_KEY=\${STRIPE_KEY}     # Pull and rename
+PORT=\${PORT:-8081}                        # Use root PORT, or default to 8081
+DEBUG=\${DEBUG:-false}                     # Use root DEBUG, or default to false
+\`\`\`
+
+**3. Run from the subdirectory:**
+\`\`\`bash
+cd apps/mobile
+npx hush run -- npm start
+\`\`\`
+
+Hush automatically:
+1. Finds the project root (where \`hush.yaml\` is)
+2. Decrypts root secrets
+3. Loads the local \`.env\` template
+4. Resolves \`\${VAR}\` references against root secrets
+5. Injects the result into your command
+
+### Variable Expansion Syntax
+
+| Syntax | Meaning | Example |
+|--------|---------|---------|
+| \`\${VAR}\` | Pull VAR from root secrets | \`API_URL=\${API_URL}\` |
+| \`\${VAR:-default}\` | Pull VAR, use default if missing/empty | \`PORT=\${PORT:-3000}\` |
+| \`\${env:VAR}\` | Read from system environment (CI, etc.) | \`CI=\${env:CI}\` |
+
+### Common Patterns
+
+**Expo/React Native app:**
+\`\`\`bash
+# apps/mobile/.env
+EXPO_PUBLIC_API_URL=\${API_URL}
+EXPO_PUBLIC_STRIPE_KEY=\${STRIPE_PUBLISHABLE_KEY}
+EXPO_PUBLIC_ENV=\${ENV:-development}
+\`\`\`
+
+**Next.js app:**
+\`\`\`bash
+# apps/web/.env
+NEXT_PUBLIC_API_URL=\${API_URL}
+NEXT_PUBLIC_STRIPE_KEY=\${STRIPE_PUBLISHABLE_KEY}
+DATABASE_URL=\${DATABASE_URL}
+\`\`\`
+
+**API server with defaults:**
+\`\`\`bash
+# apps/api/.env
+DATABASE_URL=\${DATABASE_URL}
+PORT=\${PORT:-8787}
+LOG_LEVEL=\${LOG_LEVEL:-info}
+\`\`\`
+
+### Important Notes
+
+- **Template files ARE committed to git** - they contain no secrets, just references
+- **Run from the subdirectory** - \`hush run\` auto-detects the project root
+- **Root secrets stay encrypted** - subdirectory templates just reference them
+- **Self-reference works** - \`PORT=\${PORT:-3000}\` uses root PORT if set, else 3000
+
+---
+
 ## Commands Quick Reference
 
 | Command | Purpose | When to Use |
@@ -1168,6 +1244,79 @@ npx hush push             # Actually push
 npx hush run -e production -- npm run build
 npx hush push
 \`\`\`
+
+---
+
+## Setting Up Subdirectory Templates (Pull-Based Secrets)
+
+### "Set up secrets for a subdirectory app (Expo, Next.js, etc.)"
+
+**Use this when:** You need to rename, transform, or add defaults to root secrets for a specific package.
+
+**Step 1: Verify root secrets exist**
+\`\`\`bash
+cd /path/to/repo/root
+npx hush inspect
+\`\`\`
+
+**Step 2: Create the subdirectory template file**
+
+Create a \`.env\` file in the subdirectory. This file is committed to git - it's just a template, not actual secrets.
+
+\`\`\`bash
+# Example: apps/mobile/.env
+EXPO_PUBLIC_API_URL=\${API_URL}           # Pulls API_URL from root, renames it
+EXPO_PUBLIC_STRIPE_KEY=\${STRIPE_KEY}     # Pulls and renames
+PORT=\${PORT:-8081}                        # Uses root PORT if set, otherwise 8081
+DEBUG=\${DEBUG:-false}                     # Uses root DEBUG if set, otherwise false
+\`\`\`
+
+**Step 3: Run from the subdirectory**
+\`\`\`bash
+cd apps/mobile
+npx hush run -- npm start
+\`\`\`
+
+### Variable Expansion Syntax Reference
+
+| Syntax | What It Does | Example |
+|--------|--------------|---------|
+| \`\${VAR}\` | Pull VAR from root secrets | \`API_URL=\${API_URL}\` |
+| \`\${VAR:-default}\` | Pull VAR, use default if not set | \`PORT=\${PORT:-3000}\` |
+| \`\${env:VAR}\` | Read from system environment | \`CI=\${env:CI}\` |
+
+### Framework Examples
+
+**Expo/React Native:**
+\`\`\`bash
+# apps/mobile/.env
+EXPO_PUBLIC_API_URL=\${API_URL}
+EXPO_PUBLIC_STRIPE_KEY=\${STRIPE_PUBLISHABLE_KEY}
+EXPO_PUBLIC_ENV=\${ENV:-development}
+\`\`\`
+
+**Next.js:**
+\`\`\`bash
+# apps/web/.env  
+NEXT_PUBLIC_API_URL=\${API_URL}
+NEXT_PUBLIC_STRIPE_KEY=\${STRIPE_PUBLISHABLE_KEY}
+DATABASE_URL=\${DATABASE_URL}
+\`\`\`
+
+**Cloudflare Worker:**
+\`\`\`bash
+# apps/api/.env
+DATABASE_URL=\${DATABASE_URL}
+STRIPE_SECRET_KEY=\${STRIPE_SECRET_KEY}
+PORT=\${PORT:-8787}
+\`\`\`
+
+### Important Notes
+
+- **Template files ARE committed** to git (they contain no secrets)
+- **Root secrets stay encrypted** - templates just reference them
+- **Run from subdirectory** - \`hush run\` finds the project root automatically
+- **Self-reference works** - \`PORT=\${PORT:-3000}\` uses root PORT if set
 
 ---
 
