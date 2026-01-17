@@ -269,9 +269,72 @@ Useful for providing defaults to variables that might be overridden:
 PORT=${PORT:-3000}
 ```
 
-## Pull-Based Architecture (New in v4)
+## Push vs Pull: Choosing the Right Approach
 
-In monorepos, instead of pushing variables to subdirectories using `hush.yaml` targets, you can define `.env` templates in your subdirectories that **pull** values from root secrets.
+Hush v4 supports two architectures for distributing secrets in monorepos. Choose based on your use case.
+
+### Quick Decision Guide
+
+| Scenario | Use | Why |
+|----------|-----|-----|
+| "All `NEXT_PUBLIC_*` vars to web app" | **Push** | Pattern-based, zero maintenance |
+| "Rename `API_URL` → `EXPO_PUBLIC_API_URL`" | **Pull** | Transformation required |
+| "Add default `PORT=3000` if not set" | **Pull** | Default values |
+| "Combine vars: `${HOST}:${PORT}`" | **Pull** | Composition |
+| "New vars auto-flow to targets" | **Push** | No template updates needed |
+| "Subdirectory controls its own deps" | **Pull** | Explicit ownership |
+
+### Push Model (include/exclude in hush.yaml)
+
+**Best for:** Pattern-based filtering where new vars should auto-flow.
+
+```yaml
+targets:
+  - name: web
+    path: ./apps/web
+    format: dotenv
+    include:
+      - NEXT_PUBLIC_*  # All matching vars flow automatically
+```
+
+**Pros:**
+- Zero maintenance when adding new vars matching the pattern
+- Centralized control in `hush.yaml`
+- Great for "all client vars go here" scenarios
+
+**Cons:**
+- Cannot rename or transform vars
+- Cannot add defaults
+- Cannot combine vars
+
+### Pull Model (subdirectory .env templates)
+
+**Best for:** Transformation, renaming, defaults, or when subdirectories own their config.
+
+```bash
+# apps/mobile/.env (committed - just a template)
+EXPO_PUBLIC_API_URL=${API_URL}      # Rename
+EXPO_PUBLIC_DEBUG=${DEBUG:-false}    # Default value
+PORT=${PORT:-3000}                   # Self-reference with default
+```
+
+**Pros:**
+- Can rename vars (API_URL → EXPO_PUBLIC_API_URL)
+- Can provide defaults (`${VAR:-default}`)
+- Can compose vars (`${HOST}:${PORT}`)
+- Subdirectory explicitly declares what it needs
+
+**Cons:**
+- Must update template when adding new vars
+- More files to maintain
+
+<Aside type="tip">
+**For AI agents:** Use **push** when you see patterns like "route all NEXT_PUBLIC_* vars" or "exclude client vars from API". Use **pull** when you need to rename, transform, or add defaults to variables.
+</Aside>
+
+## Pull-Based Architecture (v4)
+
+In monorepos, you can define `.env` templates in your subdirectories that **pull** values from root secrets.
 
 **Root Secrets (.env):**
 ```bash

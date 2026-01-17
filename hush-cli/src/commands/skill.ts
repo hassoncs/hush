@@ -87,6 +87,44 @@ npx hush run -e production -- npm build   # Production
 
 ---
 
+## Monorepo Architecture: Push vs Pull
+
+Hush supports two ways to distribute secrets in monorepos. **Choose based on the use case:**
+
+| Need | Use | Example |
+|------|-----|---------|
+| Pattern-based filtering | **Push** | "All \`NEXT_PUBLIC_*\` vars → web app" |
+| Auto-flow new vars | **Push** | Add var at root, it flows automatically |
+| Rename variables | **Pull** | \`API_URL\` → \`EXPO_PUBLIC_API_URL\` |
+| Default values | **Pull** | \`PORT=\${PORT:-3000}\` |
+| Combine variables | **Pull** | \`URL=\${HOST}:\${PORT}\` |
+
+### Push (include/exclude in hush.yaml)
+
+Best for simple filtering where new vars should auto-flow:
+
+\`\`\`yaml
+# hush.yaml
+targets:
+  - name: web
+    path: ./apps/web
+    include: [NEXT_PUBLIC_*]  # All matching vars auto-flow
+\`\`\`
+
+### Pull (subdirectory .env templates)
+
+Best for transformation, renaming, or explicit dependencies:
+
+\`\`\`bash
+# apps/mobile/.env (committed - it's just a template)
+EXPO_PUBLIC_API_URL=\${API_URL}     # Rename from root
+PORT=\${PORT:-8081}                  # Default value
+\`\`\`
+
+**Decision rule:** Use push for "all X goes to Y" patterns. Use pull when you need to rename, transform, or add defaults.
+
+---
+
 ## Commands Quick Reference
 
 | Command | Purpose | When to Use |
@@ -877,14 +915,32 @@ DEBUG=\${DEBUG:-false}
 PORT=\${PORT:-3000}
 
 # System environment (explicit opt-in)
-PATH=\${env:HOME}/.local/bin
+CI=\${env:CI}
 
 # Pull from root (subdirectory .env can reference root secrets)
-# apps/web/.env.development:
-DATABASE_URL=\${DATABASE_URL}  # Inherited from root .env
+# apps/mobile/.env:
+EXPO_PUBLIC_API_URL=\${API_URL}  # Renamed from root
 \`\`\`
 
-**Resolution order:** Local value → Parent directories → System env (only with \`env:\` prefix)
+**Resolution order:** Local value → Root secrets → System env (only with \`env:\` prefix)
+
+### Push vs Pull Architecture
+
+**Push (hush.yaml targets):** Pattern-based filtering, auto-flow
+\`\`\`yaml
+targets:
+  - name: web
+    include: [NEXT_PUBLIC_*]  # All matching vars flow automatically
+\`\`\`
+
+**Pull (subdirectory templates):** Transformation, renaming, defaults
+\`\`\`bash
+# apps/mobile/.env
+EXPO_PUBLIC_API_URL=\${API_URL}  # Rename required
+PORT=\${PORT:-3000}               # Default value
+\`\`\`
+
+**Decision:** Use push for "all X → Y". Use pull for rename/transform/defaults.
 `,
 
   'examples/workflows.md': `# Hush Workflow Examples
@@ -1112,6 +1168,49 @@ npx hush push             # Actually push
 npx hush run -e production -- npm run build
 npx hush push
 \`\`\`
+
+---
+
+## Choosing Push vs Pull (Monorepos)
+
+### "How should I set up secrets for a new package?"
+
+**Ask yourself:** Does this package need to rename variables or add defaults?
+
+#### If NO (simple filtering) → Use Push
+
+Edit \`hush.yaml\` to add a target:
+\`\`\`yaml
+targets:
+  - name: new-package
+    path: ./packages/new-package
+    format: dotenv
+    include:
+      - NEXT_PUBLIC_*  # Or whatever pattern fits
+\`\`\`
+
+**Benefits:** New \`NEXT_PUBLIC_*\` vars at root auto-flow. Zero maintenance.
+
+#### If YES (transformation needed) → Use Pull
+
+Create a template \`.env\` in the package:
+\`\`\`bash
+# packages/mobile/.env (committed to git)
+EXPO_PUBLIC_API_URL=\${API_URL}     # Rename from root
+EXPO_PUBLIC_DEBUG=\${DEBUG:-false}  # With default
+PORT=\${PORT:-8081}                  # Local default
+\`\`\`
+
+**Benefits:** Full control over naming and defaults. Explicit dependencies.
+
+### "When do I update templates vs hush.yaml?"
+
+| Scenario | Update |
+|----------|--------|
+| New \`NEXT_PUBLIC_*\` var, web uses push | Nothing! Auto-flows |
+| New var mobile needs, mobile uses pull | \`packages/mobile/.env\` template |
+| New package needs secrets | \`hush.yaml\` (push) or new template (pull) |
+| Change var routing | \`hush.yaml\` include/exclude patterns |
 
 ---
 

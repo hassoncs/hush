@@ -28,9 +28,22 @@ Each package needs different variables:
 
 Manually copying `.env` files is error-prone. Committing different subsets is a maintenance nightmare.
 
-## The Solution
+## Two Approaches: Push vs Pull
 
-Hush v4 introduces a **Pull-Based Architecture**. Instead of defining complex routing rules in `hush.yaml`, each package defines what it needs in its own `.env` file, referencing root secrets.
+Hush supports two architectures for distributing secrets. They solve different problems—use the right tool for the job.
+
+| Approach | Best For | Example |
+|----------|----------|---------|
+| **Push** (include/exclude) | Pattern-based filtering, auto-flow | "All `NEXT_PUBLIC_*` → web app" |
+| **Pull** (subdirectory templates) | Transformation, renaming, defaults | "Rename `API_URL` → `EXPO_PUBLIC_API_URL`" |
+
+<Aside type="tip">
+**Decision rule:** If you need to **rename**, **transform**, or **add defaults** to variables, use pull. If you want new matching vars to **auto-flow** without updates, use push.
+</Aside>
+
+## Pull-Based Architecture
+
+Each package defines what it needs in its own `.env` file, referencing root secrets.
 
 ### 1. Define Root Secrets
 
@@ -85,9 +98,9 @@ hush run -- npm dev
 
 The web app receives `NEXT_PUBLIC_API_URL` with the decrypted value from the root secrets.
 
-## Legacy Push-Based Pattern (v3)
+## Push-Based Architecture
 
-You can still use `hush.yaml` targets to push variables if you prefer:
+Use `hush.yaml` targets with `include`/`exclude` patterns when you want automatic filtering without maintaining templates:
 
 ```yaml
 sources:
@@ -111,6 +124,35 @@ targets:
     format: dotenv
     include:
       - NEXT_PUBLIC_*
+```
+
+**When push works best:**
+- Adding `NEXT_PUBLIC_FOO` at root auto-flows to web—no template update needed
+- Centralized control: one file shows all routing rules
+- Simple filtering: "everything matching X goes to Y"
+
+**When push doesn't work:**
+- Cannot rename: `API_URL` stays `API_URL`, can't become `EXPO_PUBLIC_API_URL`
+- Cannot add defaults: no `${PORT:-3000}` syntax
+- Cannot compose: no `${HOST}:${PORT}` combinations
+
+## Combining Both Approaches
+
+You can use push for some targets and pull for others in the same project:
+
+```yaml
+# hush.yaml - push for simple targets
+targets:
+  - name: web
+    path: ./apps/web
+    include: [NEXT_PUBLIC_*]  # Auto-flow, no transformation needed
+```
+
+```bash
+# apps/mobile/.env - pull for targets needing transformation
+EXPO_PUBLIC_API_URL=${API_URL}         # Rename required
+EXPO_PUBLIC_STRIPE_KEY=${STRIPE_KEY}   # Rename required
+PORT=${PORT:-8081}                      # Default value
 ```
 
 ## Common Patterns
