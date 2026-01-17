@@ -1,0 +1,228 @@
+---
+title: "Migration: v4 to v5"
+description: Migrate from Hush v4 (.env.encrypted) to v5 (.hush.encrypted) file naming.
+---
+
+import { Steps, Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+# Migrating from Hush v4 to v5
+
+## Summary
+
+**Who's affected:** All users with existing `.env.encrypted` files  
+**Estimated time:** 2-5 minutes  
+**Breaking change:** File naming convention
+
+## What Changed
+
+Hush v5 introduces a new file naming convention to avoid conflicts with other tools:
+
+| v4 (Old) | v5 (New) |
+|----------|----------|
+| `.env` | `.hush` |
+| `.env.development` | `.hush.development` |
+| `.env.production` | `.hush.production` |
+| `.env.local` | `.hush.local` |
+| `.env.encrypted` | `.hush.encrypted` |
+| `.env.development.encrypted` | `.hush.development.encrypted` |
+| `.env.production.encrypted` | `.hush.production.encrypted` |
+| `.env.local.encrypted` | `.hush.local.encrypted` |
+
+## Why This Change?
+
+**Problem:** Many tools (Wrangler, Metro, Next.js, etc.) automatically read `.env` files. This caused conflicts:
+
+1. **Tool conflicts:** Wrangler reads `.env` and `.dev.vars`, blocking Hush's injected secrets
+2. **Commit hook friction:** `hush check` warned about ALL `.env` files, even legitimate ones from other tools
+3. **Migration confusion:** Hard to tell which `.env` files were "Hush's" vs "other tools'"
+
+**Solution:** Hush now uses `.hush` files exclusively:
+- Hush reads from `.hush.encrypted` files
+- Output from `hush decrypt --force` still writes to `.env` files (for tool compatibility)
+- `hush check` now only warns about `.env` files (not `.hush` files)
+
+## Migration Steps
+
+<Steps>
+
+1. **Update Hush**
+
+   ```bash
+   npm update @chriscode/hush
+   # or
+   pnpm update @chriscode/hush
+   ```
+
+2. **Run the migrate command**
+
+   ```bash
+   npx hush migrate --dry-run    # Preview changes
+   npx hush migrate              # Apply changes
+   ```
+
+   This automatically:
+   - Renames `.env.encrypted` → `.hush.encrypted`
+   - Renames `.env.development.encrypted` → `.hush.development.encrypted`
+   - Renames `.env.production.encrypted` → `.hush.production.encrypted`
+   - Updates `hush.yaml` source paths
+
+3. **Update git**
+
+   ```bash
+   # Add new files
+   git add .hush.encrypted .hush.*.encrypted hush.yaml
+   
+   # Remove old files (if tracked)
+   git rm .env.encrypted .env.*.encrypted --cached 2>/dev/null || true
+   
+   # Commit
+   git commit -m "chore: migrate to Hush v5 format"
+   ```
+
+4. **Update .gitignore**
+
+   Replace your old `.gitignore` entries:
+
+   ```diff
+   - # Hush - Plaintext env files
+   - .env
+   - .env.development
+   - .env.production
+   - .env.local
+   - .env.local.encrypted
+   - !.env.encrypted
+   - !.env.development.encrypted
+   - !.env.production.encrypted
+   
+   + # Hush - Plaintext source files
+   + .hush
+   + .hush.development
+   + .hush.production
+   + .hush.local
+   + .hush.local.encrypted
+   + 
+   + # Hush - Output files (from decrypt --force)
+   + .env
+   + .env.*
+   + .dev.vars
+   + 
+   + # Keep encrypted files
+   + !.hush.encrypted
+   + !.hush.development.encrypted
+   + !.hush.production.encrypted
+   ```
+
+5. **Verify**
+
+   ```bash
+   npx hush status    # Should show .hush.encrypted files
+   npx hush inspect   # Should show your secrets
+   ```
+
+</Steps>
+
+## Manual Migration (Alternative)
+
+If you prefer to migrate manually:
+
+```bash
+# Rename encrypted files
+mv .env.encrypted .hush.encrypted
+mv .env.development.encrypted .hush.development.encrypted
+mv .env.production.encrypted .hush.production.encrypted
+mv .env.local.encrypted .hush.local.encrypted 2>/dev/null || true
+
+# Update hush.yaml sources
+sed -i '' 's/\.env/.hush/g' hush.yaml
+```
+
+## hush.yaml Changes
+
+Your `hush.yaml` should now reference `.hush` files:
+
+<Tabs>
+  <TabItem label="v5 (New)">
+    ```yaml
+    sources:
+      shared: .hush
+      development: .hush.development
+      production: .hush.production
+    ```
+  </TabItem>
+  <TabItem label="v4 (Old)">
+    ```yaml
+    sources:
+      shared: .env
+      development: .env.development
+      production: .env.production
+    ```
+  </TabItem>
+</Tabs>
+
+## Behavior Changes
+
+### Warning Behavior
+
+| Scenario | v4 Behavior | v5 Behavior |
+|----------|-------------|-------------|
+| `.env` file exists | ⚠️ Warning | ⚠️ Warning (legacy/output file) |
+| `.hush` file exists | N/A | ✅ No warning (your source file) |
+
+### Output Files
+
+`hush decrypt --force` still writes to `.env` files (for compatibility with other tools):
+
+```bash
+hush decrypt --force
+# Creates: .env.development (or .dev.vars for wrangler targets)
+```
+
+This means:
+- Your **source of truth** is `.hush.encrypted`
+- **Output for other tools** is `.env` (generated on demand)
+
+## Troubleshooting
+
+### "No encrypted files found"
+
+Run `hush migrate` first, then try again.
+
+### "hush.yaml still references .env"
+
+The migrate command should update this automatically. If not:
+
+```bash
+# Check current sources
+grep "shared:" hush.yaml
+
+# Should show: shared: .hush
+# If it shows: shared: .env, run migrate again or edit manually
+```
+
+### Team members getting errors
+
+After migration, other team members need to:
+
+1. `git pull` to get the renamed files
+2. Update their local Hush: `npm update @chriscode/hush`
+
+Their existing encryption keys will continue to work - only the file names changed.
+
+## AI Migration Assistant
+
+Copy this prompt to your AI assistant:
+
+```
+Help me migrate from Hush v4 to v5.
+
+Rules:
+- Do NOT read .hush files directly
+- Use hush inspect, hush has, hush status only
+
+Steps:
+1. Run `npx hush migrate --dry-run` to preview
+2. Run `npx hush migrate` to apply
+3. Update git (add new files, remove old)
+4. Update .gitignore
+5. Verify with `npx hush status`
+```

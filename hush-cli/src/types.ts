@@ -144,10 +144,10 @@ export interface TraceOptions {
 }
 
 export const DEFAULT_SOURCES: SourceFiles = {
-  shared: '.env',
-  development: '.env.development',
-  production: '.env.production',
-  local: '.env.local',
+  shared: '.hush',
+  development: '.hush.development',
+  production: '.hush.production',
+  local: '.hush.local',
 };
 
 export const FORMAT_OUTPUT_FILES: Record<OutputFormat, Record<Environment, string>> = {

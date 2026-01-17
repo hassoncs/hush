@@ -11,6 +11,7 @@ import { FORMAT_OUTPUT_FILES } from '../types.js';
 
 function findRootPlaintextEnvFiles(root: string): string[] {
   const results: string[] = [];
+  // Only warn about .env files (legacy/output), not .hush files (Hush's source files)
   const plaintextPatterns = ['.env', '.env.development', '.env.production', '.env.local', '.env.staging', '.env.test', '.dev.vars'];
 
   for (const pattern of plaintextPatterns) {
@@ -64,8 +65,8 @@ export async function statusCommand(options: StatusOptions): Promise<void> {
     console.log('');
     console.log(pc.yellow('These files may expose secrets to AI assistants and version control.'));
     console.log(pc.bold('\nTo fix:'));
-    console.log(pc.dim('  1. Run: npx hush encrypt'));
-    console.log(pc.dim('  2. The plaintext files will be automatically deleted after encryption'));
+    console.log(pc.dim('  1. Run: npx hush migrate (if upgrading from v4)'));
+    console.log(pc.dim('  2. Delete or gitignore these .env files'));
     console.log(pc.dim('  3. Add to .gitignore: .env, .env.*, .dev.vars\n'));
   }
 
@@ -140,11 +141,11 @@ export async function statusCommand(options: StatusOptions): Promise<void> {
     );
   }
 
-  const localPath = join(root, '.env.local');
+  const localEncryptedPath = join(root, config.sources.local + '.encrypted');
   console.log(
-    existsSync(localPath)
-      ? pc.green('  .env.local (overrides)')
-      : pc.dim('  .env.local (optional, not found)')
+    existsSync(localEncryptedPath)
+      ? pc.green(`  ${config.sources.local}.encrypted (overrides)`)
+      : pc.dim(`  ${config.sources.local}.encrypted (optional, not found)`)
   );
 
   console.log(pc.bold('\nTargets:'));

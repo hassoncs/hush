@@ -103,18 +103,18 @@ Hush requires **Node.js 18+** and delegates encryption to standard tools.
 
    This auto-detects packages in your monorepo and creates a configuration file.
 
-4. **Create your env files**
+4. **Create your source files**
 
    ```bash
-   # .env (shared across environments)
+   # .hush (shared across environments)
    DATABASE_URL=postgres://localhost/mydb
    STRIPE_SECRET_KEY=sk_test_xxx
    EXPO_PUBLIC_API_URL=${API_BASE}/v1
 
-   # .env.development
+   # .hush.development
    API_BASE=http://localhost:8787
 
-   # .env.production
+   # .hush.production
    API_BASE=https://api.example.com
    ```
 
@@ -124,7 +124,7 @@ Hush requires **Node.js 18+** and delegates encryption to standard tools.
    npx hush encrypt
    ```
 
-   This creates encrypted versions of your env files (`.env.encrypted`, etc.) that are safe to commit.
+   This creates encrypted versions of your source files (`.hush.encrypted`, etc.) that are safe to commit.
 
 6. **Run with secrets**
 
@@ -154,5 +154,5 @@ This shows your configuration, encrypted files, and target distribution.
 - See the full [Command Reference](/reference/commands/)
 
 <Aside type="tip">
-Add `*.encrypted` files to git. With `hush run`, plaintext env files are never created—secrets only exist in memory when your program runs.
+Add `.hush*.encrypted` files to git. With `hush run`, plaintext files are never created—secrets only exist in memory when your program runs.
 </Aside>

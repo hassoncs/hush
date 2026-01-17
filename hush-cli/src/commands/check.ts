@@ -55,6 +55,7 @@ function getGitChangedFiles(root: string): Set<string> {
 
 function findPlaintextEnvFiles(root: string): PlaintextFileResult[] {
   const results: PlaintextFileResult[] = [];
+  // Only warn about .env files (legacy/output files), NOT .hush files (Hush's source files)
   const plaintextPatterns = ['.env', '.env.development', '.env.production', '.env.local', '.env.staging', '.env.test', '.dev.vars'];
   const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt']);
   
@@ -239,8 +240,8 @@ function formatTextOutput(result: CheckResult): string {
     lines.push(pc.yellow('These files contain plaintext secrets that could be exposed to AI assistants.'));
     lines.push('');
     lines.push(pc.bold('To fix:'));
-    lines.push(pc.dim('  1. Run: hush encrypt'));
-    lines.push(pc.dim('  2. Delete the plaintext files (the .encrypted versions are your source of truth)'));
+    lines.push(pc.dim('  1. Run: hush migrate (if upgrading from v4)'));
+    lines.push(pc.dim('  2. Delete or gitignore these .env files'));
     lines.push(pc.dim('  3. Add to .gitignore: .env, .env.*, .dev.vars'));
     lines.push('');
     lines.push(pc.dim('To allow plaintext files (not recommended): --allow-plaintext'));

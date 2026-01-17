@@ -98,14 +98,14 @@ Use `-t` (target) to filter secrets. For example, your frontend might only need 
 Set a secret interactively. The AI assistant invokes this command, and the user enters the value—**the AI never sees the secret**.
 
 ```bash
-# Set a secret in shared (.env.encrypted)
+# Set a secret in shared (.hush.encrypted)
 hush set DATABASE_URL
 
 # Set a secret in a specific environment
 hush set API_KEY -e production
 hush set DEBUG -e development
 
-# Set a secret in local overrides (.env.local.encrypted)
+# Set a secret in local overrides (.hush.local.encrypted)
 hush set MY_OVERRIDE --local
 ```
 
@@ -113,8 +113,8 @@ hush set MY_OVERRIDE --local
 
 | Option | Description |
 |--------|-------------|
-| `-e, --env <env>` | Target environment file (default: shared `.env.encrypted`) |
-| `--local` | Set in `.env.local.encrypted` (personal overrides, not committed) |
+| `-e, --env <env>` | Target environment file (default: shared `.hush.encrypted`) |
+| `--local` | Set in `.hush.local.encrypted` (personal overrides, not committed) |
 
 ### How It Works
 
@@ -129,7 +129,7 @@ hush set MY_OVERRIDE --local
 ```
 $ hush set DATABASE_URL
 Enter value for DATABASE_URL: ••••••••••••••••
-✓ DATABASE_URL set in .env.encrypted (45 chars)
+✓ DATABASE_URL set in .hush.encrypted (45 chars)
 ```
 
 <Aside type="tip">
@@ -184,9 +184,9 @@ This command scans your monorepo for packages with `package.json` files and crea
 ```yaml
 # hush.yaml (generated)
 sources:
-  shared: .env
-  development: .env.development
-  production: .env.production
+  shared: .hush
+  development: .hush.development
+  production: .hush.production
 
 targets:
   - name: root
@@ -204,7 +204,7 @@ targets:
 
 ## encrypt
 
-Encrypt source `.env` files to `.env.encrypted` files.
+Encrypt source `.hush` files to `.hush.encrypted` files.
 
 ```bash
 hush encrypt
@@ -213,9 +213,11 @@ hush encrypt
 ### What Gets Encrypted
 
 Based on your `hush.yaml` sources configuration:
-- `.env` → `.env.encrypted`
-- `.env.development` → `.env.development.encrypted`
-- `.env.production` → `.env.production.encrypted`
+- `.hush` → `.hush.encrypted`
+- `.hush.development` → `.hush.development.encrypted`
+- `.hush.production` → `.hush.production.encrypted`
+
+After encryption, the plaintext `.hush` files are automatically deleted.
 
 <Aside type="tip">
 Encrypted files are safe to commit to git. Add them to version control as your source of truth.
@@ -576,7 +578,7 @@ hush skill --local
 - **Local** - Bundled with the project. Recommended for teams (commit `.claude/` to git).
 
 <Aside type="tip">
-Once installed, the skill teaches AI assistants to use `hush inspect` and `hush has` instead of reading `.env` files directly.
+Once installed, the skill teaches AI assistants to use `hush inspect` and `hush has` instead of reading `.hush` files directly.
 </Aside>
 
 ---

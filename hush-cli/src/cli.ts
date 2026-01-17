@@ -20,6 +20,7 @@ import { resolveCommand } from './commands/resolve.js';
 import { traceCommand } from './commands/trace.js';
 import { templateCommand } from './commands/template.js';
 import { expansionsCommand } from './commands/expansions.js';
+import { migrateCommand } from './commands/migrate.js';
 import { findConfigPath, loadConfig, checkSchemaVersion } from './config/loader.js';
 import { checkForUpdate } from './utils/version-check.js';
 
@@ -35,7 +36,7 @@ ${pc.bold('Usage:')}
 
 ${pc.bold('Commands:')}
   init              Initialize hush.yaml config
-  encrypt           Encrypt source .env files
+  encrypt           Encrypt source .hush files
   run -- <cmd>      Run command with secrets in memory (AI-safe)
   set <KEY>         Set a single secret interactively (AI-safe)
   edit [file]       Edit all secrets in $EDITOR
@@ -47,6 +48,7 @@ ${pc.bold('Commands:')}
   status            Show configuration and status
   skill             Install Claude Code / OpenCode skill
   keys <cmd>        Manage SOPS age keys (setup, generate, pull, push, list)
+  migrate           Migrate from v4 (.env.encrypted) to v5 (.hush.encrypted)
 
 ${pc.bold('Debugging Commands:')}
   resolve <target>  Show what variables a target receives (AI-safe)
@@ -75,7 +77,7 @@ ${pc.bold('Options:')}
   -h, --help        Show this help message
   -v, --version     Show version number
 
-${pc.bold('Variable Expansion (v4+):')}
+${pc.bold('Variable Expansion (v5+):')}
   Subdirectory .env files can reference root secrets:
   
     \${VAR}           Pull VAR from root secrets
@@ -93,9 +95,20 @@ ${pc.bold('Variable Expansion (v4+):')}
   
   Subdirectory templates are safe to commit - they contain no secrets.
 
+${pc.bold('File Naming (v5+):')}
+  Hush uses .hush files instead of .env to avoid conflicts with other tools:
+  
+    .hush                  Shared secrets (source file)
+    .hush.development      Development secrets (source file)
+    .hush.encrypted        Encrypted shared secrets (committed)
+    .hush.development.encrypted  Encrypted dev secrets (committed)
+  
+  The .env files are reserved for other tools (Wrangler, Metro, etc.).
+
 ${pc.bold('Examples:')}
   hush init                     Initialize config + generate keys
-  hush encrypt                  Encrypt .env files
+  hush migrate                  Migrate v4 .env.encrypted to v5 .hush.encrypted
+  hush encrypt                  Encrypt .hush files
   hush run -- npm start         Run with secrets in memory (AI-safe!)
   hush run -e prod -- npm build Run with production secrets
   hush run -t api -- wrangler dev  Run filtered for 'api' target (root secrets only)
@@ -337,7 +350,7 @@ function parseArgs(args: string[]): ParsedArgs {
 }
 
 function checkMigrationNeeded(root: string, command: string): void {
-  const skipCommands = ['', 'help', 'version', 'init', 'skill'];
+  const skipCommands = ['', 'help', 'version', 'init', 'skill', 'migrate'];
   if (skipCommands.includes(command)) return;
 
   const configPath = findConfigPath(root);
@@ -480,6 +493,10 @@ async function main(): Promise<void> {
 
       case 'expansions':
         await expansionsCommand({ root, env });
+        break;
+
+      case 'migrate':
+        await migrateCommand({ root, dryRun });
         break;
 
       default:

@@ -52,7 +52,7 @@ export async function encryptCommand(options: EncryptOptions): Promise<void> {
 
   if (encryptedFiles.length === 0) {
     console.error(pc.red('\nNo source files found to encrypt'));
-    console.error(pc.dim('Create at least .env with your secrets'));
+    console.error(pc.dim('Create at least .hush with your secrets'));
     process.exit(1);
   }
 

@@ -145,7 +145,23 @@ function detectTargets(root: string): Target[] {
 }
 
 function findExistingPlaintextEnvFiles(root: string): string[] {
+  // Look for legacy .env files that may need migration
   const patterns = ['.env', '.env.development', '.env.production', '.env.local', '.env.staging', '.env.test', '.dev.vars'];
+  const found: string[] = [];
+  
+  for (const pattern of patterns) {
+    const filePath = join(root, pattern);
+    if (existsSync(filePath)) {
+      found.push(pattern);
+    }
+  }
+  
+  return found;
+}
+
+function findExistingEncryptedFiles(root: string): string[] {
+  // Look for v4 encrypted files that need migration to v5 (.hush.encrypted)
+  const patterns = ['.env.encrypted', '.env.development.encrypted', '.env.production.encrypted', '.env.local.encrypted'];
   const found: string[] = [];
   
   for (const pattern of patterns) {
@@ -169,14 +185,25 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
   console.log(pc.blue('Initializing hush...\n'));
 
+  const existingEncryptedFiles = findExistingEncryptedFiles(root);
+  if (existingEncryptedFiles.length > 0) {
+    console.log(pc.bgYellow(pc.black(' V4 ENCRYPTED FILES DETECTED ')));
+    console.log(pc.yellow('\nFound existing v4 encrypted files:'));
+    for (const file of existingEncryptedFiles) {
+      console.log(pc.yellow(`  ${file}`));
+    }
+    console.log(pc.dim('\nRun "npx hush migrate" to convert to v5 format (.hush.encrypted).\n'));
+  }
+
   const existingEnvFiles = findExistingPlaintextEnvFiles(root);
   if (existingEnvFiles.length > 0) {
-    console.log(pc.bgYellow(pc.black(' EXISTING SECRETS DETECTED ')));
+    console.log(pc.bgYellow(pc.black(' PLAINTEXT .ENV FILES DETECTED ')));
     console.log(pc.yellow('\nFound existing .env files:'));
     for (const file of existingEnvFiles) {
       console.log(pc.yellow(`  ${file}`));
     }
-    console.log(pc.dim('\nThese will be encrypted after setup. Run "npx hush encrypt" when ready.\n'));
+    console.log(pc.dim('\nRename these to .hush files, then run "npx hush encrypt".\n'));
+    console.log(pc.dim('Example: mv .env .hush && mv .env.development .hush.development\n'));
   }
 
   const project = getProjectFromPackageJson(root);
@@ -216,13 +243,17 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
   console.log(pc.bold('\nNext steps:'));
   
-  if (existingEnvFiles.length > 0) {
-    console.log(pc.green('  1. npx hush encrypt') + pc.dim('     # Encrypt existing .env files (deletes plaintext)'));
-    console.log(pc.dim('  2. npx hush inspect') + pc.dim('      # Verify your secrets'));
-    console.log(pc.dim('  3. npx hush run -- <cmd>') + pc.dim(' # Run with secrets in memory'));
+  if (existingEncryptedFiles.length > 0) {
+    console.log(pc.green('  1. npx hush migrate') + pc.dim('      # Convert v4 .env.encrypted to v5 .hush.encrypted'));
+    console.log(pc.dim('  2. npx hush inspect') + pc.dim('       # Verify your secrets'));
+    console.log(pc.dim('  3. npx hush run -- <cmd>') + pc.dim('  # Run with secrets in memory'));
+  } else if (existingEnvFiles.length > 0) {
+    console.log(pc.green('  1. Rename .env files to .hush') + pc.dim(' # mv .env .hush'));
+    console.log(pc.dim('  2. npx hush encrypt') + pc.dim('      # Encrypt .hush files'));
+    console.log(pc.dim('  3. npx hush run -- <cmd>') + pc.dim('  # Run with secrets in memory'));
   } else {
-    console.log(pc.dim('  1. npx hush set <KEY>') + pc.dim('    # Add secrets interactively'));
-    console.log(pc.dim('  2. npx hush run -- <cmd>') + pc.dim(' # Run with secrets in memory'));
+    console.log(pc.dim('  1. npx hush set <KEY>') + pc.dim('     # Add secrets interactively'));
+    console.log(pc.dim('  2. npx hush run -- <cmd>') + pc.dim('  # Run with secrets in memory'));
   }
 
   console.log(pc.dim('\nGit setup:'));

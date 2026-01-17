@@ -42,7 +42,7 @@ describe('loadConfig', () => {
 
   it('returns default config when no file exists', () => {
     const config = loadConfig('/nonexistent/path');
-    expect(config.sources.shared).toBe('.env');
+    expect(config.sources.shared).toBe('.hush');
     expect(config.targets).toHaveLength(1);
     expect(config.targets[0].name).toBe('root');
   });
