@@ -75,12 +75,26 @@ ${pc.bold('Options:')}
   -h, --help        Show this help message
   -v, --version     Show version number
 
+${pc.bold('Variable Expansion (v4+):')}
+  Subdirectory .env files can reference root secrets:
+  
+    \${VAR}           Pull VAR from root secrets
+    \${VAR:-default}  Pull VAR, use default if missing
+    \${env:VAR}       Read from system environment (CI, etc.)
+  
+  Example subdirectory template (apps/mobile/.env):
+    EXPO_PUBLIC_API_URL=\${API_URL}
+    PORT=\${PORT:-3000}
+  
+  Template files are safe to commit - they contain no secrets.
+
 ${pc.bold('Examples:')}
   hush init                     Initialize config + generate keys
   hush encrypt                  Encrypt .env files
   hush run -- npm start         Run with secrets in memory (AI-safe!)
   hush run -e prod -- npm build Run with production secrets
   hush run -t api -- wrangler dev  Run filtered for 'api' target
+  cd apps/mobile && hush run -- expo start  Run from subdirectory with templates
   hush set DATABASE_URL         Set a secret interactively (AI-safe)
   hush set API_KEY --gui        Set secret via macOS dialog (for AI agents)
   hush set API_KEY -e prod      Set a production secret

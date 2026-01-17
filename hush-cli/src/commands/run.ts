@@ -38,7 +38,13 @@ function getDecryptedSecrets(projectRoot: string, env: Environment, config: Hush
   }
 
   if (varSources.length === 0) {
-    throw new Error(`No encrypted files found. Expected: ${sharedEncrypted}`);
+    throw new Error(
+      `No encrypted files found at project root.\n` +
+      `  Expected: ${sharedEncrypted}\n` +
+      `  Project root: ${projectRoot}\n\n` +
+      `  If you haven't encrypted yet, run: npx hush encrypt\n` +
+      `  If running from a subdirectory, ensure hush.yaml exists at the project root.`
+    );
   }
 
   const merged = mergeVars(...varSources);

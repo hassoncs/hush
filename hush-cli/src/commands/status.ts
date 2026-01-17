@@ -9,39 +9,17 @@ import { opInstalled } from '../lib/onepassword.js';
 import type { StatusOptions } from '../types.js';
 import { FORMAT_OUTPUT_FILES } from '../types.js';
 
-function findPlaintextEnvFiles(root: string): string[] {
+function findRootPlaintextEnvFiles(root: string): string[] {
   const results: string[] = [];
   const plaintextPatterns = ['.env', '.env.development', '.env.production', '.env.local', '.env.staging', '.env.test', '.dev.vars'];
-  const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt']);
 
-  function scanDir(dir: string, relativePath: string = '') {
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      return;
-    }
-
-    for (const entry of entries) {
-      if (skipDirs.has(entry)) continue;
-      if (entry.endsWith('.encrypted')) continue;
-
-      const fullPath = join(dir, entry);
-      const relPath = relativePath ? `${relativePath}/${entry}` : entry;
-
-      try {
-        if (statSync(fullPath).isDirectory()) {
-          scanDir(fullPath, relPath);
-        } else if (plaintextPatterns.includes(entry)) {
-          results.push(relPath);
-        }
-      } catch {
-        continue;
-      }
+  for (const pattern of plaintextPatterns) {
+    const filePath = join(root, pattern);
+    if (existsSync(filePath)) {
+      results.push(pattern);
     }
   }
 
-  scanDir(root);
   return results;
 }
 
@@ -75,10 +53,11 @@ export async function statusCommand(options: StatusOptions): Promise<void> {
 
   console.log(pc.blue('Hush Status\n'));
 
-  const plaintextFiles = findPlaintextEnvFiles(root);
+  const plaintextFiles = findRootPlaintextEnvFiles(root);
+  
   if (plaintextFiles.length > 0) {
     console.log(pc.bgRed(pc.white(pc.bold(' SECURITY WARNING '))));
-    console.log(pc.red(pc.bold('\nUnencrypted .env files detected!\n')));
+    console.log(pc.red(pc.bold('\nUnencrypted .env files detected at project root!\n')));
     for (const file of plaintextFiles) {
       console.log(pc.red(`  ${file}`));
     }
