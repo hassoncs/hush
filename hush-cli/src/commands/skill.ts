@@ -768,6 +768,43 @@ hush trace STRIPE_SECRET_KEY       # Trace another variable
 
 ---
 
+### hush template
+
+Show the resolved template for the current directory's \`.env\` file.
+
+\`\`\`bash
+cd apps/mobile
+hush template                      # Show resolved expansions
+hush template -e production        # Show for production
+\`\`\`
+
+**Output shows:**
+- Original template values (e.g., \`\${API_URL}\`)
+- Resolved values from root secrets (masked)
+- Any unresolved references
+
+**Use when:** Debugging why a subdirectory template isn't resolving correctly
+
+---
+
+### hush expansions
+
+Show the expansion graph across all subdirectories that have \`.env\` templates.
+
+\`\`\`bash
+hush expansions                    # Scan all subdirectories
+hush expansions -e production      # Show for production
+\`\`\`
+
+**Output shows:**
+- Which subdirectories have \`.env\` templates
+- What variables each template references from root
+- Resolution status for each reference
+
+**Use when:** Getting an overview of pull-based templates across a monorepo
+
+---
+
 ## Quick Reference
 
 | Command | Purpose |
@@ -778,7 +815,10 @@ hush trace STRIPE_SECRET_KEY       # Trace another variable
 | \`hush inspect\` | See variables (masked) |
 | \`hush has <KEY>\` | Check if variable exists |
 | \`hush status\` | View configuration |
-| \`cat .env.encrypted\` | Read encrypted file (safe!) |
+| \`hush resolve <target>\` | See what a target receives |
+| \`hush trace <KEY>\` | Trace variable through targets |
+| \`hush template\` | Show resolved subdirectory template |
+| \`hush expansions\` | Show all subdirectory templates |
 
 ---
 
