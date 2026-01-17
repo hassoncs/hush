@@ -14,9 +14,9 @@ allowed-tools: Bash(hush:*), Bash(npx hush:*), Bash(brew:*), Bash(npm:*), Bash(p
 
 # Hush - AI-Native Secrets Management
 
-**CRITICAL: NEVER read .env files directly.** Always use \`npx hush status\`, \`npx hush inspect\`, or \`npx hush has\` to check secrets.
+**CRITICAL: NEVER read root .env files directly.** Always use \`npx hush status\`, \`npx hush inspect\`, or \`npx hush has\` to check secrets.
 
-Hush keeps secrets **encrypted at rest**. When properly set up, all secrets are stored in \`.env.encrypted\` files and plaintext \`.env\` files should NOT exist.
+Hush keeps secrets **encrypted at rest** at the project root. Subdirectory \`.env\` files are **templates** (safe to commit and read) that reference root secrets via \`\${VAR}\` syntax.
 
 ## First Step: Investigate Current State
 
@@ -37,12 +37,13 @@ This tells you:
 
 | You See | What It Means | Action |
 |---------|---------------|--------|
-| \`SECURITY WARNING: Unencrypted .env files\` | Plaintext secrets exist! | Run \`npx hush encrypt\` immediately |
+| \`SECURITY WARNING: Unencrypted .env files\` | Plaintext secrets at project root! | Run \`npx hush encrypt\` immediately |
 | \`No hush.yaml found\` | Hush not initialized | Run \`npx hush init\` |
 | \`SOPS not installed\` | Missing prerequisite | \`brew install sops\` |
 | \`age key not found\` | Missing encryption key | \`npx hush keys setup\` |
 | \`Project: not set\` | Key management limited | Add \`project:\` to hush.yaml |
-| \`1Password backup: not synced\` | Key not backed up | \`npx hush keys push\` |
+
+**Note:** Security warnings only apply to root-level \`.env\` files. Subdirectory \`.env\` files are templates (safe to commit).
 
 ## Decision Tree: What Do I Do?
 
@@ -194,10 +195,12 @@ LOG_LEVEL=\${LOG_LEVEL:-info}
 
 ### Important Notes
 
-- **Template files ARE committed to git** - they contain no secrets, just references
+- **Subdirectory .env files ARE committed to git** - they're templates, not secrets
+- **Can contain expansions AND constants** - \`APP_NAME=MyApp\` alongside \`API_URL=\${API_URL}\`
 - **Run from the subdirectory** - \`hush run\` auto-detects the project root
 - **Root secrets stay encrypted** - subdirectory templates just reference them
 - **Self-reference works** - \`PORT=\${PORT:-3000}\` uses root PORT if set, else 3000
+- **Security warnings only apply to root** - subdirectory .env files are always safe
 
 ---
 
