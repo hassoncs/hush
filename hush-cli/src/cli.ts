@@ -43,7 +43,7 @@ ${pc.bold('Commands:')}
   inspect           List all variables (masked values, AI-safe)
   has <key>         Check if a secret exists (exit 0 if set, 1 if not)
   check             Verify secrets are encrypted (for pre-commit hooks)
-  push              Push secrets to Cloudflare Workers
+  push              Push secrets to Cloudflare (Workers and Pages)
   status            Show configuration and status
   skill             Install Claude Code / OpenCode skill
   keys <cmd>        Manage SOPS age keys (setup, generate, pull, push, list)
@@ -60,7 +60,7 @@ ${pc.bold('Advanced Commands:')}
 ${pc.bold('Options:')}
   -e, --env <env>   Environment: development or production (default: development)
   -r, --root <dir>  Root directory (default: current directory)
-  -t, --target <t>  Target name from hush.yaml (run/resolve only)
+  -t, --target <t>  Target name from hush.yaml (run/resolve/push)
   -q, --quiet       Suppress output (has/check commands)
   --dry-run         Preview changes without applying (push only)
   --verbose         Show detailed output (push --dry-run only)
@@ -113,6 +113,7 @@ ${pc.bold('Examples:')}
   hush has API_KEY -q && echo "API_KEY is configured"
   hush check                    Verify secrets are encrypted
   hush push --dry-run           Preview push to Cloudflare
+  hush push -t app              Push only the 'app' target
   hush status                   Show current status
   hush skill                    Install Claude skill (interactive)
 `);
@@ -435,7 +436,7 @@ async function main(): Promise<void> {
         break;
 
       case 'push':
-        await pushCommand({ root, dryRun, verbose });
+        await pushCommand({ root, dryRun, verbose, target });
         break;
 
       case 'status':

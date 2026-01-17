@@ -1,5 +1,17 @@
 export type OutputFormat = 'dotenv' | 'wrangler' | 'json' | 'shell' | 'yaml';
 export type Environment = 'development' | 'production';
+export type PushDestinationType = 'cloudflare-workers' | 'cloudflare-pages';
+
+export interface CloudflareWorkersPushConfig {
+  type: 'cloudflare-workers';
+}
+
+export interface CloudflarePagesPushConfig {
+  type: 'cloudflare-pages';
+  project: string;
+}
+
+export type PushConfig = CloudflareWorkersPushConfig | CloudflarePagesPushConfig;
 
 export interface Target {
   name: string;
@@ -7,6 +19,7 @@ export interface Target {
   format: OutputFormat;
   include?: string[];
   exclude?: string[];
+  push_to?: PushConfig;
 }
 
 export interface SourceFiles {
@@ -63,6 +76,7 @@ export interface PushOptions {
   root: string;
   dryRun: boolean;
   verbose: boolean;
+  target?: string;
 }
 
 export interface StatusOptions {

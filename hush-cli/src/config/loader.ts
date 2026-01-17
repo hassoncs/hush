@@ -67,6 +67,7 @@ export function checkSchemaVersion(config: HushConfig): { needsMigration: boolea
 export function validateConfig(config: HushConfig): string[] {
   const errors: string[] = [];
   const validFormats = ['dotenv', 'wrangler', 'json', 'shell', 'yaml'];
+  const validPushTypes = ['cloudflare-workers', 'cloudflare-pages'];
 
   if (!config.sources.shared) {
     errors.push('sources.shared is required');
@@ -90,6 +91,20 @@ export function validateConfig(config: HushConfig): string[] {
       errors.push(`${prefix}: missing required field "format" (one of: ${validFormats.join(', ')})`);
     } else if (!validFormats.includes(target.format)) {
       errors.push(`${prefix}: invalid format "${target.format}" (must be one of: ${validFormats.join(', ')})`);
+    }
+
+    // Validate push_to configuration
+    if (target.push_to) {
+      if (!target.push_to.type) {
+        errors.push(`${prefix}: push_to.type is required (one of: ${validPushTypes.join(', ')})`);
+      } else if (!validPushTypes.includes(target.push_to.type)) {
+        errors.push(`${prefix}: invalid push_to.type "${target.push_to.type}" (must be one of: ${validPushTypes.join(', ')})`);
+      } else if (target.push_to.type === 'cloudflare-pages') {
+        const pagesConfig = target.push_to as { type: string; project?: string };
+        if (!pagesConfig.project) {
+          errors.push(`${prefix}: push_to.project is required for cloudflare-pages`);
+        }
+      }
     }
   }
 

@@ -293,34 +293,76 @@ DATABASE_URL not found
 
 ## push
 
-Push production secrets to Cloudflare Workers.
+Push production secrets to Cloudflare (Workers and Pages).
 
 ```bash
-# Push secrets
+# Push all configured targets
 hush push
+
+# Push a specific target
+hush push -t api
+hush push -t app
 
 # Preview without pushing
 hush push --dry-run
 
 # Detailed preview showing each variable
 hush push --dry-run --verbose
+hush push -t app --dry-run --verbose
 ```
 
 ### Options
 
 | Option | Description |
 |--------|-------------|
+| `-t, --target <name>` | Push only the specified target |
 | `--dry-run` | Preview what would be pushed without making changes |
 | `--verbose` | Show detailed output (with `--dry-run`) |
 
+### Supported Destinations
+
+| Target Type | Configuration | Wrangler Command |
+|-------------|---------------|------------------|
+| **Cloudflare Workers** | `format: wrangler` | `wrangler secret put` |
+| **Cloudflare Pages** | `push_to: { type: cloudflare-pages, project: ... }` | `wrangler pages secret bulk` |
+
+### Configuration Examples
+
+**Cloudflare Workers (automatic with `format: wrangler`):**
+```yaml
+targets:
+  - name: api
+    path: ./api
+    format: wrangler
+```
+
+**Cloudflare Pages (requires `push_to`):**
+```yaml
+targets:
+  - name: app
+    path: ./app
+    format: dotenv
+    include:
+      - NEXT_PUBLIC_*
+    push_to:
+      type: cloudflare-pages
+      project: my-pages-project  # Your Pages project name
+```
+
 ### How It Works
 
-1. Finds targets with `format: wrangler` and a `wrangler.toml` file
-2. Reads the worker name from `wrangler.toml`
-3. Uploads production secrets using `wrangler secret put`
+1. Decrypts production secrets from encrypted files
+2. Resolves subdirectory templates (if present)
+3. Filters variables per target using `include`/`exclude` patterns
+4. For Workers: Uploads each secret using `wrangler secret put`
+5. For Pages: Uploads all secrets at once using `wrangler pages secret bulk`
 
 <Aside type="note">
-Requires the `wrangler` CLI to be installed and authenticated.
+Requires the `wrangler` CLI to be installed and authenticated. For Pages, the project name must be specified in the `push_to` configuration.
+</Aside>
+
+<Aside type="tip">
+Use `hush push -t <target> --dry-run --verbose` to preview exactly what secrets would be pushed to a specific target.
 </Aside>
 
 ---

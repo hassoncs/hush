@@ -79,7 +79,7 @@ The `targets` section defines where secrets should be written and in what format
 |-------|-------------|
 | `name` | Identifier for the target (used in output messages) |
 | `path` | Directory where the output file should be written |
-| `format` | Output format: `dotenv`, `wrangler`, `json`, or `shell` |
+| `format` | Output format: `dotenv`, `wrangler`, `json`, `shell`, or `yaml` |
 
 ### Optional Fields
 
@@ -87,6 +87,27 @@ The `targets` section defines where secrets should be written and in what format
 |-------|-------------|
 | `include` | Glob patterns for variables to include |
 | `exclude` | Glob patterns for variables to exclude |
+| `push_to` | Configuration for pushing secrets to Cloudflare Pages |
+
+### Push Configuration
+
+The `push_to` field enables pushing secrets to Cloudflare Pages:
+
+```yaml
+targets:
+  - name: app
+    path: ./app
+    format: dotenv
+    include:
+      - NEXT_PUBLIC_*
+    push_to:
+      type: cloudflare-pages
+      project: my-pages-project  # Your Cloudflare Pages project name
+```
+
+<Aside type="note">
+For Cloudflare Workers, `push_to` is optional. Targets with `format: wrangler` automatically push to Workers.
+</Aside>
 
 ### Example
 
@@ -169,7 +190,17 @@ Output file: `.env.development` or `.env.production`
 
 ### wrangler
 
-Cloudflare Wrangler `.dev.vars` format (same as dotenv, different filename):
+Cloudflare Wrangler format for Workers development.
+
+**Recommended:** Use `hush run` to keep secrets in memory:
+
+```bash
+hush run -t api -- wrangler dev
+```
+
+Hush automatically sets `CLOUDFLARE_INCLUDE_PROCESS_ENV=true` for you, which tells Wrangler to read secrets from the environment.
+
+**Alternative:** If you must write to disk, `hush decrypt --force` creates `.dev.vars`:
 
 ```bash
 # .dev.vars
@@ -177,23 +208,29 @@ DATABASE_URL=postgres://localhost/mydb
 API_KEY=sk_test_xxx
 ```
 
-Output file: `.dev.vars`
-
 #### Troubleshooting: Wrangler not seeing env vars?
 
-When using `format: wrangler`, Hush automatically handles secret injection for you.
-
-However, Wrangler has a strict rule: **if a `.dev.vars` file exists, it ignores all environment variables.**
+Wrangler has a strict rule: **if a `.dev.vars` file exists (even empty!), it ignores `CLOUDFLARE_INCLUDE_PROCESS_ENV` entirely.**
 
 If your secrets aren't showing up:
-1. **Check for `.dev.vars`**: If this file exists (even empty), Wrangler blocks Hush's secrets.
-2. **Delete it**: Run `rm .dev.vars`.
-3. **Run normally**: `hush run -t api -- wrangler dev`
 
-Hush automatically sets `CLOUDFLARE_INCLUDE_PROCESS_ENV=true` for you when it detects a Wrangler target, so you don't need to set it manually.
+1. **Delete `.dev.vars`**: 
+   ```bash
+   rm .dev.vars
+   ```
+
+2. **Use `hush run` instead of `hush decrypt`**:
+   ```bash
+   hush run -t api -- wrangler dev
+   ```
+
+3. **Update Wrangler**: Older versions may not support `CLOUDFLARE_INCLUDE_PROCESS_ENV`:
+   ```bash
+   npm update wrangler
+   ```
 
 <Aside type="caution">
-Hush will warn you if it detects a `.dev.vars` file when running a Wrangler target.
+Hush warns you if it detects a `.dev.vars` file when running a Wrangler target. The fix is always: delete the file and use `hush run`.
 </Aside>
 
 ### json

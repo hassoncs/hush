@@ -727,12 +727,23 @@ hush status
 
 ### hush push
 
-Push production secrets to Cloudflare Workers.
+Push production secrets to Cloudflare (Workers and Pages).
 
 \`\`\`bash
-hush push                          # Push secrets
+hush push                          # Push all targets
+hush push -t api                   # Push specific target
 hush push --dry-run                # Preview without pushing
 hush push --dry-run --verbose      # Detailed preview of what would be pushed
+\`\`\`
+
+**For Cloudflare Pages:** Add \`push_to\` configuration to your target:
+\`\`\`yaml
+targets:
+  - name: app
+    format: dotenv
+    push_to:
+      type: cloudflare-pages
+      project: my-pages-project
 \`\`\`
 
 ---
@@ -899,10 +910,11 @@ hush has DB_URL -q && hush has API_KEY -q && echo "All set"
 
 ### hush push
 
-Push production secrets to Cloudflare Workers.
+Push production secrets to Cloudflare (Workers and Pages).
 
 \`\`\`bash
-hush push                       # Push secrets
+hush push                       # Push all targets
+hush push -t api                # Push specific target
 hush push --dry-run             # Preview without pushing
 \`\`\`
 
@@ -1237,14 +1249,35 @@ Look at the 🚫 EXCLUDED section to see which pattern is filtering out your var
 
 ### "Wrangler dev not seeing secrets"
 
-If you are using \`hush run -- wrangler dev\` and secrets are missing, Wrangler is likely being blocked by a local file.
+If you are using \`hush run -- wrangler dev\` and secrets are missing:
 
-**The Fix:**
-1. **Delete .dev.vars**: Run \`rm .dev.vars\` inside your worker directory.
-2. **Run normally**: \`hush run -- wrangler dev\`
+**Step 1: Check for blocking files**
+\`\`\`bash
+ls -la .dev.vars    # If this exists, it blocks Hush secrets
+\`\`\`
 
-**Explanation:**
-Wrangler completely ignores environment variables if a \`.dev.vars\` file exists. Hush automatically handles the necessary environment configuration (\`CLOUDFLARE_INCLUDE_PROCESS_ENV=true\`) for you, but you MUST ensure the conflicting file is removed.
+**Step 2: Delete the blocking file**
+\`\`\`bash
+rm .dev.vars
+\`\`\`
+
+**Step 3: Run normally**
+\`\`\`bash
+npx hush run -t api -- wrangler dev
+\`\`\`
+
+**Step 4: If still not working, update Wrangler**
+\`\`\`bash
+npm update wrangler
+\`\`\`
+
+**Why this happens:**
+- Wrangler has a strict rule: if \`.dev.vars\` exists (even empty!), it ignores ALL environment variables
+- Hush automatically sets \`CLOUDFLARE_INCLUDE_PROCESS_ENV=true\` for you
+- But Wrangler only respects this when no \`.dev.vars\` file exists
+- Older Wrangler versions may not support \`CLOUDFLARE_INCLUDE_PROCESS_ENV\` at all
+
+**Prevention tip:** Never use \`hush decrypt\` for Wrangler targets—always use \`hush run\`.
 
 ### "Variable appears in wrong places"
 
@@ -1297,6 +1330,26 @@ npx hush inspect   # See what's new
 \`\`\`bash
 npx hush push --dry-run   # Preview first
 npx hush push             # Actually push
+npx hush push -t api      # Push specific target
+\`\`\`
+
+### "Push to Cloudflare Pages"
+
+First, add \`push_to\` to your target in \`hush.yaml\`:
+\`\`\`yaml
+targets:
+  - name: app
+    path: ./app
+    format: dotenv
+    push_to:
+      type: cloudflare-pages
+      project: my-pages-project
+\`\`\`
+
+Then push:
+\`\`\`bash
+npx hush push -t app --dry-run   # Preview first
+npx hush push -t app             # Actually push
 \`\`\`
 
 ### "Build and deploy"

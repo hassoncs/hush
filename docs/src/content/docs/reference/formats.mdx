@@ -82,9 +82,29 @@ targets:
     format: wrangler
 ```
 
-### Output
+### Recommended: Use `hush run` (Secrets in Memory)
 
-**File:** `.dev.vars`
+The best way to use Hush with Wrangler is `hush run`, which keeps secrets in memory and never writes them to disk:
+
+```bash
+# Recommended approach - secrets never touch disk
+hush run -t api -- wrangler dev
+```
+
+When you use `hush run` with a Wrangler target, Hush automatically:
+1. Decrypts secrets to memory
+2. Sets `CLOUDFLARE_INCLUDE_PROCESS_ENV=true` (tells Wrangler to read from process.env)
+3. Passes secrets to Wrangler via environment variables
+
+<Aside type="tip">
+This is the recommended approach because secrets stay encrypted at rest and only exist in memory during execution.
+</Aside>
+
+### Alternative: `hush decrypt` (Secrets on Disk)
+
+If you need to write secrets to disk (not recommended), use `hush decrypt --force`:
+
+**Output File:** `.dev.vars`
 
 ```bash
 DATABASE_URL=postgres://localhost/mydb
@@ -92,19 +112,59 @@ STRIPE_SECRET_KEY=sk_test_xxx
 JWT_SECRET=super-secret-key
 ```
 
-<Aside type="note">
-The format is identical to dotenv, but the filename is `.dev.vars` which Wrangler expects for local development secrets.
+<Aside type="caution">
+Using `hush decrypt` writes plaintext secrets to disk. This defeats the "encrypted at rest" security model. Prefer `hush run` whenever possible.
 </Aside>
 
-### Usage with Wrangler
+### How Wrangler Loads Environment Variables
 
-```bash
-# Local development reads from .dev.vars automatically
-wrangler dev
+Understanding Wrangler's loading order helps troubleshoot issues:
 
-# Production uses secrets set via wrangler secret
-hush push  # Pushes secrets to Cloudflare
-```
+| Priority | Source | Behavior |
+|----------|--------|----------|
+| 1st | `.dev.vars` file | If exists, **blocks all other sources** |
+| 2nd | `.env` files | Loads if no `.dev.vars`; merges with process.env |
+| 3rd | `process.env` | Only if `CLOUDFLARE_INCLUDE_PROCESS_ENV=true` |
+| 4th | `wrangler.toml` `[vars]` | Base layer |
+
+**Key insight:** If a `.dev.vars` file exists (even if empty!), Wrangler ignores `CLOUDFLARE_INCLUDE_PROCESS_ENV` entirely.
+
+### Troubleshooting
+
+#### Secrets not appearing in your Worker?
+
+1. **Check for `.dev.vars` file:**
+   ```bash
+   ls -la .dev.vars
+   ```
+   If it exists, delete it:
+   ```bash
+   rm .dev.vars
+   ```
+
+2. **Use `hush run` instead of `hush decrypt`:**
+   ```bash
+   # Wrong - creates .dev.vars which blocks future hush run usage
+   hush decrypt --force
+   
+   # Right - keeps secrets in memory
+   hush run -t api -- wrangler dev
+   ```
+
+3. **Check your Wrangler version:**
+   Older versions of Wrangler may not support `CLOUDFLARE_INCLUDE_PROCESS_ENV`. Update to the latest:
+   ```bash
+   npm update wrangler
+   ```
+
+4. **Verify Hush is targeting correctly:**
+   ```bash
+   hush status
+   ```
+
+<Aside type="note">
+Hush automatically warns you if it detects a `.dev.vars` file when running a Wrangler target.
+</Aside>
 
 ### Push to Production
 
@@ -116,9 +176,62 @@ hush push --dry-run
 
 # Push production secrets
 hush push
+
+# Push specific target only
+hush push -t api
 ```
 
 This runs `wrangler secret put` for each variable.
+
+## Cloudflare Pages
+
+For Cloudflare Pages projects, use any format for local development and add a `push_to` configuration to enable pushing secrets.
+
+### Configuration
+
+```yaml
+targets:
+  - name: app
+    path: ./app
+    format: dotenv
+    include:
+      - NEXT_PUBLIC_*
+    push_to:
+      type: cloudflare-pages
+      project: my-pages-project  # Your Cloudflare Pages project name
+```
+
+### Local Development
+
+The `format: dotenv` setting creates `.env.development` or `.env.production` files for local development, which frameworks like Next.js, Vite, etc. read automatically.
+
+### Push to Production
+
+```bash
+# Preview what would be pushed
+hush push -t app --dry-run --verbose
+
+# Push production secrets to Cloudflare Pages
+hush push -t app
+```
+
+This uses `wrangler pages secret bulk` to push all secrets at once.
+
+<Aside type="note">
+Cloudflare Pages secrets are pushed to the **production** environment. Preview environment secrets must be configured via the Cloudflare Dashboard.
+</Aside>
+
+### Template Expansion
+
+If your target uses subdirectory templates, expansions are resolved before pushing:
+
+```bash
+# app/.env (template)
+NEXT_PUBLIC_API_URL=${API_URL}
+NEXT_PUBLIC_STRIPE_KEY=${STRIPE_PUBLISHABLE_KEY}
+```
+
+When you run `hush push -t app`, these `${VAR}` references are resolved against your root secrets, and the **expanded values** are pushed to Cloudflare Pages.
 
 ## json
 
