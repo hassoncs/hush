@@ -2,22 +2,23 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import pc from 'picocolors';
-import { loadConfig } from '../config/loader.js';
+import { loadConfig, findProjectRoot } from '../config/loader.js';
 import { filterVarsForTarget } from '../core/filter.js';
 import { interpolateVars, getUnresolvedVars } from '../core/interpolate.js';
 import { mergeVars } from '../core/merge.js';
 import { parseEnvContent } from '../core/parse.js';
 import { decrypt as sopsDecrypt } from '../core/sops.js';
+import { loadLocalTemplates, resolveTemplateVars } from '../core/template.js';
 import type { RunOptions, EnvVar, HushConfig, Environment } from '../types.js';
 
 function getEncryptedPath(sourcePath: string): string {
   return sourcePath + '.encrypted';
 }
 
-function getDecryptedSecrets(root: string, env: Environment, config: HushConfig): EnvVar[] {
-  const sharedEncrypted = join(root, getEncryptedPath(config.sources.shared));
-  const envEncrypted = join(root, getEncryptedPath(config.sources[env]));
-  const localEncrypted = join(root, getEncryptedPath(config.sources.local));
+function getDecryptedSecrets(projectRoot: string, env: Environment, config: HushConfig): EnvVar[] {
+  const sharedEncrypted = join(projectRoot, getEncryptedPath(config.sources.shared));
+  const envEncrypted = join(projectRoot, getEncryptedPath(config.sources[env]));
+  const localEncrypted = join(projectRoot, getEncryptedPath(config.sources.local));
 
   const varSources: EnvVar[][] = [];
 
@@ -44,6 +45,14 @@ function getDecryptedSecrets(root: string, env: Environment, config: HushConfig)
   return interpolateVars(merged);
 }
 
+function getRootSecretsAsRecord(vars: EnvVar[]): Record<string, string> {
+  const record: Record<string, string> = {};
+  for (const { key, value } of vars) {
+    record[key] = value;
+  }
+  return record;
+}
+
 export async function runCommand(options: RunOptions): Promise<void> {
   const { root, env, target, command } = options;
   
@@ -55,24 +64,45 @@ export async function runCommand(options: RunOptions): Promise<void> {
     process.exit(1);
   }
 
-  const config = loadConfig(root);
+  const contextDir = root;
+  const projectInfo = findProjectRoot(contextDir);
   
-  let vars = getDecryptedSecrets(root, env, config);
+  if (!projectInfo) {
+    console.error(pc.red('No hush.yaml found in current directory or any parent directory.'));
+    console.error(pc.dim('Run: npx hush init'));
+    process.exit(1);
+  }
 
-  if (target) {
+  const { projectRoot } = projectInfo;
+  const config = loadConfig(projectRoot);
+  
+  const rootSecrets = getDecryptedSecrets(projectRoot, env, config);
+  const rootSecretsRecord = getRootSecretsAsRecord(rootSecrets);
+
+  const localTemplate = loadLocalTemplates(contextDir, env);
+
+  let vars: EnvVar[];
+
+  if (localTemplate.hasTemplate) {
+    vars = resolveTemplateVars(
+      localTemplate.vars,
+      rootSecretsRecord,
+      { processEnv: process.env as Record<string, string> }
+    );
+  } else if (target) {
     const targetConfig = config.targets.find(t => t.name === target);
     if (!targetConfig) {
       console.error(pc.red(`Target "${target}" not found in hush.yaml`));
       console.error(pc.dim(`Available targets: ${config.targets.map(t => t.name).join(', ')}`));
       process.exit(1);
     }
-    vars = filterVarsForTarget(vars, targetConfig);
+    vars = filterVarsForTarget(rootSecrets, targetConfig);
 
     if (targetConfig.format === 'wrangler') {
       vars.push({ key: 'CLOUDFLARE_INCLUDE_PROCESS_ENV', value: 'true' });
 
       const devVarsPath = join(targetConfig.path, '.dev.vars');
-      const absDevVarsPath = join(root, devVarsPath);
+      const absDevVarsPath = join(projectRoot, devVarsPath);
       
       if (existsSync(absDevVarsPath)) {
         console.warn(pc.yellow('\n⚠️  Wrangler Conflict Detected'));
@@ -81,11 +111,13 @@ export async function runCommand(options: RunOptions): Promise<void> {
         console.warn(pc.bold(`   Fix: rm ${devVarsPath}\n`));
       }
     }
+  } else {
+    vars = rootSecrets;
   }
 
   const unresolved = getUnresolvedVars(vars);
   if (unresolved.length > 0) {
-    console.warn(pc.yellow(`Warning: ${unresolved.length} vars have unresolved references`));
+    console.warn(pc.yellow(`Warning: ${unresolved.length} vars have unresolved references: ${unresolved.join(', ')}`));
   }
 
   const childEnv: NodeJS.ProcessEnv = {
@@ -99,7 +131,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
     stdio: 'inherit',
     env: childEnv,
     shell: true,
-    cwd: root,
+    cwd: contextDir,
   });
 
   if (result.error) {

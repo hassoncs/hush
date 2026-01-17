@@ -1,42 +1,62 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { runCommand } from '../src/commands/run.js';
-import * as childProcess from 'node:child_process';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as configLoader from '../src/config/loader.js';
-import * as sops from '../src/core/sops.js';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
+import type { SpawnSyncReturns } from 'node:child_process';
+
+const mockSpawnSync = vi.fn();
+const mockExistsSync = vi.fn();
+const mockLoadConfig = vi.fn();
+const mockFindProjectRoot = vi.fn();
+const mockDecrypt = vi.fn();
 
 vi.mock('node:child_process', () => ({
-  spawnSync: vi.fn(),
+  spawnSync: mockSpawnSync,
 }));
+
 vi.mock('node:fs', () => ({
-  existsSync: vi.fn(),
+  existsSync: mockExistsSync,
+  readFileSync: vi.fn(),
 }));
-vi.mock('../src/config/loader.js');
-vi.mock('../src/core/sops.js');
+
+vi.mock('../src/config/loader.js', () => ({
+  loadConfig: mockLoadConfig,
+  findConfigPath: vi.fn(),
+  findProjectRoot: mockFindProjectRoot,
+}));
+
+vi.mock('../src/core/sops.js', () => ({
+  decrypt: mockDecrypt,
+  encrypt: vi.fn(),
+}));
 
 describe('runCommand', () => {
-  const mockSpawnSync = vi.fn();
-  const mockExistsSync = vi.fn();
-  const mockLoadConfig = vi.fn();
-  const mockDecrypt = vi.fn();
+  let runCommand: typeof import('../src/commands/run.js').runCommand;
+
   const mockConsoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const mockConsoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
   const mockProcessExit = vi.spyOn(process, 'exit').mockImplementation((code) => {
     throw new Error(`Process exit: ${code}`);
   });
 
-  beforeEach(() => {
-    vi.resetAllMocks();
+  beforeEach(async () => {
+    vi.clearAllMocks();
     
-    vi.mocked(childProcess.spawnSync).mockImplementation(mockSpawnSync as any);
-    vi.mocked(fs.existsSync).mockImplementation(mockExistsSync);
-    vi.mocked(configLoader.loadConfig).mockImplementation(mockLoadConfig);
-    vi.mocked(sops.decrypt).mockImplementation(mockDecrypt);
-
-    mockSpawnSync.mockReturnValue({ status: 0 });
-
-    mockExistsSync.mockReturnValue(true);
+    const mod = await import('../src/commands/run.js');
+    runCommand = mod.runCommand;
+    
+    mockSpawnSync.mockReturnValue({ status: 0 } as SpawnSyncReturns<Buffer>);
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('.encrypted')) return true;
+      if (p.endsWith('.dev.vars')) return false;
+      if (p.endsWith('.env') || p.endsWith('.env.development') || 
+          p.endsWith('.env.production') || p.endsWith('.env.local')) {
+        return false;
+      }
+      return true;
+    });
+    
+    mockFindProjectRoot.mockReturnValue({
+      configPath: '/root/hush.yaml',
+      projectRoot: '/root',
+    });
 
     mockLoadConfig.mockReturnValue({
       sources: {
@@ -56,6 +76,10 @@ describe('runCommand', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterAll(() => {
+    vi.restoreAllMocks();
   });
 
   it('runs command with injected environment variables', async () => {
@@ -83,7 +107,12 @@ describe('runCommand', () => {
 
   it('injects CLOUDFLARE_INCLUDE_PROCESS_ENV for wrangler target', async () => {
     mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('.encrypted')) return true;
       if (p.endsWith('.dev.vars')) return false;
+      if (p.endsWith('.env') || p.endsWith('.env.development') || 
+          p.endsWith('.env.production') || p.endsWith('.env.local')) {
+        return false;
+      }
       return true;
     });
 
@@ -114,7 +143,12 @@ describe('runCommand', () => {
 
   it('warns if .dev.vars exists for wrangler target', async () => {
     mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('.encrypted')) return true;
       if (p.endsWith('.dev.vars')) return true;
+      if (p.endsWith('.env') || p.endsWith('.env.development') || 
+          p.endsWith('.env.production') || p.endsWith('.env.local')) {
+        return false;
+      }
       return true;
     });
 

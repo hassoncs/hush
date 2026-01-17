@@ -18,6 +18,8 @@ import { skillCommand } from './commands/skill.js';
 import { keysCommand } from './commands/keys.js';
 import { resolveCommand } from './commands/resolve.js';
 import { traceCommand } from './commands/trace.js';
+import { templateCommand } from './commands/template.js';
+import { expansionsCommand } from './commands/expansions.js';
 import { findConfigPath, loadConfig, checkSchemaVersion } from './config/loader.js';
 import { checkForUpdate } from './utils/version-check.js';
 
@@ -49,6 +51,8 @@ ${pc.bold('Commands:')}
 ${pc.bold('Debugging Commands:')}
   resolve <target>  Show what variables a target receives (AI-safe)
   trace <key>       Trace a variable through sources and targets (AI-safe)
+  template          Show resolved template for current directory (AI-safe)
+  expansions        Show expansion graph across all subdirectories (AI-safe)
 
 ${pc.bold('Advanced Commands:')}
   decrypt --force   Write secrets to disk (requires confirmation, last resort)
@@ -448,6 +452,14 @@ async function main(): Promise<void> {
           process.exit(1);
         }
         await traceCommand({ root, env, key });
+        break;
+
+      case 'template':
+        await templateCommand({ root, env });
+        break;
+
+      case 'expansions':
+        await expansionsCommand({ root, env });
         break;
 
       default:

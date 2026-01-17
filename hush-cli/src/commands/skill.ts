@@ -863,6 +863,28 @@ targets:
 | SvelteKit | \`PUBLIC_*\` | \`include: [PUBLIC_*]\` |
 | Expo | \`EXPO_PUBLIC_*\` | \`include: [EXPO_PUBLIC_*]\` |
 | Gatsby | \`GATSBY_*\` | \`include: [GATSBY_*]\` |
+
+### Variable Interpolation (v4+)
+
+Reference other variables using \`\${VAR}\` syntax:
+
+\`\`\`bash
+# Basic interpolation
+API_URL=\${BASE_URL}/api
+
+# Default values (if VAR is unset or empty)
+DEBUG=\${DEBUG:-false}
+PORT=\${PORT:-3000}
+
+# System environment (explicit opt-in)
+PATH=\${env:HOME}/.local/bin
+
+# Pull from root (subdirectory .env can reference root secrets)
+# apps/web/.env.development:
+DATABASE_URL=\${DATABASE_URL}  # Inherited from root .env
+\`\`\`
+
+**Resolution order:** Local value → Parent directories → System env (only with \`env:\` prefix)
 `,
 
   'examples/workflows.md': `# Hush Workflow Examples

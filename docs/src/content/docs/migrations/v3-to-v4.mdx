@@ -1,0 +1,98 @@
+---
+title: "Migration: v3 to v4"
+---
+
+# Migrating from Hush v3 to v4
+
+## Summary
+
+**Who's affected:** Everyone using variable interpolation or monorepos
+**Estimated time:** 5-10 minutes
+
+v4 introduces a **Pull-Based Architecture** for variable resolution. Instead of defining complex `include`/`exclude` rules in `hush.yaml` to "push" variables to subdirectories, you can now define `.env` template files in your subdirectories that "pull" values from the root secrets.
+
+## New Features
+
+### 1. Pull-Based Variable Expansion
+
+You can now use `${VAR}` syntax in subdirectory `.env` files to reference root secrets.
+
+**Root secrets (.env):**
+```bash
+API_URL=https://api.example.com
+STRIPE_KEY=sk_test_xxx
+```
+
+**Subdirectory (apps/web/.env):**
+```bash
+# Pulls from root API_URL
+NEXT_PUBLIC_API_URL=${API_URL}
+
+# Defines local default if root doesn't provide it
+PORT=${PORT:-3000}
+```
+
+### 2. Default Values
+
+You can now specify default values using the `${VAR:-default}` syntax:
+
+```bash
+# Use PORT from root secrets, or 3000 if not set
+PORT=${PORT:-3000}
+
+# Use API_URL from root, or fallback to localhost
+API_URL=${API_URL:-http://localhost:3000}
+```
+
+### 3. Explicit Process Environment Access
+
+Hush v4 no longer automatically mixes in `process.env`. You must explicitly opt-in using `${env:VAR}`:
+
+```bash
+# Read CI variable from actual environment
+IS_CI=${env:CI}
+```
+
+## Breaking Changes
+
+### 1. Interpolation Order
+
+In v3, interpolation happened after merging all sources. In v4, interpolation happens:
+1. Root secrets are decrypted and resolved
+2. Local directory templates are loaded
+3. Local templates are resolved against root secrets
+
+This means local templates can reference root secrets, but root secrets cannot reference variables defined only in subdirectories.
+
+### 2. Process Environment Isolation
+
+`process.env` is no longer automatically available in variable expansion. You must use `${env:VAR}` to access system environment variables. This prevents accidental leakage of system variables into your application configuration.
+
+**Before (v3):**
+```bash
+# If CI was in system env, this worked
+IS_CI=${CI}
+```
+
+**After (v4):**
+```bash
+# Must be explicit
+IS_CI=${env:CI}
+```
+
+## AI Migration Assistant
+
+Copy this prompt to your AI assistant:
+
+```
+Help me migrate from Hush v3 to v4.
+
+Rules:
+- Do NOT read .env files directly
+- Use hush inspect, hush has, hush status only
+
+Steps:
+1. Check if I'm using variable interpolation in my .env files
+2. If I use ${VAR} to reference system environment variables, update to ${env:VAR}
+3. If I have a monorepo, help me set up local .env templates instead of complex hush.yaml targets
+```

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { HushConfig } from '../types.js';
 import { DEFAULT_SOURCES, CURRENT_SCHEMA_VERSION } from '../types.js';
@@ -14,6 +14,23 @@ export function findConfigPath(root: string): string | null {
     }
   }
   return null;
+}
+
+export function findProjectRoot(startDir: string): { configPath: string; projectRoot: string } | null {
+  let currentDir = resolve(startDir);
+  
+  while (true) {
+    const configPath = findConfigPath(currentDir);
+    if (configPath) {
+      return { configPath, projectRoot: currentDir };
+    }
+    
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      return null;
+    }
+    currentDir = parentDir;
+  }
 }
 
 export function loadConfig(root: string): HushConfig {

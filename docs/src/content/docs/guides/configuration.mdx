@@ -223,28 +223,78 @@ Output file: `.env.development.sh` or `.env.production.sh`
 
 ## Variable Interpolation
 
-Reference other variables using `${VAR}` syntax:
+Reference other variables using `${VAR}` syntax. Hush v4 supports powerful expansion features:
+
+### Basic Reference
+Reference variables defined in the same file or from the root secrets:
 
 ```bash
 # .env
 HOST=localhost
 PORT=3000
 BASE_URL=http://${HOST}:${PORT}
-API_URL=${BASE_URL}/api
 ```
 
-After interpolation:
+### Default Values
+Provide a fallback if the variable is not set:
 
 ```bash
-HOST=localhost
-PORT=3000
-BASE_URL=http://localhost:3000
-API_URL=http://localhost:3000/api
+# Use PORT from secrets, or 3000 if missing
+PORT=${PORT:-3000}
+
+# Use API_URL, or fallback to localhost
+API_URL=${API_URL:-http://localhost:8080}
+```
+
+### System Environment Variables
+Explicitly read from the system environment (e.g., CI variables, machine info):
+
+```bash
+# Read CI variable from system environment
+IS_CI=${env:CI}
+
+# Read HOSTNAME from system
+MACHINE_NAME=${env:HOSTNAME}
 ```
 
 <Aside type="note">
-Interpolation happens after merging all sources, so you can reference variables defined in any source file.
+For security and reproducibility, Hush does not automatically include system environment variables. You must explicitly opt-in using `${env:VAR}`.
 </Aside>
+
+### Self-Reference
+Useful for providing defaults to variables that might be overridden:
+
+```bash
+# If PORT is defined in root secrets, use it. Otherwise use 3000.
+PORT=${PORT:-3000}
+```
+
+## Pull-Based Architecture (New in v4)
+
+In monorepos, instead of pushing variables to subdirectories using `hush.yaml` targets, you can define `.env` templates in your subdirectories that **pull** values from root secrets.
+
+**Root Secrets (.env):**
+```bash
+API_URL=https://api.example.com
+STRIPE_KEY=sk_test_xxx
+```
+
+**Subdirectory (.env):**
+```bash
+# Map root secrets to framework-specific prefixes
+NEXT_PUBLIC_API_URL=${API_URL}
+
+# Define local defaults
+PORT=${PORT:-3000}
+```
+
+When you run `hush run` in the subdirectory:
+1. Root secrets are decrypted
+2. Local `.env` template is loaded
+3. Variables in the local template are resolved against root secrets
+4. Result is injected into the command
+
+This avoids the "prefix soup" problem where you have to duplicate secrets like `NEXT_PUBLIC_API_URL`, `EXPO_PUBLIC_API_URL`, `VITE_API_URL`, etc. in your root `.env`.
 
 ## SOPS Configuration
 

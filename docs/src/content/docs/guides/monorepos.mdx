@@ -30,7 +30,64 @@ Manually copying `.env` files is error-prone. Committing different subsets is a 
 
 ## The Solution
 
-Define routing rules once in `hush.yaml`:
+Hush v4 introduces a **Pull-Based Architecture**. Instead of defining complex routing rules in `hush.yaml`, each package defines what it needs in its own `.env` file, referencing root secrets.
+
+### 1. Define Root Secrets
+
+Store canonical secrets in your root `.env` files. No framework prefixes needed.
+
+```bash
+# Root .env (encrypted)
+API_URL=https://api.example.com
+STRIPE_KEY=sk_test_xxx
+DATABASE_URL=postgres://...
+```
+
+### 2. Create Package Templates
+
+Create `.env` files in your packages that reference the root secrets. These files are **committed to git** because they are just templates/mappings, not secrets themselves.
+
+**packages/web/.env:**
+```bash
+# Pull from root and add Next.js prefix
+NEXT_PUBLIC_API_URL=${API_URL}
+NEXT_PUBLIC_STRIPE_KEY=${STRIPE_KEY}
+
+# Local default
+PORT=${PORT:-3000}
+```
+
+**packages/mobile/.env:**
+```bash
+# Pull from root and add Expo prefix
+EXPO_PUBLIC_API_URL=${API_URL}
+EXPO_PUBLIC_STRIPE_KEY=${STRIPE_KEY}
+```
+
+**packages/api/.env:**
+```bash
+# Pull server secrets
+DATABASE_URL=${DATABASE_URL}
+STRIPE_KEY=${STRIPE_KEY}
+
+# Local default
+PORT=${PORT:-8787}
+```
+
+### 3. Run
+
+When you run `hush run` inside a package, it automatically resolves these references:
+
+```bash
+cd packages/web
+hush run -- npm dev
+```
+
+The web app receives `NEXT_PUBLIC_API_URL` with the decrypted value from the root secrets.
+
+## Legacy Push-Based Pattern (v3)
+
+You can still use `hush.yaml` targets to push variables if you prefer:
 
 ```yaml
 sources:
@@ -54,16 +111,7 @@ targets:
     format: dotenv
     include:
       - NEXT_PUBLIC_*
-
-  - name: api
-    path: ./packages/api
-    format: wrangler
-    exclude:
-      - EXPO_PUBLIC_*
-      - NEXT_PUBLIC_*
 ```
-
-Use `hush run` to inject secrets to any package, with automatic filtering based on targets.
 
 ## Common Patterns
 
