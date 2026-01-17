@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, fstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { platform } from 'node:os';
 import pc from 'picocolors';
@@ -8,6 +8,37 @@ import { setKey } from '../core/sops.js';
 import type { SetOptions } from '../types.js';
 
 type FileKey = 'shared' | 'development' | 'production' | 'local';
+
+const STDIN_FD = 0;
+
+function hasStdinPipe(): boolean {
+  try {
+    if (process.stdin.isTTY) {
+      return false;
+    }
+    const stat = fstatSync(STDIN_FD);
+    return stat.isFIFO() || stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
+function readFromStdinPipe(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on('end', () => {
+      const trimTrailingNewlines = /\n+$/;
+      resolve(data.replace(trimTrailingNewlines, ''));
+    });
+    process.stdin.on('error', reject);
+    process.stdin.resume();
+  });
+}
 
 function promptViaMacOSDialog(key: string): string | null {
   try {
@@ -142,6 +173,10 @@ function promptViaTTY(key: string): Promise<string> {
 }
 
 async function promptForValue(key: string, forceGui: boolean): Promise<string> {
+  if (hasStdinPipe()) {
+    return readFromStdinPipe();
+  }
+  
   if (process.stdin.isTTY && !forceGui) {
     return promptViaTTY(key);
   }

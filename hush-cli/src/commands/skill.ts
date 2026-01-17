@@ -312,6 +312,15 @@ npx hush set DEBUG --local          # Set personal local override
 The user will be prompted to enter the value (hidden input).
 **You never see the actual secret - just invoke the command!**
 
+### Add a secret via pipe (for scripts/automation)
+
+\`\`\`bash
+echo "my-secret-value" | npx hush set MY_KEY
+cat secret.txt | npx hush set CERT_CONTENT
+\`\`\`
+
+When stdin has piped data, Hush reads from it instead of prompting.
+
 ---
 
 ## Additional Resources
@@ -633,6 +642,12 @@ hush set DEBUG --local             # Set personal local override
 \`\`\`
 
 User will be prompted with hidden input - the value is never visible.
+
+**Pipe support:** You can also pipe values directly:
+\`\`\`bash
+echo "my-secret" | hush set MY_KEY
+cat cert.pem | hush set CERTIFICATE
+\`\`\`
 
 ---
 
