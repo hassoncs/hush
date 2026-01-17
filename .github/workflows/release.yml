@@ -154,7 +154,8 @@ jobs:
             echo "package.json already at version $NEW_VERSION"
           else
             cd hush-cli
-            npm version "$NEW_VERSION" --no-git-tag-version --allow-same-version
+            # Use npm pkg set instead of npm version to avoid git hooks/issues
+            npm pkg set version="$NEW_VERSION"
             echo "Updated package.json to version $NEW_VERSION"
           fi
       

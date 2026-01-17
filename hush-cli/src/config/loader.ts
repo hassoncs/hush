@@ -44,10 +44,11 @@ export function loadConfig(root: string): HushConfig {
   }
 
   const content = readFileSync(configPath, 'utf-8');
-  const parsed = parseYaml(content) as Partial<HushConfig>;
+  const parsed = parseYaml(content) as Partial<HushConfig> & { schema_version?: number };
 
   return {
-    version: parsed.version,
+    // Support both 'version' and 'schema_version' (prefer schema_version)
+    version: parsed.schema_version ?? parsed.version,
     project: parsed.project,
     sources: { ...DEFAULT_SOURCES, ...parsed.sources },
     targets: parsed.targets ?? [{ name: 'root', path: '.', format: 'dotenv' }],
