@@ -1021,6 +1021,17 @@ npx hush resolve <target-name> -e prod   # Check production
 
 Look at the 🚫 EXCLUDED section to see which pattern is filtering out your variable.
 
+### "Wrangler dev not seeing secrets"
+
+If you are using \`hush run -- wrangler dev\` and secrets are missing, Wrangler is likely being blocked by a local file.
+
+**The Fix:**
+1. **Delete .dev.vars**: Run \`rm .dev.vars\` inside your worker directory.
+2. **Run normally**: \`hush run -- wrangler dev\`
+
+**Explanation:**
+Wrangler completely ignores environment variables if a \`.dev.vars\` file exists. Hush automatically handles the necessary environment configuration (\`CLOUDFLARE_INCLUDE_PROCESS_ENV=true\`) for you, but you MUST ensure the conflicting file is removed.
+
 ### "Variable appears in wrong places"
 
 \`\`\`bash

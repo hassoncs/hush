@@ -179,6 +179,23 @@ API_KEY=sk_test_xxx
 
 Output file: `.dev.vars`
 
+#### Troubleshooting: Wrangler not seeing env vars?
+
+When using `format: wrangler`, Hush automatically handles secret injection for you.
+
+However, Wrangler has a strict rule: **if a `.dev.vars` file exists, it ignores all environment variables.**
+
+If your secrets aren't showing up:
+1. **Check for `.dev.vars`**: If this file exists (even empty), Wrangler blocks Hush's secrets.
+2. **Delete it**: Run `rm .dev.vars`.
+3. **Run normally**: `hush run -t api -- wrangler dev`
+
+Hush automatically sets `CLOUDFLARE_INCLUDE_PROCESS_ENV=true` for you when it detects a Wrangler target, so you don't need to set it manually.
+
+<Aside type="caution">
+Hush will warn you if it detects a `.dev.vars` file when running a Wrangler target.
+</Aside>
+
 ### json
 
 JSON object format:

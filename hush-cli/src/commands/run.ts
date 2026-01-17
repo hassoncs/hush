@@ -67,6 +67,20 @@ export async function runCommand(options: RunOptions): Promise<void> {
       process.exit(1);
     }
     vars = filterVarsForTarget(vars, targetConfig);
+
+    if (targetConfig.format === 'wrangler') {
+      vars.push({ key: 'CLOUDFLARE_INCLUDE_PROCESS_ENV', value: 'true' });
+
+      const devVarsPath = join(targetConfig.path, '.dev.vars');
+      const absDevVarsPath = join(root, devVarsPath);
+      
+      if (existsSync(absDevVarsPath)) {
+        console.warn(pc.yellow('\n⚠️  Wrangler Conflict Detected'));
+        console.warn(pc.yellow(`   Found .dev.vars in ${targetConfig.path}`));
+        console.warn(pc.yellow('   Wrangler will IGNORE Hush secrets while this file exists.'));
+        console.warn(pc.bold(`   Fix: rm ${devVarsPath}\n`));
+      }
+    }
   }
 
   const unresolved = getUnresolvedVars(vars);
