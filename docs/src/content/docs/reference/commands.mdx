@@ -62,9 +62,11 @@ hush run --target web -- npm start
 
 1. Decrypts secrets to memory (never written to disk)
 2. Merges shared → environment → local secrets
-3. Optionally filters by target (`-t`)
-4. Spawns the child process with secrets as environment variables
-5. Inherits stdin/stdout/stderr for full interactivity
+3. Resolves subdirectory templates (if present)
+4. Filters root secrets based on target config (if matched)
+5. Merges template vars + filtered root secrets (additive)
+6. Spawns the child process with secrets as environment variables
+7. Inherits stdin/stdout/stderr for full interactivity
 
 ### Examples
 
@@ -432,7 +434,7 @@ Path: ./api/
 Format: wrangler (.dev.vars)
 Environment: development
 
-✅ INCLUDED VARIABLES (11):
+✅ ROOT SECRETS (Matched Filters) (11):
   SUPABASE_URL               (source: .env.development)
   STRIPE_SECRET_KEY          (source: .env)
   R2_ACCESS_KEY_ID           (source: .env)
@@ -442,6 +444,16 @@ Environment: development
   EXPO_PUBLIC_API_URL        (matches: EXPO_PUBLIC_*)
   FASTLANE_APPLE_ID          (matches: FASTLANE_*)
   ASC_KEY_ID                 (matches: ASC_*)
+  ...
+
+📄 TEMPLATE EXPANSIONS (api/.env):
+  DATABASE_URL               ← ${DATABASE_URL}
+  PORT                       ← ${PORT:-8787}
+
+📦 FINAL INJECTION (13 total):
+  DATABASE_URL               (template overrides root)
+  PORT                       (template)
+  SUPABASE_URL               (root)
   ...
 ```
 

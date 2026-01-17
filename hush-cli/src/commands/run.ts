@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import pc from 'picocolors';
 import { loadConfig, findProjectRoot } from '../config/loader.js';
 import { filterVarsForTarget } from '../core/filter.js';
@@ -87,25 +87,35 @@ export async function runCommand(options: RunOptions): Promise<void> {
 
   const localTemplate = loadLocalTemplates(contextDir, env);
 
-  let vars: EnvVar[];
-
+  // 1. Resolve Template Vars
+  let templateVars: EnvVar[] = [];
   if (localTemplate.hasTemplate) {
-    vars = resolveTemplateVars(
+    templateVars = resolveTemplateVars(
       localTemplate.vars,
       rootSecretsRecord,
       { processEnv: process.env as Record<string, string> }
     );
-  } else if (target) {
-    const targetConfig = config.targets.find(t => t.name === target);
-    if (!targetConfig) {
-      console.error(pc.red(`Target "${target}" not found in hush.yaml`));
-      console.error(pc.dim(`Available targets: ${config.targets.map(t => t.name).join(', ')}`));
-      process.exit(1);
-    }
-    vars = filterVarsForTarget(rootSecrets, targetConfig);
+  }
+
+  // 2. Resolve Target Vars
+  let targetVars: EnvVar[] = [];
+  
+  // Find target config: either explicit by name, or implicit by directory matching
+  const targetConfig = target 
+    ? config.targets.find(t => t.name === target)
+    : config.targets.find(t => resolve(projectRoot, t.path) === resolve(contextDir));
+
+  if (target && !targetConfig) {
+    console.error(pc.red(`Target "${target}" not found in hush.yaml`));
+    console.error(pc.dim(`Available targets: ${config.targets.map(t => t.name).join(', ')}`));
+    process.exit(1);
+  }
+
+  if (targetConfig) {
+    targetVars = filterVarsForTarget(rootSecrets, targetConfig);
 
     if (targetConfig.format === 'wrangler') {
-      vars.push({ key: 'CLOUDFLARE_INCLUDE_PROCESS_ENV', value: 'true' });
+      targetVars.push({ key: 'CLOUDFLARE_INCLUDE_PROCESS_ENV', value: 'true' });
 
       const devVarsPath = join(targetConfig.path, '.dev.vars');
       const absDevVarsPath = join(projectRoot, devVarsPath);
@@ -117,8 +127,21 @@ export async function runCommand(options: RunOptions): Promise<void> {
         console.warn(pc.bold(`   Fix: rm ${devVarsPath}\n`));
       }
     }
+  } else if (!localTemplate.hasTemplate && !target) {
+    // If no template and no target matched (and not running explicit target), fallback to all secrets
+    // This maintains backward compatibility for running in root or non-target dirs without templates
+    targetVars = rootSecrets;
+  }
+
+  // 3. Merge (Template overrides Target)
+  let vars: EnvVar[];
+  if (localTemplate.hasTemplate) {
+    // Merge target vars with template vars. 
+    // Template vars take precedence over target vars.
+    // This allows "additive" behavior: get target vars + template vars.
+    vars = mergeVars(targetVars, templateVars);
   } else {
-    vars = rootSecrets;
+    vars = targetVars;
   }
 
   const unresolved = getUnresolvedVars(vars);

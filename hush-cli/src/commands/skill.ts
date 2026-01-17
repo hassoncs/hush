@@ -157,7 +157,9 @@ Hush automatically:
 2. Decrypts root secrets
 3. Loads the local \`.env\` template
 4. Resolves \`\${VAR}\` references against root secrets
-5. Injects the result into your command
+5. **Filters root secrets based on target config (include/exclude)**
+6. **Merges them (Template overrides Target)**
+7. Injects the result into your command
 
 ### Variable Expansion Syntax
 

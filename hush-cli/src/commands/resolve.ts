@@ -6,6 +6,7 @@ import { interpolateVars } from '../core/interpolate.js';
 import { mergeVars } from '../core/merge.js';
 import { parseEnvContent } from '../core/parse.js';
 import { decrypt as sopsDecrypt } from '../core/sops.js';
+import { loadLocalTemplates } from '../core/template.js';
 import type { EnvVar, Environment, Target } from '../types.js';
 import { FORMAT_OUTPUT_FILES } from '../types.js';
 
@@ -120,7 +121,7 @@ export async function resolveCommand(options: ResolveOptions): Promise<void> {
   console.log(`Format: ${pc.dim(target.format)} ${pc.dim(`(${outputFile})`)}`);
   console.log(`Environment: ${pc.dim(env)}`);
 
-  console.log(pc.green(`\n✅ INCLUDED VARIABLES (${included.length}):`));
+  console.log(pc.green(`\n✅ ROOT SECRETS (Matched Filters) (${included.length}):`));
   if (included.length === 0) {
     console.log(pc.dim('  (none)'));
   } else {
@@ -137,6 +138,38 @@ export async function resolveCommand(options: ResolveOptions): Promise<void> {
     const maxKeyLen = Math.max(...excluded.map(v => v.key.length));
     for (const v of excluded) {
       console.log(`  ${v.key.padEnd(maxKeyLen)}  ${pc.dim(`(matches: ${v.pattern})`)}`);
+    }
+  }
+
+  const targetAbsPath = join(root, target.path);
+  const localTemplate = loadLocalTemplates(targetAbsPath, env);
+
+  if (localTemplate.hasTemplate) {
+    console.log(pc.blue(`\n📄 TEMPLATE EXPANSIONS (${pc.dim(join(target.path, '.env'))}):`));
+    const maxKeyLen = Math.max(...localTemplate.vars.map(v => v.key.length));
+    
+    for (const v of localTemplate.vars) {
+      console.log(`  ${v.key.padEnd(maxKeyLen)}  ${pc.dim(`← ${v.value}`)}`);
+    }
+
+    // Calculate final merged list for clarity
+    const finalKeys = new Set([
+      ...included.map(v => v.key),
+      ...localTemplate.vars.map(v => v.key)
+    ]);
+    
+    console.log(pc.magenta(`\n📦 FINAL INJECTION (${finalKeys.size} total):`));
+    const sortedKeys = Array.from(finalKeys).sort();
+    for (const key of sortedKeys) {
+      const isTemplate = localTemplate.vars.some(v => v.key === key);
+      const isRoot = included.some(v => v.key === key);
+      
+      let sourceInfo = '';
+      if (isTemplate && isRoot) sourceInfo = pc.dim('(template overrides root)');
+      else if (isTemplate) sourceInfo = pc.dim('(template)');
+      else if (isRoot) sourceInfo = pc.dim('(root)');
+      
+      console.log(`  ${key}  ${sourceInfo}`);
     }
   }
 
