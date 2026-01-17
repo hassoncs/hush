@@ -5,7 +5,7 @@ import { findConfigPath, loadConfig } from '../config/loader.js';
 import { describeFilter } from '../core/filter.js';
 import { isAgeKeyConfigured, isSopsInstalled } from '../core/sops.js';
 import { keyExists } from '../lib/age.js';
-import { opAvailable, opListKeys } from '../lib/onepassword.js';
+import { opInstalled } from '../lib/onepassword.js';
 import type { StatusOptions } from '../types.js';
 import { FORMAT_OUTPUT_FILES } from '../types.js';
 
@@ -121,7 +121,6 @@ export async function statusCommand(options: StatusOptions): Promise<void> {
 
   if (project) {
     const hasLocalKey = keyExists(project);
-    const has1PasswordBackup = opAvailable() && opListKeys().includes(project);
 
     console.log(pc.bold('\nKey Status:'));
     console.log(
@@ -130,17 +129,11 @@ export async function statusCommand(options: StatusOptions): Promise<void> {
         : pc.yellow('  Local key: not found')
     );
 
-    if (opAvailable()) {
-      console.log(
-        has1PasswordBackup
-          ? pc.green('  1Password backup: synced')
-          : pc.yellow('  1Password backup: not synced')
-      );
-      if (!has1PasswordBackup && hasLocalKey) {
-        console.log(pc.dim('    Run "npx hush keys push" to backup to 1Password'));
-      }
+    if (opInstalled()) {
+      console.log(pc.dim('  1Password CLI: installed'));
+      console.log(pc.dim('    Run "npx hush keys list" to check backup status'));
     } else {
-      console.log(pc.dim('  1Password CLI: not available'));
+      console.log(pc.dim('  1Password CLI: not installed'));
     }
 
     if (!hasLocalKey) {

@@ -2,16 +2,21 @@ import { execSync } from 'node:child_process';
 
 export const OP_ITEM_PREFIX = 'SOPS Key - hush/';
 
-/**
- * 1Password CLI sessions don't persist across subprocesses, so we run
- * `op signin` before every command to trigger biometric auth.
- */
 function opExec(command: string): string {
   return execSync(`op signin && ${command}`, {
     encoding: 'utf-8',
     stdio: 'pipe',
     shell: '/bin/bash',
   });
+}
+
+export function opInstalled(): boolean {
+  try {
+    execSync('which op', { encoding: 'utf-8', stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function opAvailable(): boolean {
