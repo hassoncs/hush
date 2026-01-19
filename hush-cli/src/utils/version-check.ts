@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { fs } from '../lib/fs.js';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
@@ -15,14 +15,14 @@ interface UpdateCache {
 
 export function checkForUpdate(currentVersion: string): void {
   try {
-    if (!existsSync(CONFIG_DIR)) {
-      mkdirSync(CONFIG_DIR, { recursive: true });
+    if (!fs.existsSync(CONFIG_DIR)) {
+      fs.mkdirSync(CONFIG_DIR, { recursive: true });
     }
 
     let cache: UpdateCache | null = null;
-    if (existsSync(CACHE_FILE)) {
+    if (fs.existsSync(CACHE_FILE)) {
       try {
-        cache = JSON.parse(readFileSync(CACHE_FILE, 'utf-8'));
+        cache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8') as string);
       } catch {
       }
     }

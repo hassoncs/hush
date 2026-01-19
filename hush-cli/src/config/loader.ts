@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { fs } from '../lib/fs.js';
 import { join, dirname, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { HushConfig } from '../types.js';
@@ -9,7 +9,7 @@ const CONFIG_FILENAMES = ['hush.yaml', 'hush.yml'];
 export function findConfigPath(root: string): string | null {
   for (const filename of CONFIG_FILENAMES) {
     const configPath = join(root, filename);
-    if (existsSync(configPath)) {
+    if (fs.existsSync(configPath)) {
       return configPath;
     }
   }
@@ -43,7 +43,7 @@ export function loadConfig(root: string): HushConfig {
     };
   }
 
-  const content = readFileSync(configPath, 'utf-8');
+  const content = fs.readFileSync(configPath, 'utf-8') as string;
   const parsed = parseYaml(content) as Partial<HushConfig> & { schema_version?: number };
 
   return {

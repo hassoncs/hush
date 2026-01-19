@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { fs } from '../lib/fs.js';
 import type { EnvVar } from '../types.js';
 
 export function parseEnvContent(content: string): EnvVar[] {
@@ -30,11 +30,11 @@ export function parseEnvContent(content: string): EnvVar[] {
 }
 
 export function parseEnvFile(filePath: string): EnvVar[] {
-  if (!existsSync(filePath)) {
+  if (!fs.existsSync(filePath)) {
     return [];
   }
 
-  const content = readFileSync(filePath, 'utf-8');
+  const content = fs.readFileSync(filePath, 'utf-8') as string;
   return parseEnvContent(content);
 }
 

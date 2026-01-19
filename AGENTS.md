@@ -16,6 +16,8 @@ hush/
 │   │   ├── core/       # Core logic (parse, merge, filter, mask)
 │   │   ├── formats/    # Output formatters (dotenv, wrangler, json)
 │   │   ├── config/     # Configuration loader
+│   │   ├── lib/        # Wrappers (fs, diff)
+│   │   ├── context.ts  # Default DI context implementation
 │   │   └── cli.ts      # Entry point
 │   └── tests/          # Vitest tests
 ├── docs/               # Astro Starlight documentation site
@@ -26,12 +28,26 @@ hush/
 └── .github/workflows/  # CI/CD automation (auto-release on every push)
 ```
 
+## Architecture
+
+### Dependency Injection
+The CLI uses a Dependency Injection (DI) pattern to improve testability and reduce global state.
+
+- **HushContext**: All commands accept a `ctx: HushContext` object as their first argument.
+- **Isolation**: Commands access filesystem, child process, and config loader ONLY through `ctx`.
+- **Testing**: Tests construct a mock `HushContext` to isolate the command logic from side effects.
+
+### Testing Strategy
+- **Unit Tests**: Use `mockContext` to test commands in isolation.
+- **Integration Tests**: Minimal, verifying the wiring.
+- **Avoid Global Mocks**: Do NOT use `vi.mock` for `fs` or `child_process`. Use DI.
+
 ## Non-Negotiables
 
 1. **No interactive prompts** - All scripts must work non-interactively
 2. **No secrets in commits** - Never commit `.env` files, API keys, tokens
 3. **No type errors** - Never use `as any`, `@ts-ignore`, `@ts-expect-error`
-4. **Tests must pass** - Run `bun test` before any commit
+4. **Tests must pass** - Run `bun run test` before any commit
 5. **Build must succeed** - Run `bun run build` before releases
 6. **Keep docs in sync** - Every CLI change must update implementation, skill, AND docs together
 

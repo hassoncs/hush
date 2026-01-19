@@ -1,13 +1,10 @@
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import pc from 'picocolors';
-import { loadConfig } from '../config/loader.js';
 import { interpolateVars } from '../core/interpolate.js';
 import { mergeVars } from '../core/merge.js';
 import { parseEnvContent } from '../core/parse.js';
-import { decrypt as sopsDecrypt } from '../core/sops.js';
 import { loadLocalTemplates } from '../core/template.js';
-import type { EnvVar, Environment, Target } from '../types.js';
+import type { EnvVar, Environment, Target, HushContext } from '../types.js';
 import { FORMAT_OUTPUT_FILES } from '../types.js';
 
 export interface ResolveOptions {
@@ -43,15 +40,15 @@ function getOutputFilename(target: Target, env: Environment): string {
   return FORMAT_OUTPUT_FILES[target.format][env];
 }
 
-export async function resolveCommand(options: ResolveOptions): Promise<void> {
+export async function resolveCommand(ctx: HushContext, options: ResolveOptions): Promise<void> {
   const { root, env, target: targetName } = options;
-  const config = loadConfig(root);
+  const config = ctx.config.loadConfig(root);
 
   const target = config.targets.find(t => t.name === targetName);
   if (!target) {
-    console.error(pc.red(`Target not found: ${targetName}`));
-    console.error(pc.dim('Available targets: ' + config.targets.map(t => t.name).join(', ')));
-    process.exit(1);
+    ctx.logger.error(`Target not found: ${targetName}`);
+    ctx.logger.error(pc.dim('Available targets: ' + config.targets.map(t => t.name).join(', ')));
+    ctx.process.exit(1);
   }
 
   const sharedEncrypted = join(root, config.sources.shared + '.encrypted');
@@ -62,8 +59,8 @@ export async function resolveCommand(options: ResolveOptions): Promise<void> {
   const allVars: Map<string, VarSource> = new Map();
 
   const loadSource = (path: string, sourceName: string) => {
-    if (!existsSync(path)) return;
-    const content = sopsDecrypt(path);
+    if (!ctx.fs.existsSync(path)) return;
+    const content = ctx.sops.decrypt(path);
     const vars = parseEnvContent(content);
     const sourceVars: VarSource[] = [];
     for (const v of vars) {
@@ -79,8 +76,8 @@ export async function resolveCommand(options: ResolveOptions): Promise<void> {
   loadSource(localEncrypted, config.sources.local);
 
   if (allVars.size === 0) {
-    console.error(pc.red('No encrypted files found'));
-    process.exit(1);
+    ctx.logger.error('No encrypted files found');
+    ctx.process.exit(1);
   }
 
   const merged = mergeVars(...Array.from(varsBySource.values()).map(sources => 
@@ -116,40 +113,40 @@ export async function resolveCommand(options: ResolveOptions): Promise<void> {
 
   const outputFile = getOutputFilename(target, env);
 
-  console.log(pc.bold(`\nTarget: ${pc.cyan(target.name)}`));
-  console.log(`Path: ${pc.dim(target.path + '/')}`);
-  console.log(`Format: ${pc.dim(target.format)} ${pc.dim(`(${outputFile})`)}`);
-  console.log(`Environment: ${pc.dim(env)}`);
+  ctx.logger.log(pc.bold(`\nTarget: ${pc.cyan(target.name)}`));
+  ctx.logger.log(`Path: ${pc.dim(target.path + '/')}`);
+  ctx.logger.log(`Format: ${pc.dim(target.format)} ${pc.dim(`(${outputFile})`)}`);
+  ctx.logger.log(`Environment: ${pc.dim(env)}`);
 
-  console.log(pc.green(`\n✅ ROOT SECRETS (Matched Filters) (${included.length}):`));
+  ctx.logger.log(pc.green(`\n✅ ROOT SECRETS (Matched Filters) (${included.length}):`));
   if (included.length === 0) {
-    console.log(pc.dim('  (none)'));
+    ctx.logger.log(pc.dim('  (none)'));
   } else {
     const maxKeyLen = Math.max(...included.map(v => v.key.length));
     for (const v of included) {
-      console.log(`  ${v.key.padEnd(maxKeyLen)}  ${pc.dim(`(source: ${v.source})`)}`);
+      ctx.logger.log(`  ${v.key.padEnd(maxKeyLen)}  ${pc.dim(`(source: ${v.source})`)}`);
     }
   }
 
-  console.log(pc.red(`\n🚫 EXCLUDED VARIABLES (${excluded.length}):`));
+  ctx.logger.log(pc.red(`\n🚫 EXCLUDED VARIABLES (${excluded.length}):`));
   if (excluded.length === 0) {
-    console.log(pc.dim('  (none)'));
+    ctx.logger.log(pc.dim('  (none)'));
   } else {
     const maxKeyLen = Math.max(...excluded.map(v => v.key.length));
     for (const v of excluded) {
-      console.log(`  ${v.key.padEnd(maxKeyLen)}  ${pc.dim(`(matches: ${v.pattern})`)}`);
+      ctx.logger.log(`  ${v.key.padEnd(maxKeyLen)}  ${pc.dim(`(matches: ${v.pattern})`)}`);
     }
   }
 
   const targetAbsPath = join(root, target.path);
-  const localTemplate = loadLocalTemplates(targetAbsPath, env);
+  const localTemplate = loadLocalTemplates(targetAbsPath, env, ctx.fs);
 
   if (localTemplate.hasTemplate) {
-    console.log(pc.blue(`\n📄 TEMPLATE EXPANSIONS (${pc.dim(join(target.path, '.env'))}):`));
+    ctx.logger.log(pc.blue(`\n📄 TEMPLATE EXPANSIONS (${pc.dim(join(target.path, '.hush'))}):`));
     const maxKeyLen = Math.max(...localTemplate.vars.map(v => v.key.length));
     
     for (const v of localTemplate.vars) {
-      console.log(`  ${v.key.padEnd(maxKeyLen)}  ${pc.dim(`← ${v.value}`)}`);
+      ctx.logger.log(`  ${v.key.padEnd(maxKeyLen)}  ${pc.dim(`← ${v.value}`)}`);
     }
 
     // Calculate final merged list for clarity
@@ -158,7 +155,7 @@ export async function resolveCommand(options: ResolveOptions): Promise<void> {
       ...localTemplate.vars.map(v => v.key)
     ]);
     
-    console.log(pc.magenta(`\n📦 FINAL INJECTION (${finalKeys.size} total):`));
+    ctx.logger.log(pc.magenta(`\n📦 FINAL INJECTION (${finalKeys.size} total):`));
     const sortedKeys = Array.from(finalKeys).sort();
     for (const key of sortedKeys) {
       const isTemplate = localTemplate.vars.some(v => v.key === key);
@@ -169,9 +166,9 @@ export async function resolveCommand(options: ResolveOptions): Promise<void> {
       else if (isTemplate) sourceInfo = pc.dim('(template)');
       else if (isRoot) sourceInfo = pc.dim('(root)');
       
-      console.log(`  ${key}  ${sourceInfo}`);
+      ctx.logger.log(`  ${key}  ${sourceInfo}`);
     }
   }
 
-  console.log('');
+  ctx.logger.log('');
 }

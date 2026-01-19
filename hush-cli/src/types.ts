@@ -62,6 +62,7 @@ export interface SetOptions {
   root: string;
   file?: 'shared' | 'development' | 'production' | 'local';
   key?: string;
+  value?: string;
   gui?: boolean;
 }
 
@@ -172,3 +173,58 @@ export const FORMAT_OUTPUT_FILES: Record<OutputFormat, Record<Environment, strin
     production: '.env.production.yaml',
   },
 };
+
+export interface HushContext {
+  fs: {
+    existsSync(path: string): boolean;
+    readFileSync(path: string, options?: { encoding?: BufferEncoding; flag?: string } | BufferEncoding): string | Buffer;
+    writeFileSync(path: string, data: string | Uint8Array, options?: { encoding?: BufferEncoding; mode?: number; flag?: string } | BufferEncoding | null): void;
+    mkdirSync(path: string, options?: { recursive?: boolean; mode?: number }): string | undefined;
+    readdirSync(path: string, options?: { recursive?: boolean; withFileTypes?: boolean }): (string | { name: string; isDirectory(): boolean })[];
+    unlinkSync(path: string): void;
+    statSync(path: string): { isDirectory(): boolean; mtime: Date };
+    renameSync(oldPath: string, newPath: string): void;
+  };
+  path: {
+    join(...paths: string[]): string;
+  };
+  exec: {
+    spawnSync(command: string, args: string[], options?: any): { status: number | null; stdout: string | Buffer; stderr: string | Buffer; error?: Error };
+    execSync(command: string, options?: any): string | Buffer;
+  };
+  logger: {
+    log(message: string): void;
+    error(message: string): void;
+    warn(message: string): void;
+    info(message: string): void;
+  };
+  process: {
+    cwd(): string;
+    exit(code: number): never;
+    env: NodeJS.ProcessEnv;
+    stdin: NodeJS.ReadStream;
+    stdout: NodeJS.WriteStream;
+  };
+  config: {
+    loadConfig(root: string): HushConfig;
+    findProjectRoot(startDir: string): { configPath: string; projectRoot: string } | null;
+  };
+  age: {
+    ageAvailable(): boolean;
+    ageGenerate(): { private: string; public: string };
+    keyExists(project: string): boolean;
+    keySave(project: string, key: { private: string; public: string }): void;
+    keyPath(project: string): string;
+    keyLoad(project: string): { private: string; public: string } | null;
+    agePublicFromPrivate(privateKey: string): string;
+  };
+  onepassword: {
+    opAvailable(): boolean;
+    opGetKey(project: string): string | null;
+    opStoreKey(project: string, privateKey: string, publicKey: string): void;
+  };
+  sops: {
+    decrypt(path: string): string;
+    isSopsInstalled(): boolean;
+  };
+}

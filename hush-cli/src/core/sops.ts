@@ -1,5 +1,5 @@
 import { execSync, spawnSync } from 'node:child_process';
-import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
+import { fs } from '../lib/fs.js';
 import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 
@@ -9,7 +9,7 @@ function getAgeKeyFile(): string | undefined {
   }
 
   const defaultPath = join(homedir(), '.config', 'sops', 'age', 'key.txt');
-  if (existsSync(defaultPath)) {
+  if (fs.existsSync(defaultPath)) {
     return defaultPath;
   }
 
@@ -41,7 +41,7 @@ export function isAgeKeyConfigured(): boolean {
 }
 
 export function decrypt(filePath: string): string {
-  if (!existsSync(filePath)) {
+  if (!fs.existsSync(filePath)) {
     throw new Error(`Encrypted file not found: ${filePath}`);
   }
 
@@ -72,7 +72,7 @@ export function decrypt(filePath: string): string {
 }
 
 export function encrypt(inputPath: string, outputPath: string): void {
-  if (!existsSync(inputPath)) {
+  if (!fs.existsSync(inputPath)) {
     throw new Error(`Input file not found: ${inputPath}`);
   }
 
@@ -96,7 +96,7 @@ export function encrypt(inputPath: string, outputPath: string): void {
 }
 
 export function edit(filePath: string): void {
-  if (!existsSync(filePath)) {
+  if (!fs.existsSync(filePath)) {
     throw new Error(`Encrypted file not found: ${filePath}`);
   }
 
@@ -126,7 +126,7 @@ export function setKey(filePath: string, key: string, value: string): void {
 
   let content = '';
   
-  if (existsSync(filePath)) {
+  if (fs.existsSync(filePath)) {
     content = decrypt(filePath);
   }
 
@@ -151,7 +151,7 @@ export function setKey(filePath: string, key: string, value: string): void {
   const tempFile = join(tmpdir(), `hush-temp-${Date.now()}.env`);
   
   try {
-    writeFileSync(tempFile, newContent, 'utf-8');
+    fs.writeFileSync(tempFile, newContent, 'utf-8');
     
     execSync(
       `sops --input-type dotenv --output-type dotenv --encrypt "${tempFile}" > "${filePath}"`,
@@ -162,8 +162,8 @@ export function setKey(filePath: string, key: string, value: string): void {
       }
     );
   } finally {
-    if (existsSync(tempFile)) {
-      unlinkSync(tempFile);
+    if (fs.existsSync(tempFile)) {
+      fs.unlinkSync(tempFile);
     }
   }
 }

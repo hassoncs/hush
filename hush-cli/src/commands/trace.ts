@@ -1,10 +1,7 @@
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import pc from 'picocolors';
-import { loadConfig } from '../config/loader.js';
 import { parseEnvContent } from '../core/parse.js';
-import { decrypt as sopsDecrypt } from '../core/sops.js';
-import type { Environment, Target } from '../types.js';
+import type { Environment, Target, HushContext } from '../types.js';
 
 export interface TraceOptions {
   root: string;
@@ -49,13 +46,13 @@ function getTargetDisposition(key: string, target: Target): TargetDisposition {
   return { status: 'included' };
 }
 
-export async function traceCommand(options: TraceOptions): Promise<void> {
+export async function traceCommand(ctx: HushContext, options: TraceOptions): Promise<void> {
   const { root, env, key } = options;
-  const config = loadConfig(root);
+  const config = ctx.config.loadConfig(root);
 
-  console.log(pc.bold(`\nTracing variable: ${pc.cyan(key)}\n`));
+  ctx.logger.log(pc.bold(`\nTracing variable: ${pc.cyan(key)}\n`));
 
-  console.log(pc.blue('Source Status:'));
+  ctx.logger.log(pc.blue('Source Status:'));
 
   const sources: { name: string; path: string; found: boolean }[] = [
     { name: config.sources.shared, path: join(root, config.sources.shared + '.encrypted'), found: false },
@@ -67,30 +64,30 @@ export async function traceCommand(options: TraceOptions): Promise<void> {
   const maxSourceLen = Math.max(...sources.map(s => s.name.length));
 
   for (const source of sources) {
-    if (!existsSync(source.path)) {
-      console.log(`  ${source.name.padEnd(maxSourceLen)} : ${pc.dim('(file not found)')}`);
+    if (!ctx.fs.existsSync(source.path)) {
+      ctx.logger.log(`  ${source.name.padEnd(maxSourceLen)} : ${pc.dim('(file not found)')}`);
       continue;
     }
 
     try {
-      const content = sopsDecrypt(source.path);
+      const content = ctx.sops.decrypt(source.path);
       const vars = parseEnvContent(content);
       const found = vars.some(v => v.key === key);
       source.found = found;
 
       if (found) {
-        console.log(`  ${source.name.padEnd(maxSourceLen)} : ${pc.green('✅ Present')}`);
+        ctx.logger.log(`  ${source.name.padEnd(maxSourceLen)} : ${pc.green('✅ Present')}`);
       } else {
-        console.log(`  ${source.name.padEnd(maxSourceLen)} : ${pc.dim('❌ Not found')}`);
+        ctx.logger.log(`  ${source.name.padEnd(maxSourceLen)} : ${pc.dim('❌ Not found')}`);
       }
     } catch {
-      console.log(`  ${source.name.padEnd(maxSourceLen)} : ${pc.red('⚠️  Decrypt failed')}`);
+      ctx.logger.log(`  ${source.name.padEnd(maxSourceLen)} : ${pc.red('⚠️  Decrypt failed')}`);
     }
   }
 
   const foundInAnySource = sources.some(s => s.found);
 
-  console.log(pc.blue(`\nTarget Disposition (Environment: ${env}):`));
+  ctx.logger.log(pc.blue(`\nTarget Disposition (Environment: ${env}):`));
 
   const maxTargetLen = Math.max(...config.targets.map(t => t.name.length));
 
@@ -100,15 +97,15 @@ export async function traceCommand(options: TraceOptions): Promise<void> {
     const targetLabel = `[${target.name}]`.padEnd(maxTargetLen + 2);
 
     if (!foundInAnySource) {
-      console.log(`  ${targetLabel} : ${pc.yellow('⚠️  Variable not in any source')}`);
+      ctx.logger.log(`  ${targetLabel} : ${pc.yellow('⚠️  Variable not in any source')}`);
     } else if (disposition.status === 'included') {
-      console.log(`  ${targetLabel} : ${pc.green('✅ Included')}`);
+      ctx.logger.log(`  ${targetLabel} : ${pc.green('✅ Included')}`);
     } else if (disposition.status === 'excluded') {
-      console.log(`  ${targetLabel} : ${pc.red(`🚫 Excluded`)} ${pc.dim(`(${disposition.reason})`)}`);
+      ctx.logger.log(`  ${targetLabel} : ${pc.red(`🚫 Excluded`)} ${pc.dim(`(${disposition.reason})`)}`);
     } else {
-      console.log(`  ${targetLabel} : ${pc.red(`🚫 Not included`)} ${pc.dim(`(${disposition.reason})`)}`);
+      ctx.logger.log(`  ${targetLabel} : ${pc.red(`🚫 Not included`)} ${pc.dim(`(${disposition.reason})`)}`);
     }
   }
 
-  console.log('');
+  ctx.logger.log('');
 }

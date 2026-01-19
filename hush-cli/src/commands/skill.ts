@@ -1,9 +1,7 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
 import pc from 'picocolors';
-import type { SkillOptions } from '../types.js';
+import type { HushContext, SkillOptions } from '../types.js';
 
 const SKILL_FILES = {
   'SKILL.md': `---
@@ -16,7 +14,7 @@ allowed-tools: Bash(hush:*), Bash(npx hush:*), Bash(brew:*), Bash(npm:*), Bash(p
 
 **CRITICAL: NEVER read .hush files directly.** Always use \`npx hush status\`, \`npx hush inspect\`, or \`npx hush has\` to check secrets.
 
-Hush keeps secrets **encrypted at rest** at the project root using \`.hush.encrypted\` files. Subdirectory \`.env\` files are **templates** (safe to commit and read) that reference root secrets via \`\${VAR}\` syntax.
+Hush keeps secrets **encrypted at rest** at the project root using \`.hush.encrypted\` files. Subdirectory \`.hush\` files are **templates** (safe to commit) that reference root secrets via \`\${VAR}\` syntax.
 
 ## First Step: Investigate Current State
 
@@ -43,7 +41,7 @@ This tells you:
 | \`age key not found\` | Missing encryption key | \`npx hush keys setup\` |
 | \`Project: not set\` | Key management limited | Add \`project:\` to hush.yaml |
 
-**Note:** Security warnings only apply to root-level \`.env\` files. Subdirectory \`.env\` files are templates (safe to commit).
+**Note:** Any \`.env\` file is suspect - Hush uses \`.hush\` files everywhere. Subdirectory \`.hush\` files are templates (safe to commit).
 
 ## Decision Tree: What Do I Do?
 
@@ -74,7 +72,8 @@ npx hush inspect       # See what secrets exist
 ### Scenario 4: Need to Add/Modify Secrets
 
 \`\`\`bash
-npx hush set <KEY>         # Add interactively (you invoke, user types value)
+npx hush set <VALUE> <KEY> # Add inline (value and key provided)
+npx hush set <KEY>         # Add interactively (prompts for value)
 npx hush edit              # Edit all secrets in $EDITOR
 npx hush inspect           # Verify changes
 \`\`\`
@@ -112,12 +111,12 @@ targets:
     include: [NEXT_PUBLIC_*]  # All matching vars auto-flow
 \`\`\`
 
-### Pull (subdirectory .env templates)
+### Pull (subdirectory .hush templates)
 
 Best for transformation, renaming, or explicit dependencies:
 
 \`\`\`bash
-# apps/mobile/.env (committed - it's just a template)
+# apps/mobile/.hush (committed - it's just a template)
 EXPO_PUBLIC_API_URL=\${API_URL}     # Rename from root
 PORT=\${PORT:-8081}                  # Default value
 \`\`\`
@@ -128,7 +127,7 @@ PORT=\${PORT:-8081}                  # Default value
 
 ## Subdirectory Templates (Pull-Based)
 
-When a subdirectory needs to rename, transform, or add defaults to root secrets, create a \`.env\` template file in that subdirectory.
+When a subdirectory needs to rename, transform, or add defaults to root secrets, create a \`.hush\` template file in that subdirectory.
 
 ### Step-by-Step Setup
 
@@ -139,7 +138,7 @@ npx hush inspect   # From repo root - verify secrets are configured
 
 **2. Create subdirectory template (this file is committed to git):**
 \`\`\`bash
-# apps/mobile/.env
+# apps/mobile/.hush
 EXPO_PUBLIC_API_URL=\${API_URL}           # Pull API_URL from root, rename it
 EXPO_PUBLIC_STRIPE_KEY=\${STRIPE_KEY}     # Pull and rename
 PORT=\${PORT:-8081}                        # Use root PORT, or default to 8081
@@ -155,7 +154,7 @@ npx hush run -- npm start
 Hush automatically:
 1. Finds the project root (where \`hush.yaml\` is)
 2. Decrypts root secrets
-3. Loads the local \`.env\` template
+3. Loads the local \`.hush\` template
 4. Resolves \`\${VAR}\` references against root secrets
 5. **Filters root secrets based on target config (include/exclude)**
 6. **Merges them (Template overrides Target)**
@@ -173,7 +172,7 @@ Hush automatically:
 
 **Expo/React Native app:**
 \`\`\`bash
-# apps/mobile/.env
+# apps/mobile/.hush
 EXPO_PUBLIC_API_URL=\${API_URL}
 EXPO_PUBLIC_STRIPE_KEY=\${STRIPE_PUBLISHABLE_KEY}
 EXPO_PUBLIC_ENV=\${ENV:-development}
@@ -181,7 +180,7 @@ EXPO_PUBLIC_ENV=\${ENV:-development}
 
 **Next.js app:**
 \`\`\`bash
-# apps/web/.env
+# apps/web/.hush
 NEXT_PUBLIC_API_URL=\${API_URL}
 NEXT_PUBLIC_STRIPE_KEY=\${STRIPE_PUBLISHABLE_KEY}
 DATABASE_URL=\${DATABASE_URL}
@@ -189,20 +188,30 @@ DATABASE_URL=\${DATABASE_URL}
 
 **API server with defaults:**
 \`\`\`bash
-# apps/api/.env
+# apps/api/.hush
 DATABASE_URL=\${DATABASE_URL}
 PORT=\${PORT:-8787}
 LOG_LEVEL=\${LOG_LEVEL:-info}
 \`\`\`
 
-### Important Notes
+### Important Notes: File Conventions
 
-- **Subdirectory .env files ARE committed to git** - they're templates, not secrets
-- **Can contain expansions AND constants** - \`APP_NAME=MyApp\` alongside \`API_URL=\${API_URL}\`
+**All Hush files use \`.hush\` extension - never \`.env\`:**
+
+| Location | File Type | Contains | Committed? |
+|----------|-----------|----------|------------|
+| **Root** | \`.hush\` | Actual secrets | NO (gitignored) |
+| **Root** | \`.hush.encrypted\` | Encrypted secrets | YES |
+| **Subdirectory** | \`.hush\` | Templates with \`\${VAR}\` | YES (safe) |
+| **Subdirectory** | \`.hush.development\` | Dev-specific templates | YES (safe) |
+| **Anywhere** | \`.env\` | ⚠️ LEGACY - delete! | NO |
+
+**Key rules:**
+- **Everything is \`.hush\`** - consistent naming throughout
+- **Any \`.env\` file is wrong** - legacy file that should be deleted
+- Subdirectory \`.hush\` templates are safe to commit (no actual secrets)
 - **Run from the subdirectory** - \`hush run\` auto-detects the project root
-- **Root secrets stay encrypted** - subdirectory templates just reference them
 - **Self-reference works** - \`PORT=\${PORT:-3000}\` uses root PORT if set, else 3000
-- **Security warnings only apply to root** - subdirectory .env files are always safe
 
 ---
 
@@ -213,7 +222,7 @@ LOG_LEVEL=\${LOG_LEVEL:-info}
 | \`npx hush status\` | **Full diagnostic** | First step, always |
 | \`npx hush inspect\` | See variables (masked) | Check what's configured |
 | \`npx hush has <KEY>\` | Check specific variable | Verify a secret exists |
-| \`npx hush set <KEY>\` | Add secret interactively | User needs to enter a value |
+| \`npx hush set [VALUE] <KEY>\` | Add secret (prompts if no value) | User needs to set a value |
 | \`npx hush edit\` | Edit all secrets | Bulk editing |
 | \`npx hush run -- <cmd>\` | Run with secrets in memory | Actually use the secrets |
 | \`npx hush init\` | Initialize Hush | First-time setup |
@@ -306,25 +315,34 @@ npx hush has API_KEY -q             # Quiet: exit code only (0=set, 1=missing)
 
 ## Adding/Modifying Secrets
 
-### Add a single secret interactively
+### Add a single secret (three methods)
 
+**Method 1: Inline value (recommended for AI agents)**
 \`\`\`bash
-npx hush set DATABASE_URL           # You invoke this, user types value
+npx hush set "postgres://user:pass@host/db" DATABASE_URL
+npx hush set "sk_live_xxx" STRIPE_KEY -e production
+\`\`\`
+
+**Method 2: Interactive prompt (for users)**
+\`\`\`bash
+npx hush set DATABASE_URL           # Prompts user for value
 npx hush set API_KEY -e production  # Set in production secrets
 npx hush set DEBUG --local          # Set personal local override
 \`\`\`
 
-The user will be prompted to enter the value (hidden input).
-**You never see the actual secret - just invoke the command!**
-
-### Add a secret via pipe (for scripts/automation)
-
+**Method 3: Pipe (for scripts/automation)**
 \`\`\`bash
 echo "my-secret-value" | npx hush set MY_KEY
 cat secret.txt | npx hush set CERT_CONTENT
 \`\`\`
 
-When stdin has piped data, Hush reads from it instead of prompting.
+### GUI dialog for AI agents
+
+When running in a non-TTY environment (like AI agents), use \`--gui\`:
+\`\`\`bash
+npx hush set API_KEY --gui          # Opens visible dialog
+\`\`\`
+The dialog shows the pasted value for easy verification.
 
 ---
 
@@ -466,13 +484,15 @@ Customize targets for your monorepo. Common patterns:
 
 ### Step 5: Create initial \`.hush\` files
 
-Create \`.hush\` with shared secrets:
+Create \`.hush\` with shared secrets at the **repository root**:
 
 \`\`\`bash
-# .hush
+# .hush (root level - contains actual secrets)
 DATABASE_URL=postgres://localhost/mydb
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+STRIPE_SECRET_KEY=sk_test_xxx
 API_KEY=your_api_key_here
-NEXT_PUBLIC_API_URL=http://localhost:3000
 \`\`\`
 
 Create \`.hush.development\` for dev-specific values:
@@ -489,6 +509,50 @@ Create \`.hush.production\` for production values:
 # .hush.production
 DEBUG=false
 LOG_LEVEL=error
+\`\`\`
+
+### Step 5b: Set up subdirectory templates (for monorepos)
+
+For packages that need secrets with different prefixes, create a **template** \`.hush\` file in the subdirectory.
+
+**Example: Expo app needs Supabase with EXPO_PUBLIC_ prefix**
+
+\`\`\`bash
+# apps/mobile/.hush (committed to git - template with variable references)
+EXPO_PUBLIC_SUPABASE_URL=\${SUPABASE_URL}
+EXPO_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
+EXPO_PUBLIC_API_URL=\${API_URL:-http://localhost:3000}
+\`\`\`
+
+**Example: Next.js app needs different prefixes**
+
+\`\`\`bash
+# apps/web/.hush (committed to git - template)
+NEXT_PUBLIC_SUPABASE_URL=\${SUPABASE_URL}
+NEXT_PUBLIC_SUPABASE_ANON_KEY=\${SUPABASE_ANON_KEY}
+DATABASE_URL=\${DATABASE_URL}
+\`\`\`
+
+**File structure:**
+\`\`\`
+repo-root/
+├── .hush                    # Actual secrets (gitignored)
+├── .hush.encrypted          # Encrypted secrets (committed)
+├── apps/
+│   ├── mobile/
+│   │   └── .hush            # Template with \${VAR} refs (committed)
+│   └── web/
+│       └── .hush            # Template with \${VAR} refs (committed)
+\`\`\`
+
+**How it works:**
+1. Root \`.hush\` contains actual secrets → encrypted to \`.hush.encrypted\`
+2. Subdirectory \`.hush\` templates reference root secrets via \`\${VAR}\`
+3. Run \`hush run\` from subdirectory - it resolves templates automatically
+
+\`\`\`bash
+cd apps/mobile
+npx hush run -- expo start   # Template vars resolved from root secrets
 \`\`\`
 
 ### Step 6: Encrypt secrets
@@ -602,7 +666,7 @@ Complete reference for all Hush CLI commands with flags, options, and examples.
 
 ## Security Model: Encrypted at Rest
 
-All secrets are stored encrypted on disk. You can safely read any \`.env\` file—they contain only encrypted data. No special precautions needed for file reading.
+All secrets are stored encrypted in \`.hush.encrypted\` files. Never read \`.env\` files directly - they indicate legacy/misconfigured setup. Use \`hush inspect\` or \`hush has\` to check secrets safely.
 
 ## Global Options
 
@@ -640,23 +704,27 @@ hush run -t api -- wrangler dev       # Run filtered for 'api' target
 
 ---
 
-### hush set <KEY> ⭐
+### hush set [VALUE] <KEY> ⭐
 
-Add or update a single secret interactively. You invoke this, user enters the value.
+Add or update a single secret. Prompts for value if not provided inline.
 
 \`\`\`bash
-hush set DATABASE_URL              # Set in shared secrets
+hush set DATABASE_URL              # Prompts for value interactively
+hush set "postgres://..." DATABASE_URL  # Inline value (no prompt)
 hush set API_KEY -e production     # Set in production secrets
 hush set DEBUG --local             # Set personal local override
 \`\`\`
 
-User will be prompted with hidden input - the value is never visible.
+**Input methods (in priority order):**
+1. **Inline value**: \`hush set "myvalue" KEY\` - value provided directly
+2. **Piped input**: \`echo "myvalue" | hush set KEY\` - reads from stdin
+3. **Interactive prompt**: Opens dialog/prompt for user input
 
-**Pipe support:** You can also pipe values directly:
+**GUI dialog (--gui flag):**
 \`\`\`bash
-echo "my-secret" | hush set MY_KEY
-cat cert.pem | hush set CERTIFICATE
+hush set API_KEY --gui             # Opens visible dialog (for AI agents)
 \`\`\`
+The GUI dialog shows the value as you type/paste for easier verification.
 
 ---
 
@@ -790,7 +858,7 @@ hush trace STRIPE_SECRET_KEY       # Trace another variable
 
 ### hush template
 
-Show the resolved template for the current directory's \`.env\` file.
+Show the resolved template for the current directory's \`.hush\` file.
 
 \`\`\`bash
 cd apps/mobile
@@ -809,7 +877,7 @@ hush template -e production        # Show for production
 
 ### hush expansions
 
-Show the expansion graph across all subdirectories that have \`.env\` templates.
+Show the expansion graph across all subdirectories that have \`.hush\` templates.
 
 \`\`\`bash
 hush expansions                    # Scan all subdirectories
@@ -817,7 +885,7 @@ hush expansions -e production      # Show for production
 \`\`\`
 
 **Output shows:**
-- Which subdirectories have \`.env\` templates
+- Which subdirectories have \`.hush\` templates
 - What variables each template references from root
 - Resolution status for each reference
 
@@ -1069,8 +1137,8 @@ PORT=\${PORT:-3000}
 # System environment (explicit opt-in)
 CI=\${env:CI}
 
-# Pull from root (subdirectory .env can reference root secrets)
-# apps/mobile/.env:
+# Pull from root (subdirectory .hush can reference root secrets)
+# apps/mobile/.hush:
 EXPO_PUBLIC_API_URL=\${API_URL}  # Renamed from root
 \`\`\`
 
@@ -1087,386 +1155,7 @@ targets:
 
 **Pull (subdirectory templates):** Transformation, renaming, defaults
 \`\`\`bash
-# apps/mobile/.env
-EXPO_PUBLIC_API_URL=\${API_URL}  # Rename required
-PORT=\${PORT:-3000}               # Default value
-\`\`\`
-
-**Decision:** Use push for "all X → Y". Use pull for rename/transform/defaults.
-`,
-
-  'examples/workflows.md': `# Hush Workflow Examples
-
-Step-by-step examples for common workflows when working with secrets.
-
-**CRITICAL: NEVER read .env files directly. Use hush commands instead.**
-
----
-
-## First-Time Setup (Most Important!)
-
-### "Help me set up Hush for this project"
-
-**Step 1: Check current state**
-\`\`\`bash
-npx hush status
-\`\`\`
-
-This will show:
-- If Hush is already configured
-- If there are unencrypted .env files (security risk!)
-- What prerequisites are missing
-
-**Step 2: Based on the output, follow the appropriate path:**
-
-#### Path A: "SECURITY WARNING: Unencrypted .env files detected"
-\`\`\`bash
-# If migrating from v4 (has .env.encrypted files):
-npx hush migrate       # Converts to .hush.encrypted format
-
-# If new setup with plaintext .env files:
-mv .env .hush          # Rename to .hush
-npx hush init          # If no hush.yaml exists
-npx hush encrypt       # Encrypts .hush files
-npx hush status        # Verify the warning is gone
-\`\`\`
-
-#### Path B: "No hush.yaml found"
-\`\`\`bash
-npx hush init          # Creates config and sets up keys
-npx hush set <KEY>     # Add secrets (if none exist yet)
-\`\`\`
-
-#### Path C: "age key not found"
-\`\`\`bash
-npx hush keys setup    # Pull from 1Password or generate new key
-\`\`\`
-
-#### Path D: Everything looks good
-\`\`\`bash
-npx hush inspect       # See what secrets are configured
-\`\`\`
-
----
-
-## Running Programs (Most Common)
-
-### "Start the development server"
-\`\`\`bash
-npx hush run -- npm run dev
-\`\`\`
-
-### "Build for production"
-\`\`\`bash
-npx hush run -e production -- npm run build
-\`\`\`
-
-### "Run tests with secrets"
-\`\`\`bash
-npx hush run -- npm test
-\`\`\`
-
-### "Run Wrangler for Cloudflare Worker"
-\`\`\`bash
-npx hush run -t api -- wrangler dev
-\`\`\`
-
----
-
-## Checking Secrets
-
-### "What environment variables does this project use?"
-\`\`\`bash
-npx hush inspect       # Shows all variables with masked values
-\`\`\`
-
-### "Is the database configured?"
-\`\`\`bash
-npx hush has DATABASE_URL
-\`\`\`
-
-If "not found", help user add it:
-\`\`\`bash
-npx hush set DATABASE_URL
-\`\`\`
-Tell user: "Enter your database URL when prompted"
-
-### "Check all required secrets"
-\`\`\`bash
-npx hush has DATABASE_URL -q && \\
-npx hush has API_KEY -q && \\
-echo "All configured" || \\
-echo "Some missing"
-\`\`\`
-
----
-
-## Adding Secrets
-
-### "Help me add DATABASE_URL"
-\`\`\`bash
-npx hush set DATABASE_URL
-\`\`\`
-Tell user: "Enter your database URL when prompted (input will be hidden)"
-
-### "Add a production-only secret"
-\`\`\`bash
-npx hush set STRIPE_SECRET_KEY -e production
-\`\`\`
-
-### "Add a personal local override"
-\`\`\`bash
-npx hush set DEBUG --local
-\`\`\`
-
-### "Edit multiple secrets at once"
-\`\`\`bash
-npx hush edit
-\`\`\`
-Tell user: "Your editor will open. Add or modify secrets, then save and close."
-
----
-
-## Debugging
-
-### "My app can't find DATABASE_URL"
-
-1. **Trace the variable** to see where it exists and where it goes:
-   \`\`\`bash
-   npx hush trace DATABASE_URL
-   \`\`\`
-   This shows which source files have it and which targets include/exclude it.
-
-2. **Check if it exists** in your current environment:
-   \`\`\`bash
-   npx hush has DATABASE_URL
-   \`\`\`
-
-3. **Resolve the target** to see what variables it receives:
-   \`\`\`bash
-   npx hush resolve api-workers
-   \`\`\`
-
-### "Target is missing expected variables"
-
-\`\`\`bash
-npx hush resolve <target-name>      # See included/excluded variables
-npx hush resolve <target-name> -e prod   # Check production
-\`\`\`
-
-Look at the 🚫 EXCLUDED section to see which pattern is filtering out your variable.
-
-### "Wrangler dev not seeing secrets"
-
-If you are using \`hush run -- wrangler dev\` and secrets are missing:
-
-**Step 1: Check for blocking files**
-\`\`\`bash
-ls -la .dev.vars    # If this exists, it blocks Hush secrets
-\`\`\`
-
-**Step 2: Delete the blocking file**
-\`\`\`bash
-rm .dev.vars
-\`\`\`
-
-**Step 3: Run normally**
-\`\`\`bash
-npx hush run -t api -- wrangler dev
-\`\`\`
-
-**Step 4: If still not working, update Wrangler**
-\`\`\`bash
-npm update wrangler
-\`\`\`
-
-**Why this happens:**
-- Wrangler has a strict rule: if \`.dev.vars\` exists (even empty!), it ignores ALL environment variables
-- Hush automatically sets \`CLOUDFLARE_INCLUDE_PROCESS_ENV=true\` for you
-- But Wrangler only respects this when no \`.dev.vars\` file exists
-- Older Wrangler versions may not support \`CLOUDFLARE_INCLUDE_PROCESS_ENV\` at all
-
-**Prevention tip:** Never use \`hush decrypt\` for Wrangler targets—always use \`hush run\`.
-
-### "Variable appears in wrong places"
-
-\`\`\`bash
-npx hush trace <VARIABLE_NAME>
-\`\`\`
-
-This shows the full disposition across all targets - which include it and which exclude it.
-
-### "Push is missing some secrets"
-
-\`\`\`bash
-npx hush push --dry-run --verbose
-\`\`\`
-
-This shows exactly what would be pushed to each target.
-
----
-
-## Team Workflows
-
-### "New team member setup"
-
-Guide them through these steps:
-\`\`\`bash
-# 1. Pull key from 1Password (or get from team member)
-npx hush keys setup
-
-# 2. Verify setup
-npx hush status
-
-# 3. Check secrets are accessible
-npx hush inspect
-
-# 4. Start developing
-npx hush run -- npm run dev
-\`\`\`
-
-### "Someone added new secrets"
-\`\`\`bash
-git pull
-npx hush inspect   # See what's new
-\`\`\`
-
----
-
-## Deployment
-
-### "Push to Cloudflare Workers"
-\`\`\`bash
-npx hush push --dry-run   # Preview first
-npx hush push             # Actually push
-npx hush push -t api      # Push specific target
-\`\`\`
-
-### "Push to Cloudflare Pages"
-
-First, add \`push_to\` to your target in \`hush.yaml\`:
-\`\`\`yaml
-targets:
-  - name: app
-    path: ./app
-    format: dotenv
-    push_to:
-      type: cloudflare-pages
-      project: my-pages-project
-\`\`\`
-
-Then push:
-\`\`\`bash
-npx hush push -t app --dry-run   # Preview first
-npx hush push -t app             # Actually push
-\`\`\`
-
-### "Build and deploy"
-\`\`\`bash
-npx hush run -e production -- npm run build
-npx hush push
-\`\`\`
-
----
-
-## Setting Up Subdirectory Templates (Pull-Based Secrets)
-
-### "Set up secrets for a subdirectory app (Expo, Next.js, etc.)"
-
-**Use this when:** You need to rename, transform, or add defaults to root secrets for a specific package.
-
-**Step 1: Verify root secrets exist**
-\`\`\`bash
-cd /path/to/repo/root
-npx hush inspect
-\`\`\`
-
-**Step 2: Create the subdirectory template file**
-
-Create a \`.env\` file in the subdirectory. This file is committed to git - it's just a template, not actual secrets.
-
-\`\`\`bash
-# Example: apps/mobile/.env
-EXPO_PUBLIC_API_URL=\${API_URL}           # Pulls API_URL from root, renames it
-EXPO_PUBLIC_STRIPE_KEY=\${STRIPE_KEY}     # Pulls and renames
-PORT=\${PORT:-8081}                        # Uses root PORT if set, otherwise 8081
-DEBUG=\${DEBUG:-false}                     # Uses root DEBUG if set, otherwise false
-\`\`\`
-
-**Step 3: Run from the subdirectory**
-\`\`\`bash
-cd apps/mobile
-npx hush run -- npm start
-\`\`\`
-
-### Variable Expansion Syntax Reference
-
-| Syntax | What It Does | Example |
-|--------|--------------|---------|
-| \`\${VAR}\` | Pull VAR from root secrets | \`API_URL=\${API_URL}\` |
-| \`\${VAR:-default}\` | Pull VAR, use default if not set | \`PORT=\${PORT:-3000}\` |
-| \`\${env:VAR}\` | Read from system environment | \`CI=\${env:CI}\` |
-
-### Framework Examples
-
-**Expo/React Native:**
-\`\`\`bash
-# apps/mobile/.env
-EXPO_PUBLIC_API_URL=\${API_URL}
-EXPO_PUBLIC_STRIPE_KEY=\${STRIPE_PUBLISHABLE_KEY}
-EXPO_PUBLIC_ENV=\${ENV:-development}
-\`\`\`
-
-**Next.js:**
-\`\`\`bash
-# apps/web/.env  
-NEXT_PUBLIC_API_URL=\${API_URL}
-NEXT_PUBLIC_STRIPE_KEY=\${STRIPE_PUBLISHABLE_KEY}
-DATABASE_URL=\${DATABASE_URL}
-\`\`\`
-
-**Cloudflare Worker:**
-\`\`\`bash
-# apps/api/.env
-DATABASE_URL=\${DATABASE_URL}
-STRIPE_SECRET_KEY=\${STRIPE_SECRET_KEY}
-PORT=\${PORT:-8787}
-\`\`\`
-
-### Important Notes
-
-- **Template files ARE committed** to git (they contain no secrets)
-- **Root secrets stay encrypted** - templates just reference them
-- **Run from subdirectory** - \`hush run\` finds the project root automatically
-- **Self-reference works** - \`PORT=\${PORT:-3000}\` uses root PORT if set
-
----
-
-## Choosing Push vs Pull (Monorepos)
-
-### "How should I set up secrets for a new package?"
-
-**Ask yourself:** Does this package need to rename variables or add defaults?
-
-#### If NO (simple filtering) → Use Push
-
-Edit \`hush.yaml\` to add a target:
-\`\`\`yaml
-targets:
-  - name: new-package
-    path: ./packages/new-package
-    format: dotenv
-    include:
-      - NEXT_PUBLIC_*  # Or whatever pattern fits
-\`\`\`
-
-**Benefits:** New \`NEXT_PUBLIC_*\` vars at root auto-flow. Zero maintenance.
-
-#### If YES (transformation needed) → Use Pull
-
-Create a template \`.env\` in the package:
-\`\`\`bash
-# packages/mobile/.env (committed to git)
+# packages/mobile/.hush
 EXPO_PUBLIC_API_URL=\${API_URL}     # Rename from root
 EXPO_PUBLIC_DEBUG=\${DEBUG:-false}  # With default
 PORT=\${PORT:-8081}                  # Local default
@@ -1479,7 +1168,7 @@ PORT=\${PORT:-8081}                  # Local default
 | Scenario | Update |
 |----------|--------|
 | New \`NEXT_PUBLIC_*\` var, web uses push | Nothing! Auto-flows |
-| New var mobile needs, mobile uses pull | \`packages/mobile/.env\` template |
+| New var mobile needs, mobile uses pull | \`packages/mobile/.hush\` template |
 | New package needs secrets | \`hush.yaml\` (push) or new template (pull) |
 | Change var routing | \`hush.yaml\` include/exclude patterns |
 
@@ -1536,25 +1225,25 @@ Total: 3 variables
 
 type InstallLocation = 'global' | 'local';
 
-function getSkillPath(location: InstallLocation, root: string): string {
+function getSkillPath(ctx: HushContext, location: InstallLocation, root: string): string {
   if (location === 'global') {
-    return join(homedir(), '.claude', 'skills', 'hush-secrets');
+    return ctx.path.join(homedir(), '.claude', 'skills', 'hush-secrets');
   }
-  return join(root, '.claude', 'skills', 'hush-secrets');
+  return ctx.path.join(root, '.claude', 'skills', 'hush-secrets');
 }
 
-async function promptForLocation(): Promise<InstallLocation> {
+async function promptForLocation(ctx: HushContext): Promise<InstallLocation> {
   const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
+    input: ctx.process.stdin,
+    output: ctx.process.stdout,
   });
 
   return new Promise((resolve) => {
-    console.log(pc.bold('\nWhere would you like to install the Claude skill?\n'));
-    console.log(`  ${pc.cyan('1)')} ${pc.bold('Global')} ${pc.dim('(~/.claude/skills/)')}`);
-    console.log(`     Works across all your projects. Recommended for personal use.\n`);
-    console.log(`  ${pc.cyan('2)')} ${pc.bold('Local')} ${pc.dim('(.claude/skills/)')}`);
-    console.log(`     Bundled with this project. Recommended for teams.\n`);
+    ctx.logger.log(pc.bold('\nWhere would you like to install the Claude skill?\n'));
+    ctx.logger.log(`  ${pc.cyan('1)')} ${pc.bold('Global')} ${pc.dim('(~/.claude/skills/)')}`);
+    ctx.logger.log(`     Works across all your projects. Recommended for personal use.\n`);
+    ctx.logger.log(`  ${pc.cyan('2)')} ${pc.bold('Local')} ${pc.dim('(.claude/skills/)')}`);
+    ctx.logger.log(`     Bundled with this project. Recommended for teams.\n`);
 
     rl.question(`${pc.bold('Choice')} ${pc.dim('[1/2]')}: `, (answer) => {
       rl.close();
@@ -1568,18 +1257,18 @@ async function promptForLocation(): Promise<InstallLocation> {
   });
 }
 
-function writeSkillFiles(skillPath: string): void {
-  mkdirSync(skillPath, { recursive: true });
-  mkdirSync(join(skillPath, 'examples'), { recursive: true });
+function writeSkillFiles(ctx: HushContext, skillPath: string): void {
+  ctx.fs.mkdirSync(skillPath, { recursive: true });
+  ctx.fs.mkdirSync(ctx.path.join(skillPath, 'examples'), { recursive: true });
 
   for (const [filename, content] of Object.entries(SKILL_FILES)) {
-    const filePath = join(skillPath, filename);
-    writeFileSync(filePath, content, 'utf-8');
+    const filePath = ctx.path.join(skillPath, filename);
+    ctx.fs.writeFileSync(filePath, content, 'utf-8');
   }
 }
 
-export async function skillCommand(options: SkillOptions): Promise<void> {
-  const { root, global: isGlobal, local: isLocal } = options;
+export async function skillCommand(ctx: HushContext, options: SkillOptions): Promise<void> {
+  const { global: isGlobal, local: isLocal } = options;
 
   let location: InstallLocation;
 
@@ -1588,36 +1277,36 @@ export async function skillCommand(options: SkillOptions): Promise<void> {
   } else if (isLocal) {
     location = 'local';
   } else {
-    location = await promptForLocation();
+    location = await promptForLocation(ctx);
   }
 
-  const skillPath = getSkillPath(location, root);
+  const skillPath = getSkillPath(ctx, location, ctx.process.cwd());
 
-  const alreadyInstalled = existsSync(join(skillPath, 'SKILL.md'));
+  const alreadyInstalled = ctx.fs.existsSync(ctx.path.join(skillPath, 'SKILL.md'));
   if (alreadyInstalled) {
-    console.log(pc.yellow(`\nSkill already installed at: ${skillPath}`));
-    console.log(pc.dim('To reinstall, delete the directory first.\n'));
+    ctx.logger.log(pc.yellow(`\nSkill already installed at: ${skillPath}`));
+    ctx.logger.log(pc.dim('To reinstall, delete the directory first.\n'));
     return;
   }
 
-  console.log(pc.blue(`\nInstalling Claude skill to: ${skillPath}`));
+  ctx.logger.log(pc.blue(`\nInstalling Claude skill to: ${skillPath}`));
 
-  writeSkillFiles(skillPath);
+  writeSkillFiles(ctx, skillPath);
 
-  console.log(pc.green('\n✓ Skill installed successfully!\n'));
+  ctx.logger.log(pc.green('\n✓ Skill installed successfully!\n'));
 
   if (location === 'global') {
-    console.log(pc.dim('The skill is now active for all projects using Claude Code.\n'));
+    ctx.logger.log(pc.dim('The skill is now active for all projects using Claude Code.\n'));
   } else {
-    console.log(pc.dim('The skill is now bundled with this project.'));
-    console.log(pc.dim('Commit the .claude/ directory to share with your team.\n'));
-    console.log(pc.bold('Suggested:'));
-    console.log(`  git add .claude/`);
-    console.log(`  git commit -m "chore: add Hush Claude skill"\n`);
+    ctx.logger.log(pc.dim('The skill is now bundled with this project.'));
+    ctx.logger.log(pc.dim('Commit the .claude/ directory to share with your team.\n'));
+    ctx.logger.log(pc.bold('Suggested:'));
+    ctx.logger.log(`  git add .claude/`);
+    ctx.logger.log(`  git commit -m "chore: add Hush Claude skill"\n`);
   }
 
-  console.log(pc.bold('What the skill does:'));
-  console.log(`  • Teaches AI to use ${pc.cyan('hush inspect')} instead of reading .env files`);
-  console.log(`  • Prevents accidental exposure of secrets to LLMs`);
-  console.log(`  • Guides AI through adding/modifying secrets safely\n`);
+  ctx.logger.log(pc.bold('What the skill does:'));
+  ctx.logger.log(`  • Teaches AI to use ${pc.cyan('hush inspect')} instead of reading .env files`);
+  ctx.logger.log(`  • Prevents accidental exposure of secrets to LLMs`);
+  ctx.logger.log(`  • Guides AI through adding/modifying secrets safely\n`);
 }

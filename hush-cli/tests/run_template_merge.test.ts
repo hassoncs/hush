@@ -1,70 +1,59 @@
-import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
-import type { SpawnSyncReturns } from 'node:child_process';
-import path from 'node:path';
-
-const mockSpawnSync = vi.fn();
-const mockExistsSync = vi.fn();
-const mockReadFileSync = vi.fn();
-const mockLoadConfig = vi.fn();
-const mockFindProjectRoot = vi.fn();
-const mockDecrypt = vi.fn();
-
-vi.mock('node:child_process', () => ({
-  spawnSync: mockSpawnSync,
-}));
-
-vi.mock('node:fs', () => ({
-  existsSync: mockExistsSync,
-  readFileSync: mockReadFileSync,
-}));
-
-vi.mock('../src/config/loader.js', () => ({
-  loadConfig: mockLoadConfig,
-  findConfigPath: vi.fn(),
-  findProjectRoot: mockFindProjectRoot,
-}));
-
-vi.mock('../src/core/sops.js', () => ({
-  decrypt: mockDecrypt,
-  encrypt: vi.fn(),
-}));
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { runCommand } from '../src/commands/run.js';
+import type { HushContext } from '../src/types.js';
 
 describe('Issue 1 Reproduction: Templates vs Target Filters', () => {
-  let runCommand: typeof import('../src/commands/run.js').runCommand;
+  const mockSpawnSync = vi.fn();
+  const mockExistsSync = vi.fn();
+  const mockReadFileSync = vi.fn();
+  const mockLoadConfig = vi.fn();
+  const mockFindProjectRoot = vi.fn();
+  const mockDecrypt = vi.fn();
+  const mockConsoleWarn = vi.fn();
+  const mockProcessExit = vi.fn();
 
-  const mockConsoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-  const mockProcessExit = vi.spyOn(process, 'exit').mockImplementation((code) => {
-    throw new Error(`Process exit: ${code}`);
-  });
-  
-  // Mock current working directory
-  const mockCwd = vi.spyOn(process, 'cwd');
+  const mockContext: HushContext = {
+    fs: {
+      existsSync: mockExistsSync,
+      readFileSync: mockReadFileSync,
+      writeFileSync: vi.fn(),
+      mkdirSync: vi.fn(),
+      readdirSync: vi.fn().mockReturnValue([]),
+      unlinkSync: vi.fn(),
+      statSync: vi.fn().mockReturnValue({ isDirectory: () => false, mtime: new Date() }),
+    } as any,
+    exec: {
+      spawnSync: mockSpawnSync,
+      execSync: vi.fn(),
+    },
+    logger: {
+      log: vi.fn(),
+      error: vi.fn(),
+      warn: mockConsoleWarn,
+      info: vi.fn(),
+    },
+    process: {
+      cwd: () => '/root/app', // Simulate running from subdirectory
+      exit: mockProcessExit as any,
+      env: {},
+    },
+    config: {
+      loadConfig: mockLoadConfig,
+      findProjectRoot: mockFindProjectRoot,
+    },
+    sops: {
+      decrypt: mockDecrypt,
+    },
+  };
 
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks();
-    
-    const mod = await import('../src/commands/run.js');
-    runCommand = mod.runCommand;
-    
-    mockSpawnSync.mockReturnValue({ status: 0 } as SpawnSyncReturns<Buffer>);
-    
-    // Setup filesystem mocks
-    mockExistsSync.mockImplementation((p: string) => {
-      // Root secrets exist
-      if (p.endsWith('.encrypted')) return true;
-      // Subdirectory template exists
-      if (p.endsWith('/app/.env')) return true;
-      return false;
+
+    mockSpawnSync.mockReturnValue({ status: 0 });
+    mockProcessExit.mockImplementation((code: number) => {
+      throw new Error(`Process exit: ${code}`);
     });
 
-    mockReadFileSync.mockImplementation((p: string) => {
-      if (p.endsWith('/app/.env')) {
-        return 'EXPO_PUBLIC_SUPABASE_URL=${SUPABASE_URL}';
-      }
-      return '';
-    });
-    
-    // Setup config mocks
     mockFindProjectRoot.mockReturnValue({
       configPath: '/root/hush.yaml',
       projectRoot: '/root',
@@ -72,10 +61,10 @@ describe('Issue 1 Reproduction: Templates vs Target Filters', () => {
 
     mockLoadConfig.mockReturnValue({
       sources: {
-        shared: '.env',
-        development: '.env.development',
-        production: '.env.production',
-        local: '.env.local'
+        shared: '.hush',
+        development: '.hush.development',
+        production: '.hush.production',
+        local: '.hush.local',
       },
       targets: [
         { 
@@ -84,35 +73,36 @@ describe('Issue 1 Reproduction: Templates vs Target Filters', () => {
           format: 'dotenv',
           include: ['EXPO_PUBLIC_*']
         }
-      ]
+      ],
     });
 
-    // Mock decrypted secrets
     mockDecrypt.mockReturnValue(
       'EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN=sk.xxx\n' +
       'SUPABASE_URL=https://xxx.supabase.co'
     );
-  });
 
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('.encrypted')) return true;
+      if (p.endsWith('/app/.hush')) return true;
+      return false;
+    });
 
-  afterAll(() => {
-    vi.restoreAllMocks();
+    mockReadFileSync.mockImplementation((p: string) => {
+      if (p.endsWith('/app/.hush')) {
+        return 'EXPO_PUBLIC_SUPABASE_URL=${SUPABASE_URL}';
+      }
+      return '';
+    });
   });
 
   it('should merge template expansions AND target filtered variables', async () => {
-    // Simulate running from the 'app' subdirectory
-    mockCwd.mockReturnValue('/root/app');
-
     try {
-      await runCommand({
-        root: '/root/app', // Simulate running from subdirectory
+      await runCommand(mockContext, {
+        root: '/root/app', 
         env: 'development',
         command: ['printenv'],
       });
-    } catch (e) {
+    } catch (e: any) {
       if (e.message !== 'Process exit: 0') throw e;
     }
 
@@ -122,7 +112,7 @@ describe('Issue 1 Reproduction: Templates vs Target Filters', () => {
     // 1. Template expansion should be present
     expect(env).toHaveProperty('EXPO_PUBLIC_SUPABASE_URL', 'https://xxx.supabase.co');
 
-    // 2. Target filter match should be present (This is what currently fails)
+    // 2. Target filter match should be present
     expect(env).toHaveProperty('EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN', 'sk.xxx');
 
     // 3. Excluded var should NOT be present

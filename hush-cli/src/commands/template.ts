@@ -1,14 +1,11 @@
-import { existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import pc from 'picocolors';
-import { loadConfig, findProjectRoot } from '../config/loader.js';
 import { interpolateVars } from '../core/interpolate.js';
 import { mergeVars } from '../core/merge.js';
 import { parseEnvContent } from '../core/parse.js';
-import { decrypt as sopsDecrypt } from '../core/sops.js';
 import { maskValue } from '../core/mask.js';
 import { loadLocalTemplates, resolveTemplateVars } from '../core/template.js';
-import type { Environment, EnvVar, HushConfig } from '../types.js';
+import type { Environment, EnvVar, HushConfig, HushContext } from '../types.js';
 
 export interface TemplateOptions {
   root: string;
@@ -19,25 +16,25 @@ function getEncryptedPath(sourcePath: string): string {
   return sourcePath + '.encrypted';
 }
 
-function getDecryptedSecrets(projectRoot: string, env: Environment, config: HushConfig): EnvVar[] {
+function getDecryptedSecrets(ctx: HushContext, projectRoot: string, env: Environment, config: HushConfig): EnvVar[] {
   const sharedEncrypted = join(projectRoot, getEncryptedPath(config.sources.shared));
   const envEncrypted = join(projectRoot, getEncryptedPath(config.sources[env]));
   const localEncrypted = join(projectRoot, getEncryptedPath(config.sources.local));
 
   const varSources: EnvVar[][] = [];
 
-  if (existsSync(sharedEncrypted)) {
-    const content = sopsDecrypt(sharedEncrypted);
+  if (ctx.fs.existsSync(sharedEncrypted)) {
+    const content = ctx.sops.decrypt(sharedEncrypted);
     varSources.push(parseEnvContent(content));
   }
 
-  if (existsSync(envEncrypted)) {
-    const content = sopsDecrypt(envEncrypted);
+  if (ctx.fs.existsSync(envEncrypted)) {
+    const content = ctx.sops.decrypt(envEncrypted);
     varSources.push(parseEnvContent(content));
   }
 
-  if (existsSync(localEncrypted)) {
-    const content = sopsDecrypt(localEncrypted);
+  if (ctx.fs.existsSync(localEncrypted)) {
+    const content = ctx.sops.decrypt(localEncrypted);
     varSources.push(parseEnvContent(content));
   }
 
@@ -57,49 +54,49 @@ function getRootSecretsAsRecord(vars: EnvVar[]): Record<string, string> {
   return record;
 }
 
-export async function templateCommand(options: TemplateOptions): Promise<void> {
+export async function templateCommand(ctx: HushContext, options: TemplateOptions): Promise<void> {
   const { root, env } = options;
   
   const contextDir = root;
-  const projectInfo = findProjectRoot(contextDir);
+  const projectInfo = ctx.config.findProjectRoot(contextDir);
   
   if (!projectInfo) {
-    console.error(pc.red('No hush.yaml found in current directory or any parent directory.'));
-    console.error(pc.dim('Run: npx hush init'));
-    process.exit(1);
+    ctx.logger.error('No hush.yaml found in current directory or any parent directory.');
+    ctx.logger.error(pc.dim('Run: npx hush init'));
+    ctx.process.exit(1);
   }
 
   const { projectRoot } = projectInfo;
-  const config = loadConfig(projectRoot);
+  const config = ctx.config.loadConfig(projectRoot);
   
-  const localTemplate = loadLocalTemplates(contextDir, env);
+  const localTemplate = loadLocalTemplates(contextDir, env, ctx.fs);
   
   if (!localTemplate.hasTemplate) {
-    console.log(pc.yellow('No local template found in current directory.'));
-    console.log(pc.dim(`Looked for: .env, .env.${env}, .env.local`));
-    console.log('');
-    console.log(pc.dim('Without a local template, hush run will inject all root secrets.'));
-    console.log(pc.dim('Create a .env file to define which variables this directory needs.'));
+    ctx.logger.log(pc.yellow('No local template found in current directory.'));
+    ctx.logger.log(pc.dim(`Looked for: .hush, .hush.${env}, .hush.local`));
+    ctx.logger.log('');
+    ctx.logger.log(pc.dim('Without a local template, hush run will inject all root secrets.'));
+    ctx.logger.log(pc.dim('Create a .hush file to define which variables this directory needs.'));
     return;
   }
 
-  const rootSecrets = getDecryptedSecrets(projectRoot, env, config);
+  const rootSecrets = getDecryptedSecrets(ctx, projectRoot, env, config);
   const rootSecretsRecord = getRootSecretsAsRecord(rootSecrets);
 
   const resolvedVars = resolveTemplateVars(
     localTemplate.vars,
     rootSecretsRecord,
-    { processEnv: process.env as Record<string, string> }
+    { processEnv: ctx.process.env as Record<string, string> }
   );
 
   const relPath = relative(projectRoot, contextDir) || '.';
   
-  console.log('');
-  console.log(pc.bold(`Template: ${relPath}/`));
-  console.log(pc.dim(`Project root: ${projectRoot}`));
-  console.log(pc.dim(`Environment: ${env}`));
-  console.log(pc.dim(`Files: ${localTemplate.files.join(', ')}`));
-  console.log('');
+  ctx.logger.log('');
+  ctx.logger.log(pc.bold(`Template: ${relPath}/`));
+  ctx.logger.log(pc.dim(`Project root: ${projectRoot}`));
+  ctx.logger.log(pc.dim(`Environment: ${env}`));
+  ctx.logger.log(pc.dim(`Files: ${localTemplate.files.join(', ')}`));
+  ctx.logger.log('');
 
   const templateVarKeys = new Set(localTemplate.vars.map(v => v.key));
   const rootSecretKeys = new Set(Object.keys(rootSecretsRecord));
@@ -107,8 +104,8 @@ export async function templateCommand(options: TemplateOptions): Promise<void> {
   let fromRoot = 0;
   let fromLocal = 0;
 
-  console.log(pc.bold('Variables:'));
-  console.log('');
+  ctx.logger.log(pc.bold('Variables:'));
+  ctx.logger.log('');
 
   const maxKeyLen = Math.max(...resolvedVars.map(v => v.key.length), 20);
 
@@ -127,21 +124,21 @@ export async function templateCommand(options: TemplateOptions): Promise<void> {
       const isEnvRef = refName.startsWith('env:');
       
       if (isEnvRef) {
-        console.log(`  ${pc.cyan(keyPadded)} = ${pc.dim(originalValue)} ${pc.dim('→')} ${masked}`);
+        ctx.logger.log(`  ${pc.cyan(keyPadded)} = ${pc.dim(originalValue)} ${pc.dim('→')} ${masked}`);
         fromLocal++;
       } else if (rootSecretKeys.has(refName)) {
-        console.log(`  ${pc.green(keyPadded)} = ${pc.dim(originalValue)} ${pc.dim('→')} ${masked}`);
+        ctx.logger.log(`  ${pc.green(keyPadded)} = ${pc.dim(originalValue)} ${pc.dim('→')} ${masked}`);
         fromRoot++;
       } else {
-        console.log(`  ${pc.yellow(keyPadded)} = ${pc.dim(originalValue)} ${pc.dim('→')} ${pc.yellow('(unresolved)')}`);
+        ctx.logger.log(`  ${pc.yellow(keyPadded)} = ${pc.dim(originalValue)} ${pc.dim('→')} ${pc.yellow('(unresolved)')}`);
       }
     } else {
-      console.log(`  ${pc.white(keyPadded)} = ${masked} ${pc.dim('(literal)')}`);
+      ctx.logger.log(`  ${pc.white(keyPadded)} = ${masked} ${pc.dim('(literal)')}`);
       fromLocal++;
     }
   }
 
-  console.log('');
-  console.log(pc.dim(`Total: ${resolvedVars.length} variables (${fromRoot} from root, ${fromLocal} local/literal)`));
-  console.log('');
+  ctx.logger.log('');
+  ctx.logger.log(pc.dim(`Total: ${resolvedVars.length} variables (${fromRoot} from root, ${fromLocal} local/literal)`));
+  ctx.logger.log('');
 }

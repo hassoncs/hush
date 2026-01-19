@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { fs } from './fs.js';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -39,20 +39,20 @@ export function keyPath(project: string): string {
 }
 
 export function keyExists(project: string): boolean {
-  return existsSync(keyPath(project));
+  return fs.existsSync(keyPath(project));
 }
 
 export function keySave(project: string, key: AgeKey): void {
   const path = keyPath(project);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `# project: ${project}\n# public key: ${key.public}\n${key.private}\n`, { mode: 0o600 });
+  fs.mkdirSync(dirname(path), { recursive: true });
+  fs.writeFileSync(path, `# project: ${project}\n# public key: ${key.public}\n${key.private}\n`, { mode: 0o600 });
 }
 
 export function keyLoad(project: string): AgeKey | null {
   const path = keyPath(project);
-  if (!existsSync(path)) return null;
+  if (!fs.existsSync(path)) return null;
   
-  const content = readFileSync(path, 'utf-8');
+  const content = fs.readFileSync(path, 'utf-8') as string;
   const pub = content.match(/# public key: (age1[a-z0-9]+)/)?.[1];
   const priv = content.match(/(AGE-SECRET-KEY-[A-Z0-9]+)/)?.[1];
   
@@ -60,12 +60,12 @@ export function keyLoad(project: string): AgeKey | null {
 }
 
 export function keysList(): { project: string; public: string }[] {
-  if (!existsSync(KEYS_DIR)) return [];
+  if (!fs.existsSync(KEYS_DIR)) return [];
   
-  return readdirSync(KEYS_DIR)
+  return fs.readdirSync(KEYS_DIR)
     .filter(f => f.endsWith('.txt'))
     .map(f => {
-      const content = readFileSync(join(KEYS_DIR, f), 'utf-8');
+      const content = fs.readFileSync(join(KEYS_DIR, f), 'utf-8') as string;
       const project = content.match(/# project: (.+)/)?.[1] ?? content.match(/# repo: (.+)/)?.[1];
       const pub = content.match(/# public key: (age1[a-z0-9]+)/)?.[1];
       return project && pub ? { project, public: pub } : null;

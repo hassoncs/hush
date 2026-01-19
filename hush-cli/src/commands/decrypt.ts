@@ -1,66 +1,63 @@
 import { createInterface } from 'node:readline';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import pc from 'picocolors';
-import { loadConfig } from '../config/loader.js';
 import { filterVarsForTarget } from '../core/filter.js';
 import { interpolateVars, getUnresolvedVars } from '../core/interpolate.js';
 import { mergeVars } from '../core/merge.js';
 import { parseEnvContent, parseEnvFile } from '../core/parse.js';
-import { decrypt as sopsDecrypt } from '../core/sops.js';
 import { formatVars } from '../formats/index.js';
-import type { DecryptOptions, EnvVar } from '../types.js';
+import type { DecryptOptions, EnvVar, HushContext } from '../types.js';
 import { FORMAT_OUTPUT_FILES } from '../types.js';
 
 function getEncryptedPath(sourcePath: string): string {
   return sourcePath + '.encrypted';
 }
 
-async function confirmDangerousOperation(): Promise<boolean> {
-  if (!process.stdin.isTTY) {
-    console.error(pc.red('\nError: decrypt --force requires interactive confirmation.'));
-    console.error(pc.dim('This command cannot be run in non-interactive environments.'));
-    console.error(pc.dim('\nUse "hush run -- <command>" instead to inject secrets into memory.'));
+async function confirmDangerousOperation(ctx: HushContext): Promise<boolean> {
+  if (!ctx.process.stdin.isTTY) {
+    ctx.logger.error('\nError: decrypt --force requires interactive confirmation.');
+    ctx.logger.error('This command cannot be run in non-interactive environments.');
+    ctx.logger.error('\nUse "hush run -- <command>" instead to inject secrets into memory.');
     return false;
   }
 
-  console.log('');
-  console.log(pc.red('━'.repeat(70)));
-  console.log(pc.red(pc.bold('  ⚠️  WARNING: WRITING PLAINTEXT SECRETS TO DISK')));
-  console.log(pc.red('━'.repeat(70)));
-  console.log('');
-  console.log(pc.yellow('  This will create unencrypted .env files that:'));
-  console.log(pc.dim('    • Can be read by AI assistants, scripts, and other tools'));
-  console.log(pc.dim('    • May accidentally be committed to git'));
-  console.log(pc.dim('    • Defeat the "encrypted at rest" security model'));
-  console.log('');
-  console.log(pc.green('  Recommended alternative:'));
-  console.log(pc.cyan('    hush run -- <your-command>'));
-  console.log(pc.dim('    Decrypts to memory only, secrets never touch disk.'));
-  console.log('');
-  console.log(pc.red('━'.repeat(70)));
-  console.log('');
+  ctx.logger.log('');
+  ctx.logger.log(pc.red('━'.repeat(70)));
+  ctx.logger.log(pc.red(pc.bold('  ⚠️  WARNING: WRITING PLAINTEXT SECRETS TO DISK')));
+  ctx.logger.log(pc.red('━'.repeat(70)));
+  ctx.logger.log('');
+  ctx.logger.log(pc.yellow('  This will create unencrypted .env files that:'));
+  ctx.logger.log(pc.dim('    • Can be read by AI assistants, scripts, and other tools'));
+  ctx.logger.log(pc.dim('    • May accidentally be committed to git'));
+  ctx.logger.log(pc.dim('    • Defeat the "encrypted at rest" security model'));
+  ctx.logger.log('');
+  ctx.logger.log(pc.green('  Recommended alternative:'));
+  ctx.logger.log(pc.cyan('    hush run -- <command>'));
+  ctx.logger.log(pc.dim('    Decrypts to memory only, secrets never touch disk.'));
+  ctx.logger.log('');
+  ctx.logger.log(pc.red('━'.repeat(70)));
+  ctx.logger.log('');
 
   const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
+    input: ctx.process.stdin,
+    output: ctx.process.stdout,
   });
 
   return new Promise((resolve) => {
     rl.question(`${pc.bold('Type "yes" to proceed:')} `, (answer) => {
       rl.close();
       if (answer.toLowerCase() === 'yes') {
-        console.log('');
+        ctx.logger.log('');
         resolve(true);
       } else {
-        console.log(pc.dim('\nAborted. No files were written.'));
+        ctx.logger.log(pc.dim('\nAborted. No files were written.'));
         resolve(false);
       }
     });
   });
 }
 
-export async function decryptCommand(options: DecryptOptions): Promise<void> {
+export async function decryptCommand(ctx: HushContext, options: DecryptOptions): Promise<void> {
   const { root, env, force } = options;
 
   if (!force) {
@@ -74,45 +71,45 @@ export async function decryptCommand(options: DecryptOptions): Promise<void> {
     process.exit(1);
   }
 
-  const confirmed = await confirmDangerousOperation();
+  const confirmed = await confirmDangerousOperation(ctx);
   if (!confirmed) {
-    process.exit(0);
+    ctx.process.exit(0);
   }
 
-  const config = loadConfig(root);
+  const config = ctx.config.loadConfig(root);
 
-  console.log(pc.yellow(`⚠️  Writing unencrypted secrets for ${env}...`));
+  ctx.logger.log(pc.yellow(`⚠️  Writing unencrypted secrets for ${env}...`));
 
   const sharedEncrypted = join(root, getEncryptedPath(config.sources.shared));
   const envEncrypted = join(root, getEncryptedPath(config.sources[env]));
-  const localPath = join(root, '.env.local');
+  const localPath = join(root, config.sources.local);
 
   const varSources: EnvVar[][] = [];
 
-  if (existsSync(sharedEncrypted)) {
-    const content = sopsDecrypt(sharedEncrypted);
+  if (ctx.fs.existsSync(sharedEncrypted)) {
+    const content = ctx.sops.decrypt(sharedEncrypted);
     const vars = parseEnvContent(content);
     varSources.push(vars);
-    console.log(pc.dim(`  ${config.sources.shared}.encrypted: ${vars.length} vars`));
+    ctx.logger.log(pc.dim(`  ${config.sources.shared}.encrypted: ${vars.length} vars`));
   }
 
-  if (existsSync(envEncrypted)) {
-    const content = sopsDecrypt(envEncrypted);
+  if (ctx.fs.existsSync(envEncrypted)) {
+    const content = ctx.sops.decrypt(envEncrypted);
     const vars = parseEnvContent(content);
     varSources.push(vars);
-    console.log(pc.dim(`  ${config.sources[env]}.encrypted: ${vars.length} vars`));
+    ctx.logger.log(pc.dim(`  ${config.sources[env]}.encrypted: ${vars.length} vars`));
   }
 
-  if (existsSync(localPath)) {
+  if (ctx.fs.existsSync(localPath)) {
     const vars = parseEnvFile(localPath);
     varSources.push(vars);
-    console.log(pc.dim(`  .env.local: ${vars.length} vars (overrides)`));
+    ctx.logger.log(pc.dim(`  ${config.sources.local}: ${vars.length} vars (overrides)`));
   }
 
   if (varSources.length === 0) {
-    console.error(pc.red('No encrypted files found'));
-    console.error(pc.dim(`Expected: ${sharedEncrypted}`));
-    process.exit(1);
+    ctx.logger.error(pc.red('No encrypted files found'));
+    ctx.logger.error(pc.dim(`Expected: ${sharedEncrypted}`));
+    ctx.process.exit(1);
   }
 
   const merged = mergeVars(...varSources);
@@ -120,38 +117,38 @@ export async function decryptCommand(options: DecryptOptions): Promise<void> {
 
   const unresolved = getUnresolvedVars(interpolated);
   if (unresolved.length > 0) {
-    console.warn(pc.yellow(`  Warning: ${unresolved.length} vars have unresolved references`));
+    ctx.logger.warn(pc.yellow(`  Warning: ${unresolved.length} vars have unresolved references`));
   }
 
-  console.log(pc.yellow(`\n⚠️  Writing to ${config.targets.length} targets:`));
+  ctx.logger.log(pc.yellow(`\n⚠️  Writing to ${config.targets.length} targets:`));
 
   for (const target of config.targets) {
     const targetDir = join(root, target.path);
     const filtered = filterVarsForTarget(interpolated, target);
 
     if (filtered.length === 0) {
-      console.log(pc.dim(`  ${target.path}/ - no matching vars, skipped`));
+      ctx.logger.log(pc.dim(`  ${target.path}/ - no matching vars, skipped`));
       continue;
     }
 
     const outputFilename = FORMAT_OUTPUT_FILES[target.format][env];
     const outputPath = join(targetDir, outputFilename);
 
-    if (!existsSync(targetDir)) {
-      mkdirSync(targetDir, { recursive: true });
+    if (!ctx.fs.existsSync(targetDir)) {
+      ctx.fs.mkdirSync(targetDir, { recursive: true });
     }
 
     const content = formatVars(filtered, target.format);
-    writeFileSync(outputPath, content, 'utf-8');
+    ctx.fs.writeFileSync(outputPath, content, 'utf-8');
 
     const relativePath = target.path === '.' ? outputFilename : `${target.path}/${outputFilename}`;
-    console.log(
+    ctx.logger.log(
       pc.yellow(`  ⚠️  ${relativePath}`) +
       pc.dim(` (${target.format}, ${filtered.length} vars)`)
     );
   }
 
-  console.log('');
-  console.log(pc.yellow('⚠️  Decryption complete - plaintext secrets on disk'));
-  console.log(pc.dim('   Delete these files when done, or use "hush run" next time.'));
+  ctx.logger.log('');
+  ctx.logger.log(pc.yellow('⚠️  Decryption complete - plaintext secrets on disk'));
+  ctx.logger.log(pc.dim('   Delete these files when done, or use "hush run" next time.'));
 }

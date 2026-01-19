@@ -2,6 +2,7 @@
 import { createRequire } from 'node:module';
 import pc from 'picocolors';
 import type { Environment } from './types.js';
+import { defaultContext } from './context.js';
 import { encryptCommand } from './commands/encrypt.js';
 import { decryptCommand } from './commands/decrypt.js';
 import { editCommand } from './commands/edit.js';
@@ -38,7 +39,7 @@ ${pc.bold('Commands:')}
   init              Initialize hush.yaml config
   encrypt           Encrypt source .hush files
   run -- <cmd>      Run command with secrets in memory (AI-safe)
-  set <KEY>         Set a single secret interactively (AI-safe)
+  set [VALUE] <KEY> Set a single secret (AI-safe, prompts if no value)
   edit [file]       Edit all secrets in $EDITOR
   list              List all variables (shows values)
   inspect           List all variables (masked values, AI-safe)
@@ -102,6 +103,8 @@ ${pc.bold('File Naming (v5+):')}
     .hush.development      Development secrets (source file)
     .hush.encrypted        Encrypted shared secrets (committed)
     .hush.development.encrypted  Encrypted dev secrets (committed)
+    
+    Subdirectories support templates (e.g. apps/web/.hush.development)
   
   The .env files are reserved for other tools (Wrangler, Metro, etc.).
 
@@ -113,8 +116,9 @@ ${pc.bold('Examples:')}
   hush run -e prod -- npm build Run with production secrets
   hush run -t api -- wrangler dev  Run filtered for 'api' target (root secrets only)
   cd apps/mobile && hush run -- expo start  Run from subdirectory (applies template + target filters)
-  hush set DATABASE_URL         Set a secret interactively (AI-safe)
-  hush set API_KEY --gui        Set secret via macOS dialog (for AI agents)
+  hush set DATABASE_URL         Set a secret interactively (prompts for value)
+  hush set "myvalue" API_KEY    Set a secret inline (no prompt)
+  hush set API_KEY --gui        Set secret via GUI dialog (for AI agents)
   hush set API_KEY -e prod      Set a production secret
   hush keys setup               Pull key from 1Password or verify local
   hush keys generate            Generate new key + backup to 1Password
@@ -155,6 +159,7 @@ interface ParsedArgs {
   vault?: string;
   file?: FileKey;
   key?: string;
+  value?: string;
   target?: string;
   cmdArgs: string[];
 }
@@ -193,6 +198,7 @@ function parseArgs(args: string[]): ParsedArgs {
   let vault: string | undefined;
   let file: FileKey | undefined;
   let key: string | undefined;
+  let value: string | undefined;
   let target: string | undefined;
   let cmdArgs: string[] = [];
 
@@ -320,8 +326,15 @@ function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
-    if (command === 'set' && !arg.startsWith('-') && !key) {
-      key = arg;
+    if (command === 'set' && !arg.startsWith('-')) {
+      if (!key) {
+        key = arg;
+      } else if (!value) {
+        // Second positional arg: shift key to value, this arg is the key
+        // Syntax: hush set <VALUE> <KEY>
+        value = key;
+        key = arg;
+      }
       continue;
     }
 
@@ -346,7 +359,7 @@ function parseArgs(args: string[]): ParsedArgs {
     }
   }
 
-  return { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, target, cmdArgs };
+  return { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, value, target, cmdArgs };
 }
 
 function checkMigrationNeeded(root: string, command: string): void {
@@ -387,7 +400,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, target, cmdArgs } = parseArgs(args);
+  const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, value, target, cmdArgs } = parseArgs(args);
 
   if (command !== 'run' && !json && !quiet) {
     checkForUpdate(VERSION);
@@ -398,19 +411,19 @@ async function main(): Promise<void> {
   try {
     switch (command) {
       case 'init':
-        await initCommand({ root });
+        await initCommand(defaultContext, { root });
         break;
 
       case 'encrypt':
-        await encryptCommand({ root });
+        await encryptCommand(defaultContext, { root });
         break;
 
       case 'decrypt':
-        await decryptCommand({ root, env, force });
+        await decryptCommand(defaultContext, { root, env, force });
         break;
 
       case 'run':
-        await runCommand({ root, env, target, command: cmdArgs });
+        await runCommand(defaultContext, { root, env, target, command: cmdArgs });
         break;
 
       case 'set': {
@@ -420,20 +433,20 @@ async function main(): Promise<void> {
         } else if (envExplicit) {
           setFile = env;
         }
-        await setCommand({ root, file: setFile, key, gui });
+        await setCommand(defaultContext, { root, file: setFile, key, value, gui });
         break;
       }
 
       case 'edit':
-        await editCommand({ root, file });
+        await editCommand(defaultContext, { root, file });
         break;
 
       case 'list':
-        await listCommand({ root, env });
+        await listCommand(defaultContext, { root, env });
         break;
 
       case 'inspect':
-        await inspectCommand({ root, env });
+        await inspectCommand(defaultContext, { root, env });
         break;
 
       case 'has':
@@ -441,23 +454,25 @@ async function main(): Promise<void> {
           console.error(pc.red('Usage: hush has <KEY>'));
           process.exit(1);
         }
-        await hasCommand({ root, env, key, quiet });
+        await hasCommand(defaultContext, { root, env, key, quiet });
         break;
 
       case 'check':
-        await checkCommand({ root, warn, json, quiet, onlyChanged, requireSource, allowPlaintext });
+        await checkCommand(defaultContext, { root, warn, json, quiet, onlyChanged, requireSource, allowPlaintext });
         break;
 
+
+
       case 'push':
-        await pushCommand({ root, dryRun, verbose, target });
+        await pushCommand(defaultContext, { root, dryRun, verbose, target });
         break;
 
       case 'status':
-        await statusCommand({ root });
+        await statusCommand(defaultContext, { root });
         break;
 
       case 'skill':
-        await skillCommand({ root, global, local });
+        await skillCommand(defaultContext, { root, global, local });
         break;
 
       case 'keys':
@@ -466,7 +481,7 @@ async function main(): Promise<void> {
           console.error(pc.dim('Commands: setup, generate, pull, push, list'));
           process.exit(1);
         }
-        await keysCommand({ root, subcommand, vault, force });
+        await keysCommand(defaultContext, { root, subcommand, vault, force });
         break;
 
       case 'resolve':
@@ -475,7 +490,7 @@ async function main(): Promise<void> {
           console.error(pc.dim('Example: hush resolve api-workers'));
           process.exit(1);
         }
-        await resolveCommand({ root, env, target });
+        await resolveCommand(defaultContext, { root, env, target });
         break;
 
       case 'trace':
@@ -484,19 +499,19 @@ async function main(): Promise<void> {
           console.error(pc.dim('Example: hush trace DATABASE_URL'));
           process.exit(1);
         }
-        await traceCommand({ root, env, key });
+        await traceCommand(defaultContext, { root, env, key });
         break;
 
       case 'template':
-        await templateCommand({ root, env });
+        await templateCommand(defaultContext, { root, env });
         break;
 
       case 'expansions':
-        await expansionsCommand({ root, env });
+        await expansionsCommand(defaultContext, { root, env });
         break;
 
       case 'migrate':
-        await migrateCommand({ root, dryRun });
+        await migrateCommand(defaultContext, { root, dryRun });
         break;
 
       default:

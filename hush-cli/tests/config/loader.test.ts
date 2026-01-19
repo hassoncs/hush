@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import * as nodeFs from 'node:fs';
 import { loadConfig, findConfigPath, findProjectRoot, validateConfig } from '../../src/config/loader.js';
 import type { HushConfig } from '../../src/types.js';
 
@@ -52,16 +52,16 @@ describe('findProjectRoot', () => {
   const TEST_DIR = join('/tmp', 'hush-test-project-root-fixtures');
 
   beforeEach(() => {
-    rmSync(TEST_DIR, { recursive: true, force: true });
-    mkdirSync(join(TEST_DIR, 'apps/web/src'), { recursive: true });
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
+    nodeFs.mkdirSync(join(TEST_DIR, 'apps/web/src'), { recursive: true });
   });
 
   afterEach(() => {
-    rmSync(TEST_DIR, { recursive: true, force: true });
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
   it('finds hush.yaml in parent directory', () => {
-    writeFileSync(join(TEST_DIR, 'hush.yaml'), 'sources:\n  shared: .env\n');
+    nodeFs.writeFileSync(join(TEST_DIR, 'hush.yaml'), 'sources:\n  shared: .env\n');
     
     const result = findProjectRoot(join(TEST_DIR, 'apps/web/src'));
     expect(result).not.toBeNull();
@@ -70,7 +70,7 @@ describe('findProjectRoot', () => {
   });
 
   it('finds hush.yaml in current directory', () => {
-    writeFileSync(join(TEST_DIR, 'hush.yaml'), 'sources:\n  shared: .env\n');
+    nodeFs.writeFileSync(join(TEST_DIR, 'hush.yaml'), 'sources:\n  shared: .env\n');
     
     const result = findProjectRoot(TEST_DIR);
     expect(result).not.toBeNull();
@@ -83,9 +83,9 @@ describe('findProjectRoot', () => {
   });
 
   it('stops at first hush.yaml found (does not continue walking up)', () => {
-    mkdirSync(join(TEST_DIR, 'apps/web'), { recursive: true });
-    writeFileSync(join(TEST_DIR, 'hush.yaml'), 'sources:\n  shared: root.env\n');
-    writeFileSync(join(TEST_DIR, 'apps/hush.yaml'), 'sources:\n  shared: apps.env\n');
+    nodeFs.mkdirSync(join(TEST_DIR, 'apps/web'), { recursive: true });
+    nodeFs.writeFileSync(join(TEST_DIR, 'hush.yaml'), 'sources:\n  shared: root.env\n');
+    nodeFs.writeFileSync(join(TEST_DIR, 'apps/hush.yaml'), 'sources:\n  shared: apps.env\n');
     
     const result = findProjectRoot(join(TEST_DIR, 'apps/web'));
     expect(result).not.toBeNull();
@@ -96,7 +96,7 @@ describe('findProjectRoot', () => {
 describe('validateConfig', () => {
   it('returns no errors for valid config', () => {
     const config: HushConfig = {
-      sources: { shared: '.env', development: '.env.dev', production: '.env.prod' },
+      sources: { shared: '.env', development: '.env.dev', production: '.env.prod', local: '.env.local' },
       targets: [{ name: 'root', path: '.', format: 'dotenv' }],
     };
     expect(validateConfig(config)).toEqual([]);
@@ -104,7 +104,7 @@ describe('validateConfig', () => {
 
   it('returns error for missing target name', () => {
     const config: HushConfig = {
-      sources: { shared: '.env', development: '.env.dev', production: '.env.prod' },
+      sources: { shared: '.env', development: '.env.dev', production: '.env.prod', local: '.env.local' },
       targets: [{ name: '', path: '.', format: 'dotenv' }],
     };
     const errors = validateConfig(config);
@@ -113,7 +113,7 @@ describe('validateConfig', () => {
 
   it('returns error for missing target path', () => {
     const config: HushConfig = {
-      sources: { shared: '.env', development: '.env.dev', production: '.env.prod' },
+      sources: { shared: '.env', development: '.env.dev', production: '.env.prod', local: '.env.local' },
       targets: [{ name: 'test', path: '', format: 'dotenv' }],
     };
     const errors = validateConfig(config);
@@ -122,7 +122,7 @@ describe('validateConfig', () => {
 
   it('returns error for invalid format', () => {
     const config = {
-      sources: { shared: '.env', development: '.env.dev', production: '.env.prod' },
+      sources: { shared: '.env', development: '.env.dev', production: '.env.prod', local: '.env.local' },
       targets: [{ name: 'test', path: '.', format: 'invalid' as any }],
     };
     const errors = validateConfig(config);

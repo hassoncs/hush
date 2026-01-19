@@ -1,39 +1,35 @@
-import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import pc from 'picocolors';
-import { loadConfig, findProjectRoot } from '../config/loader.js';
 import { filterVarsForTarget } from '../core/filter.js';
 import { interpolateVars, getUnresolvedVars } from '../core/interpolate.js';
 import { mergeVars } from '../core/merge.js';
 import { parseEnvContent } from '../core/parse.js';
-import { decrypt as sopsDecrypt } from '../core/sops.js';
 import { loadLocalTemplates, resolveTemplateVars } from '../core/template.js';
-import type { RunOptions, EnvVar, HushConfig, Environment } from '../types.js';
+import type { RunOptions, EnvVar, HushConfig, Environment, HushContext } from '../types.js';
 
 function getEncryptedPath(sourcePath: string): string {
   return sourcePath + '.encrypted';
 }
 
-function getDecryptedSecrets(projectRoot: string, env: Environment, config: HushConfig): EnvVar[] {
+function getDecryptedSecrets(ctx: HushContext, projectRoot: string, env: Environment, config: HushConfig): EnvVar[] {
   const sharedEncrypted = join(projectRoot, getEncryptedPath(config.sources.shared));
   const envEncrypted = join(projectRoot, getEncryptedPath(config.sources[env]));
   const localEncrypted = join(projectRoot, getEncryptedPath(config.sources.local));
 
   const varSources: EnvVar[][] = [];
 
-  if (existsSync(sharedEncrypted)) {
-    const content = sopsDecrypt(sharedEncrypted);
+  if (ctx.fs.existsSync(sharedEncrypted)) {
+    const content = ctx.sops.decrypt(sharedEncrypted);
     varSources.push(parseEnvContent(content));
   }
 
-  if (existsSync(envEncrypted)) {
-    const content = sopsDecrypt(envEncrypted);
+  if (ctx.fs.existsSync(envEncrypted)) {
+    const content = ctx.sops.decrypt(envEncrypted);
     varSources.push(parseEnvContent(content));
   }
 
-  if (existsSync(localEncrypted)) {
-    const content = sopsDecrypt(localEncrypted);
+  if (ctx.fs.existsSync(localEncrypted)) {
+    const content = ctx.sops.decrypt(localEncrypted);
     varSources.push(parseEnvContent(content));
   }
 
@@ -59,33 +55,33 @@ function getRootSecretsAsRecord(vars: EnvVar[]): Record<string, string> {
   return record;
 }
 
-export async function runCommand(options: RunOptions): Promise<void> {
+export async function runCommand(ctx: HushContext, options: RunOptions): Promise<void> {
   const { root, env, target, command } = options;
   
   if (!command || command.length === 0) {
-    console.error(pc.red('Usage: hush run -- <command>'));
-    console.error(pc.dim('Example: hush run -- npm start'));
-    console.error(pc.dim('         hush run -e production -- npm run build'));
-    console.error(pc.dim('         hush run --target api -- wrangler dev'));
-    process.exit(1);
+    ctx.logger.error('Usage: hush run -- <command>');
+    ctx.logger.error(pc.dim('Example: hush run -- npm start'));
+    ctx.logger.error(pc.dim('         hush run -e production -- npm run build'));
+    ctx.logger.error(pc.dim('         hush run --target api -- wrangler dev'));
+    ctx.process.exit(1);
   }
 
   const contextDir = root;
-  const projectInfo = findProjectRoot(contextDir);
+  const projectInfo = ctx.config.findProjectRoot(contextDir);
   
   if (!projectInfo) {
-    console.error(pc.red('No hush.yaml found in current directory or any parent directory.'));
-    console.error(pc.dim('Run: npx hush init'));
-    process.exit(1);
+    ctx.logger.error('No hush.yaml found in current directory or any parent directory.');
+    ctx.logger.error(pc.dim('Run: npx hush init'));
+    ctx.process.exit(1);
   }
 
   const { projectRoot } = projectInfo;
-  const config = loadConfig(projectRoot);
+  const config = ctx.config.loadConfig(projectRoot);
   
-  const rootSecrets = getDecryptedSecrets(projectRoot, env, config);
+  const rootSecrets = getDecryptedSecrets(ctx, projectRoot, env, config);
   const rootSecretsRecord = getRootSecretsAsRecord(rootSecrets);
 
-  const localTemplate = loadLocalTemplates(contextDir, env);
+  const localTemplate = loadLocalTemplates(contextDir, env, ctx.fs);
 
   // 1. Resolve Template Vars
   let templateVars: EnvVar[] = [];
@@ -93,7 +89,7 @@ export async function runCommand(options: RunOptions): Promise<void> {
     templateVars = resolveTemplateVars(
       localTemplate.vars,
       rootSecretsRecord,
-      { processEnv: process.env as Record<string, string> }
+      { processEnv: ctx.process.env as Record<string, string> }
     );
   }
 
@@ -106,9 +102,9 @@ export async function runCommand(options: RunOptions): Promise<void> {
     : config.targets.find(t => resolve(projectRoot, t.path) === resolve(contextDir));
 
   if (target && !targetConfig) {
-    console.error(pc.red(`Target "${target}" not found in hush.yaml`));
-    console.error(pc.dim(`Available targets: ${config.targets.map(t => t.name).join(', ')}`));
-    process.exit(1);
+    ctx.logger.error(`Target "${target}" not found in hush.yaml`);
+    ctx.logger.error(pc.dim(`Available targets: ${config.targets.map(t => t.name).join(', ')}`));
+    ctx.process.exit(1);
   }
 
   if (targetConfig) {
@@ -120,11 +116,11 @@ export async function runCommand(options: RunOptions): Promise<void> {
       const devVarsPath = join(targetConfig.path, '.dev.vars');
       const absDevVarsPath = join(projectRoot, devVarsPath);
       
-      if (existsSync(absDevVarsPath)) {
-        console.warn(pc.yellow('\n⚠️  Wrangler Conflict Detected'));
-        console.warn(pc.yellow(`   Found .dev.vars in ${targetConfig.path}`));
-        console.warn(pc.yellow('   Wrangler will IGNORE Hush secrets while this file exists.'));
-        console.warn(pc.bold(`   Fix: rm ${devVarsPath}\n`));
+      if (ctx.fs.existsSync(absDevVarsPath)) {
+        ctx.logger.warn('\n⚠️  Wrangler Conflict Detected');
+        ctx.logger.warn(`   Found .dev.vars in ${targetConfig.path}`);
+        ctx.logger.warn('   Wrangler will IGNORE Hush secrets while this file exists.');
+        ctx.logger.warn(pc.bold(`   Fix: rm ${devVarsPath}\n`));
       }
     }
   } else if (!localTemplate.hasTemplate && !target) {
@@ -146,17 +142,17 @@ export async function runCommand(options: RunOptions): Promise<void> {
 
   const unresolved = getUnresolvedVars(vars);
   if (unresolved.length > 0) {
-    console.warn(pc.yellow(`Warning: ${unresolved.length} vars have unresolved references: ${unresolved.join(', ')}`));
+    ctx.logger.warn(`Warning: ${unresolved.length} vars have unresolved references: ${unresolved.join(', ')}`);
   }
 
   const childEnv: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...ctx.process.env,
     ...Object.fromEntries(vars.map(v => [v.key, v.value])),
   };
 
   const [cmd, ...args] = command;
   
-  const result = spawnSync(cmd, args, {
+  const result = ctx.exec.spawnSync(cmd, args, {
     stdio: 'inherit',
     env: childEnv,
     shell: true,
@@ -164,9 +160,9 @@ export async function runCommand(options: RunOptions): Promise<void> {
   });
 
   if (result.error) {
-    console.error(pc.red(`Failed to execute: ${result.error.message}`));
-    process.exit(1);
+    ctx.logger.error(`Failed to execute: ${result.error.message}`);
+    ctx.process.exit(1);
   }
 
-  process.exit(result.status ?? 1);
+  ctx.process.exit(result.status ?? 1);
 }

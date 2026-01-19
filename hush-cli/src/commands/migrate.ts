@@ -1,8 +1,7 @@
-import { existsSync, renameSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import pc from 'picocolors';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { findConfigPath } from '../config/loader.js';
+import { HushContext } from '../types.js';
 
 export interface MigrateOptions {
   root: string;
@@ -29,19 +28,20 @@ const SOURCE_MIGRATIONS: Record<string, string> = {
   '.env.local': '.hush.local',
 };
 
-function getMigrationFiles(root: string): MigrationFile[] {
+function getMigrationFiles(ctx: HushContext, root: string): MigrationFile[] {
   return FILE_MIGRATIONS.map(({ from, to }) => ({
     from,
     to,
-    exists: existsSync(join(root, from)),
+    exists: ctx.fs.existsSync(join(root, from)),
   }));
 }
 
-function migrateConfig(root: string, dryRun: boolean): boolean {
-  const configPath = findConfigPath(root);
-  if (!configPath) return false;
+function migrateConfig(ctx: HushContext, root: string, dryRun: boolean): boolean {
+  const projectInfo = ctx.config.findProjectRoot(root);
+  if (!projectInfo) return false;
+  const configPath = projectInfo.configPath;
 
-  const content = readFileSync(configPath, 'utf-8');
+  const content = ctx.fs.readFileSync(configPath, 'utf-8') as string;
   const config = parseYaml(content) as Record<string, unknown>;
 
   let modified = false;
@@ -63,51 +63,51 @@ function migrateConfig(root: string, dryRun: boolean): boolean {
   if (modified && !dryRun) {
     const schemaComment = content.startsWith('#') ? content.split('\n')[0] + '\n' : '';
     const newContent = schemaComment + stringifyYaml(config, { indent: 2 });
-    writeFileSync(configPath, newContent, 'utf-8');
+    ctx.fs.writeFileSync(configPath, newContent, 'utf-8');
   }
 
   return modified;
 }
 
-export async function migrateCommand(options: MigrateOptions): Promise<void> {
+export async function migrateCommand(ctx: HushContext, options: MigrateOptions): Promise<void> {
   const { root, dryRun } = options;
 
-  console.log(pc.blue('Hush v4 → v5 Migration\n'));
+  ctx.logger.log(pc.blue('Hush v4 → v5 Migration\n'));
 
   if (dryRun) {
-    console.log(pc.yellow('DRY RUN - no changes will be made\n'));
+    ctx.logger.log(pc.yellow('DRY RUN - no changes will be made\n'));
   }
 
-  const migrations = getMigrationFiles(root);
+  const migrations = getMigrationFiles(ctx, root);
   const filesToMigrate = migrations.filter(m => m.exists);
 
   if (filesToMigrate.length === 0) {
-    console.log(pc.dim('No v4 encrypted files found (.env.encrypted, etc.)'));
-    console.log(pc.dim('Already on v5 or no encrypted files exist.\n'));
-    
-    const configNeedsMigration = migrateConfig(root, true);
+    ctx.logger.log(pc.dim('No v4 encrypted files found (.env.encrypted, etc.)'));
+    ctx.logger.log(pc.dim('Already on v5 or no encrypted files exist.\n'));
+
+    const configNeedsMigration = migrateConfig(ctx, root, true);
     if (configNeedsMigration) {
-      console.log(pc.yellow('hush.yaml contains v4 source paths that need updating.\n'));
+      ctx.logger.log(pc.yellow('hush.yaml contains v4 source paths that need updating.\n'));
       if (!dryRun) {
-        migrateConfig(root, false);
-        console.log(pc.green('Updated hush.yaml source paths to v5 format.\n'));
+        migrateConfig(ctx, root, false);
+        ctx.logger.log(pc.green('Updated hush.yaml source paths to v5 format.\n'));
       }
     }
     return;
   }
 
-  console.log(pc.bold('Files to migrate:'));
+  ctx.logger.log(pc.bold('Files to migrate:'));
   for (const { from, to, exists } of migrations) {
     if (exists) {
-      console.log(`  ${pc.yellow(from)} → ${pc.green(to)}`);
+      ctx.logger.log(`  ${pc.yellow(from)} → ${pc.green(to)}`);
     } else {
-      console.log(pc.dim(`  ${from} (not found, skipping)`));
+      ctx.logger.log(pc.dim(`  ${from} (not found, skipping)`));
     }
   }
-  console.log('');
+  ctx.logger.log('');
 
   if (dryRun) {
-    console.log(pc.dim('Run without --dry-run to apply changes.'));
+    ctx.logger.log(pc.dim('Run without --dry-run to apply changes.'));
     return;
   }
 
@@ -118,29 +118,31 @@ export async function migrateCommand(options: MigrateOptions): Promise<void> {
     const fromPath = join(root, from);
     const toPath = join(root, to);
 
-    if (existsSync(toPath)) {
-      console.log(pc.yellow(`  Skipping ${from}: ${to} already exists`));
+    if (ctx.fs.existsSync(toPath)) {
+      ctx.logger.log(pc.yellow(`  Skipping ${from}: ${to} already exists`));
       continue;
     }
 
-    renameSync(fromPath, toPath);
-    console.log(pc.green(`  Migrated ${from} → ${to}`));
+    const content = ctx.fs.readFileSync(fromPath, 'utf-8');
+    ctx.fs.writeFileSync(toPath, content);
+    ctx.fs.unlinkSync(fromPath);
+    ctx.logger.log(pc.green(`  Migrated ${from} → ${to}`));
     migratedCount++;
   }
 
-  const configUpdated = migrateConfig(root, false);
+  const configUpdated = migrateConfig(ctx, root, false);
   if (configUpdated) {
-    console.log(pc.green('  Updated hush.yaml source paths'));
+    ctx.logger.log(pc.green('  Updated hush.yaml source paths'));
   }
 
-  console.log('');
+  ctx.logger.log('');
   if (migratedCount > 0 || configUpdated) {
-    console.log(pc.green(pc.bold(`Migration complete.`)));
-    console.log(pc.dim('\nNext steps:'));
-    console.log(pc.dim('  1. git add .hush.encrypted .hush.*.encrypted hush.yaml'));
-    console.log(pc.dim('  2. git rm .env.encrypted .env.*.encrypted (if tracked)'));
-    console.log(pc.dim('  3. git commit -m "chore: migrate to Hush v5 format"'));
+    ctx.logger.log(pc.green(pc.bold(`Migration complete.`)));
+    ctx.logger.log(pc.dim('\nNext steps:'));
+    ctx.logger.log(pc.dim('  1. git add .hush.encrypted .hush.*.encrypted hush.yaml'));
+    ctx.logger.log(pc.dim('  2. git rm .env.encrypted .env.*.encrypted (if tracked)'));
+    ctx.logger.log(pc.dim('  3. git commit -m "chore: migrate to Hush v5 format"'));
   } else {
-    console.log(pc.dim('No changes made.'));
+    ctx.logger.log(pc.dim('No changes made.'));
   }
 }

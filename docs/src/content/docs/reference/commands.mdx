@@ -95,18 +95,23 @@ Use `-t` (target) to filter secrets. For example, your frontend might only need 
 
 ## set
 
-Set a secret interactively. The AI assistant invokes this command, and the user enters the value—**the AI never sees the secret**.
+Set a secret. Supports inline values, interactive prompts, or piped input.
 
 ```bash
-# Set a secret in shared (.hush.encrypted)
+# Inline value (recommended for AI agents)
+hush set "postgres://user:pass@host/db" DATABASE_URL
+hush set "sk_live_xxx" STRIPE_KEY -e production
+
+# Interactive prompt (for users)
 hush set DATABASE_URL
-
-# Set a secret in a specific environment
 hush set API_KEY -e production
-hush set DEBUG -e development
 
-# Set a secret in local overrides (.hush.local.encrypted)
+# Set in local overrides (.hush.local.encrypted)
 hush set MY_OVERRIDE --local
+
+# Piped input (for scripts)
+echo "my-secret" | hush set MY_KEY
+cat cert.pem | hush set CERTIFICATE
 ```
 
 ### Options
@@ -115,10 +120,18 @@ hush set MY_OVERRIDE --local
 |--------|-------------|
 | `-e, --env <env>` | Target environment file (default: shared `.hush.encrypted`) |
 | `--local` | Set in `.hush.local.encrypted` (personal overrides, not committed) |
+| `--gui` | Use GUI dialog for input (shows value for verification) |
+
+### Input Methods (Priority Order)
+
+1. **Inline value**: `hush set "value" KEY` - value provided directly
+2. **Piped input**: `echo "value" | hush set KEY` - reads from stdin
+3. **GUI dialog**: Opens when `--gui` flag used or no TTY available
+4. **Interactive prompt**: Terminal prompt with visible input
 
 ### How It Works
 
-1. Prompts for the value with hidden input (like a password)
+1. Gets value from inline arg, pipe, GUI, or prompt
 2. Decrypts the target file
 3. Sets or updates the key
 4. Re-encrypts the file
@@ -127,13 +140,16 @@ hush set MY_OVERRIDE --local
 ### Example Output
 
 ```
-$ hush set DATABASE_URL
-Enter value for DATABASE_URL: ••••••••••••••••
-✓ DATABASE_URL set in .hush.encrypted (45 chars)
+$ hush set "postgres://localhost/mydb" DATABASE_URL
+✓ DATABASE_URL set in .hush.encrypted (25 chars)
+
+$ hush set API_KEY
+Enter value for API_KEY: sk_test_xxx
+✓ API_KEY set in .hush.encrypted (14 chars)
 ```
 
 <Aside type="tip">
-This is the recommended way for AI assistants to help add secrets. The AI can suggest `hush set DATABASE_URL` and guide the user, without ever seeing the actual value.
+AI agents can use inline values directly: `hush set "value" KEY`. For user-provided secrets, use interactive mode: `hush set KEY`.
 </Aside>
 
 ---
@@ -490,7 +506,7 @@ Environment: development
   ASC_KEY_ID                 (matches: ASC_*)
   ...
 
-📄 TEMPLATE EXPANSIONS (api/.env):
+📄 TEMPLATE EXPANSIONS (api/.hush):
   DATABASE_URL               ← ${DATABASE_URL}
   PORT                       ← ${PORT:-8787}
 

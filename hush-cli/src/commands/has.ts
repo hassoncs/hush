@@ -1,12 +1,9 @@
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import pc from 'picocolors';
-import { loadConfig } from '../config/loader.js';
 import { interpolateVars } from '../core/interpolate.js';
 import { mergeVars } from '../core/merge.js';
 import { parseEnvContent } from '../core/parse.js';
-import { decrypt as sopsDecrypt } from '../core/sops.js';
-import type { EnvVar, Environment } from '../types.js';
+import type { EnvVar, Environment, HushContext } from '../types.js';
 
 export interface HasOptions {
   root: string;
@@ -15,30 +12,30 @@ export interface HasOptions {
   quiet: boolean;
 }
 
-export async function hasCommand(options: HasOptions): Promise<void> {
+export async function hasCommand(ctx: HushContext, options: HasOptions): Promise<void> {
   const { root, env, key, quiet } = options;
-  const config = loadConfig(root);
+  const config = ctx.config.loadConfig(root);
 
   const sharedEncrypted = join(root, config.sources.shared + '.encrypted');
   const envEncrypted = join(root, config.sources[env] + '.encrypted');
 
   const varSources: EnvVar[][] = [];
 
-  if (existsSync(sharedEncrypted)) {
-    const content = sopsDecrypt(sharedEncrypted);
+  if (ctx.fs.existsSync(sharedEncrypted)) {
+    const content = ctx.sops.decrypt(sharedEncrypted);
     varSources.push(parseEnvContent(content));
   }
 
-  if (existsSync(envEncrypted)) {
-    const content = sopsDecrypt(envEncrypted);
+  if (ctx.fs.existsSync(envEncrypted)) {
+    const content = ctx.sops.decrypt(envEncrypted);
     varSources.push(parseEnvContent(content));
   }
 
   if (varSources.length === 0) {
     if (!quiet) {
-      console.error(pc.red('No encrypted files found'));
+      ctx.logger.error(pc.red('No encrypted files found'));
     }
-    process.exit(2);
+    ctx.process.exit(2);
   }
 
   const merged = mergeVars(...varSources);
@@ -49,13 +46,13 @@ export async function hasCommand(options: HasOptions): Promise<void> {
 
   if (!quiet) {
     if (exists) {
-      console.log(pc.green(`${key} is set (${found!.value.length} chars)`));
+      ctx.logger.log(pc.green(`${key} is set (${found!.value.length} chars)`));
     } else if (found) {
-      console.log(pc.yellow(`${key} exists but is empty`));
+      ctx.logger.log(pc.yellow(`${key} exists but is empty`));
     } else {
-      console.log(pc.red(`${key} not found`));
+      ctx.logger.log(pc.red(`${key} not found`));
     }
   }
 
-  process.exit(exists ? 0 : 1);
+  ctx.process.exit(exists ? 0 : 1);
 }

@@ -1,12 +1,8 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { execSync } from 'node:child_process';
 import pc from 'picocolors';
-import { loadConfig, findConfigPath } from '../config/loader.js';
 import { parseEnvContent } from '../core/parse.js';
-import { decrypt as sopsDecrypt, isSopsInstalled } from '../core/sops.js';
 import { computeDiff, isInSync } from '../lib/diff.js';
-import type { CheckOptions, CheckFileResult, CheckResult, HushConfig, PlaintextFileResult } from '../types.js';
+import type { CheckOptions, CheckFileResult, CheckResult, HushConfig, PlaintextFileResult, HushContext } from '../types.js';
 
 interface SourceEncryptedPair {
   source: string;
@@ -42,10 +38,10 @@ function getSourceEncryptedPairs(config: HushConfig): SourceEncryptedPair[] {
   return pairs;
 }
 
-function getGitChangedFiles(root: string): Set<string> {
+function getGitChangedFiles(ctx: HushContext, root: string): Set<string> {
   try {
-    const staged = execSync('git diff --cached --name-only', { cwd: root, encoding: 'utf-8' });
-    const unstaged = execSync('git diff --name-only', { cwd: root, encoding: 'utf-8' });
+    const staged = ctx.exec.execSync('git diff --cached --name-only', { cwd: root, encoding: 'utf-8' }) as string;
+    const unstaged = ctx.exec.execSync('git diff --name-only', { cwd: root, encoding: 'utf-8' }) as string;
     const files = [...staged.split('\n'), ...unstaged.split('\n')].filter(Boolean);
     return new Set(files);
   } catch {
@@ -53,7 +49,7 @@ function getGitChangedFiles(root: string): Set<string> {
   }
 }
 
-function findPlaintextEnvFiles(root: string): PlaintextFileResult[] {
+function findPlaintextEnvFiles(ctx: HushContext, root: string): PlaintextFileResult[] {
   const results: PlaintextFileResult[] = [];
   // Only warn about .env files (legacy/output files), NOT .hush files (Hush's source files)
   const plaintextPatterns = ['.env', '.env.development', '.env.production', '.env.local', '.env.staging', '.env.test', '.dev.vars'];
@@ -62,21 +58,21 @@ function findPlaintextEnvFiles(root: string): PlaintextFileResult[] {
   function scanDir(dir: string, relativePath: string = '') {
     let entries: string[];
     try {
-      entries = readdirSync(dir);
+      entries = ctx.fs.readdirSync(dir) as string[];
     } catch {
       return;
     }
-    
+
     for (const entry of entries) {
       if (skipDirs.has(entry)) continue;
-      
+
       const fullPath = join(dir, entry);
       const relPath = relativePath ? `${relativePath}/${entry}` : entry;
-      
-      try {
-        if (statSync(fullPath).isDirectory()) {
-          scanDir(fullPath, relPath);
-        } else if (plaintextPatterns.includes(entry)) {
+
+        try {
+          if (ctx.fs.statSync(fullPath).isDirectory()) {
+            scanDir(fullPath, relPath);
+          } else if (plaintextPatterns.includes(entry)) {
           results.push({ file: relPath, keyCount: 0 });
         }
       } catch {
@@ -89,10 +85,10 @@ function findPlaintextEnvFiles(root: string): PlaintextFileResult[] {
   return results;
 }
 
-export async function check(options: CheckOptions): Promise<CheckResult> {
+export async function check(ctx: HushContext, options: CheckOptions): Promise<CheckResult> {
   const { root, requireSource, onlyChanged, allowPlaintext } = options;
 
-  if (!isSopsInstalled()) {
+  if (!ctx.sops.isSopsInstalled()) {
     return {
       status: 'error',
       files: [{
@@ -107,12 +103,12 @@ export async function check(options: CheckOptions): Promise<CheckResult> {
     };
   }
 
-  const config = loadConfig(root);
+  const config = ctx.config.loadConfig(root);
   const pairs = getSourceEncryptedPairs(config);
-  const result = checkPairs(root, pairs, requireSource, onlyChanged);
+  const result = checkPairs(ctx, root, pairs, requireSource, onlyChanged);
   
   if (!allowPlaintext) {
-    const plaintextFiles = findPlaintextEnvFiles(root);
+    const plaintextFiles = findPlaintextEnvFiles(ctx, root);
     if (plaintextFiles.length > 0) {
       result.plaintextFiles = plaintextFiles;
       result.status = 'plaintext';
@@ -123,12 +119,13 @@ export async function check(options: CheckOptions): Promise<CheckResult> {
 }
 
 function checkPairs(
+  ctx: HushContext,
   root: string,
   pairs: SourceEncryptedPair[],
   requireSource: boolean,
   onlyChanged: boolean
 ): CheckResult {
-  const changedFiles = onlyChanged ? getGitChangedFiles(root) : null;
+  const changedFiles = onlyChanged ? getGitChangedFiles(ctx, root) : null;
   const results: CheckFileResult[] = [];
 
   for (const { source, encrypted } of pairs) {
@@ -143,7 +140,7 @@ function checkPairs(
       }
     }
 
-    if (!existsSync(sourcePath)) {
+    if (!ctx.fs.existsSync(sourcePath)) {
       if (requireSource) {
         results.push({
           source,
@@ -158,8 +155,8 @@ function checkPairs(
       continue;
     }
 
-    if (!existsSync(encryptedPath)) {
-      const sourceContent = readFileSync(sourcePath, 'utf-8');
+    if (!ctx.fs.existsSync(encryptedPath)) {
+      const sourceContent = ctx.fs.readFileSync(sourcePath, 'utf-8') as string;
       const sourceVars = parseEnvContent(sourceContent);
       const allKeys = sourceVars.map(v => v.key);
       
@@ -176,9 +173,9 @@ function checkPairs(
     }
 
     try {
-      const decryptedContent = sopsDecrypt(encryptedPath);
-      const sourceContent = readFileSync(sourcePath, 'utf-8');
-      
+      const decryptedContent = ctx.sops.decrypt(encryptedPath);
+      const sourceContent = ctx.fs.readFileSync(sourcePath, 'utf-8') as string;
+
       const sourceVars = parseEnvContent(sourceContent);
       const encryptedVars = parseEnvContent(decryptedContent);
       
@@ -319,37 +316,37 @@ function formatJsonOutput(result: CheckResult): string {
   return JSON.stringify(result, null, 2);
 }
 
-export async function checkCommand(options: CheckOptions): Promise<void> {
-  const result = await check(options);
+export async function checkCommand(ctx: HushContext, options: CheckOptions): Promise<void> {
+  const result = await check(ctx, options);
 
   if (!options.quiet) {
     if (options.json) {
-      console.log(formatJsonOutput(result));
+      ctx.logger.log(formatJsonOutput(result));
     } else {
-      console.log(formatTextOutput(result));
+      ctx.logger.log(formatTextOutput(result));
     }
   }
 
   if (result.status === 'plaintext' && !options.warn) {
-    process.exit(4);
+    ctx.process.exit(4);
   }
 
   if (result.status === 'error') {
     const hasSopsError = result.files.some(f => f.error === 'SOPS_NOT_INSTALLED');
     const hasDecryptError = result.files.some(f => f.error === 'DECRYPT_FAILED');
-    
+
     if (hasSopsError || hasDecryptError) {
-      process.exit(3);
+      ctx.process.exit(3);
     }
-    
+
     if (result.files.some(f => f.error === 'SOURCE_MISSING')) {
-      process.exit(2);
+      ctx.process.exit(2);
     }
   }
 
   if (result.status === 'drift' && !options.warn) {
-    process.exit(1);
+    ctx.process.exit(1);
   }
 
-  process.exit(0);
+  ctx.process.exit(0);
 }

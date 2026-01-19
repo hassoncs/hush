@@ -1,64 +1,77 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as nodeFs from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadLocalTemplates, resolveTemplateVars } from '../../src/core/template.js';
 
 const TEST_DIR = join(tmpdir(), 'hush-test-template-fixtures');
 
+// Mock fs implementation using real node:fs for this test
+const mockFs = {
+  existsSync: (p: string) => nodeFs.existsSync(p),
+  readFileSync: (p: string, opts: any) => nodeFs.readFileSync(p, opts),
+  writeFileSync: (p: string, data: any, opts: any) => nodeFs.writeFileSync(p, data, opts),
+  mkdirSync: (p: string, opts: any) => nodeFs.mkdirSync(p, opts),
+  readdirSync: (p: string, opts: any) => nodeFs.readdirSync(p, opts),
+  statSync: (p: string) => nodeFs.statSync(p),
+  fstatSync: (fd: number) => nodeFs.fstatSync(fd),
+  renameSync: (a: string, b: string) => nodeFs.renameSync(a, b),
+  unlinkSync: (p: string) => nodeFs.unlinkSync(p),
+} as any;
+
 describe('loadLocalTemplates', () => {
   beforeEach(() => {
-    mkdirSync(TEST_DIR, { recursive: true });
+    nodeFs.mkdirSync(TEST_DIR, { recursive: true });
   });
 
   afterEach(() => {
-    rmSync(TEST_DIR, { recursive: true, force: true });
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
-  it('returns hasTemplate: false when no .env files exist', () => {
-    const result = loadLocalTemplates(TEST_DIR, 'development');
+  it('returns hasTemplate: false when no .hush files exist', () => {
+    const result = loadLocalTemplates(TEST_DIR, 'development', mockFs);
     expect(result.hasTemplate).toBe(false);
     expect(result.vars).toEqual([]);
   });
 
-  it('loads base .env file', () => {
-    writeFileSync(join(TEST_DIR, '.env'), 'FOO=bar\nBAZ=qux');
+  it('loads base .hush file', () => {
+    nodeFs.writeFileSync(join(TEST_DIR, '.hush'), 'FOO=bar\nBAZ=qux');
     
-    const result = loadLocalTemplates(TEST_DIR, 'development');
+    const result = loadLocalTemplates(TEST_DIR, 'development', mockFs);
     expect(result.hasTemplate).toBe(true);
-    expect(result.files).toEqual(['.env']);
+    expect(result.files).toEqual(['.hush']);
     expect(result.vars).toContainEqual({ key: 'FOO', value: 'bar' });
     expect(result.vars).toContainEqual({ key: 'BAZ', value: 'qux' });
   });
 
-  it('merges .env with .env.development', () => {
-    writeFileSync(join(TEST_DIR, '.env'), 'FOO=base\nSHARED=shared');
-    writeFileSync(join(TEST_DIR, '.env.development'), 'FOO=dev\nDEV_ONLY=true');
+  it('merges .hush with .hush.development', () => {
+    nodeFs.writeFileSync(join(TEST_DIR, '.hush'), 'FOO=base\nSHARED=shared');
+    nodeFs.writeFileSync(join(TEST_DIR, '.hush.development'), 'FOO=dev\nDEV_ONLY=true');
     
-    const result = loadLocalTemplates(TEST_DIR, 'development');
+    const result = loadLocalTemplates(TEST_DIR, 'development', mockFs);
     expect(result.hasTemplate).toBe(true);
-    expect(result.files).toContain('.env');
-    expect(result.files).toContain('.env.development');
+    expect(result.files).toContain('.hush');
+    expect(result.files).toContain('.hush.development');
     expect(result.vars).toContainEqual({ key: 'FOO', value: 'dev' });
     expect(result.vars).toContainEqual({ key: 'SHARED', value: 'shared' });
     expect(result.vars).toContainEqual({ key: 'DEV_ONLY', value: 'true' });
   });
 
-  it('merges .env with .env.production', () => {
-    writeFileSync(join(TEST_DIR, '.env'), 'FOO=base');
-    writeFileSync(join(TEST_DIR, '.env.production'), 'FOO=prod');
+  it('merges .hush with .hush.production', () => {
+    nodeFs.writeFileSync(join(TEST_DIR, '.hush'), 'FOO=base');
+    nodeFs.writeFileSync(join(TEST_DIR, '.hush.production'), 'FOO=prod');
     
-    const result = loadLocalTemplates(TEST_DIR, 'production');
+    const result = loadLocalTemplates(TEST_DIR, 'production', mockFs);
     expect(result.hasTemplate).toBe(true);
     expect(result.vars).toContainEqual({ key: 'FOO', value: 'prod' });
   });
 
-  it('merges .env.local last (highest priority)', () => {
-    writeFileSync(join(TEST_DIR, '.env'), 'FOO=base');
-    writeFileSync(join(TEST_DIR, '.env.development'), 'FOO=dev');
-    writeFileSync(join(TEST_DIR, '.env.local'), 'FOO=local');
+  it('merges .hush.local last (highest priority)', () => {
+    nodeFs.writeFileSync(join(TEST_DIR, '.hush'), 'FOO=base');
+    nodeFs.writeFileSync(join(TEST_DIR, '.hush.development'), 'FOO=dev');
+    nodeFs.writeFileSync(join(TEST_DIR, '.hush.local'), 'FOO=local');
     
-    const result = loadLocalTemplates(TEST_DIR, 'development');
+    const result = loadLocalTemplates(TEST_DIR, 'development', mockFs);
     expect(result.vars).toContainEqual({ key: 'FOO', value: 'local' });
   });
 });
