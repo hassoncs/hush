@@ -105,7 +105,7 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
         : pc.yellow('  Local key: not found')
     );
 
-    if (ctx.onepassword.opAvailable()) {
+    if (ctx.onepassword.opInstalled()) {
       ctx.logger.log(pc.dim('  1Password CLI: installed'));
       ctx.logger.log(pc.dim('    Run "npx hush keys list" to check backup status'));
     } else {

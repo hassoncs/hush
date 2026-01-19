@@ -219,6 +219,7 @@ export interface HushContext {
     agePublicFromPrivate(privateKey: string): string;
   };
   onepassword: {
+    opInstalled(): boolean;
     opAvailable(): boolean;
     opGetKey(project: string): string | null;
     opStoreKey(project: string, privateKey: string, publicKey: string): void;

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { loadConfig, findProjectRoot } from './config/loader.js';
 import { decrypt, isSopsInstalled } from './core/sops.js';
 import { ageAvailable, ageGenerate, agePublicFromPrivate, keyExists, keySave, keyLoad, keyPath } from './lib/age.js';
-import { opAvailable, opGetKey, opStoreKey } from './lib/onepassword.js';
+import { opInstalled, opAvailable, opGetKey, opStoreKey } from './lib/onepassword.js';
 import type { HushContext } from './types.js';
 import pc from 'picocolors';
 
@@ -50,6 +50,7 @@ export const defaultContext: HushContext = {
     agePublicFromPrivate,
   },
   onepassword: {
+    opInstalled,
     opAvailable,
     opGetKey,
     opStoreKey,
