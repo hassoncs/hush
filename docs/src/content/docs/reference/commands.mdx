@@ -99,8 +99,8 @@ Set a secret. Supports inline values, interactive prompts, or piped input.
 
 ```bash
 # Inline value (recommended for AI agents)
-hush set "postgres://user:pass@host/db" DATABASE_URL
-hush set "sk_live_xxx" STRIPE_KEY -e production
+hush set DATABASE_URL "postgres://user:pass@host/db"
+hush set STRIPE_KEY "sk_live_xxx" -e production
 
 # Interactive prompt (for users)
 hush set DATABASE_URL
@@ -109,7 +109,7 @@ hush set API_KEY -e production
 # Set in local overrides (.hush.local.encrypted)
 hush set MY_OVERRIDE --local
 
-# Piped input (for scripts)
+# Piped input (for scripts/automation)
 echo "my-secret" | hush set MY_KEY
 cat cert.pem | hush set CERTIFICATE
 ```
@@ -124,7 +124,7 @@ cat cert.pem | hush set CERTIFICATE
 
 ### Input Methods (Priority Order)
 
-1. **Inline value**: `hush set "value" KEY` - value provided directly
+1. **Inline value**: `hush set KEY "value"` - value provided directly
 2. **Piped input**: `echo "value" | hush set KEY` - reads from stdin
 3. **GUI dialog**: Opens when `--gui` flag used or no TTY available
 4. **Interactive prompt**: Terminal prompt with visible input
@@ -140,7 +140,7 @@ cat cert.pem | hush set CERTIFICATE
 ### Example Output
 
 ```
-$ hush set "postgres://localhost/mydb" DATABASE_URL
+$ hush set DATABASE_URL "postgres://localhost/mydb"
 ✓ DATABASE_URL set in .hush.encrypted (25 chars)
 
 $ hush set API_KEY
@@ -149,7 +149,7 @@ Enter value for API_KEY: sk_test_xxx
 ```
 
 <Aside type="tip">
-AI agents can use inline values directly: `hush set "value" KEY`. For user-provided secrets, use interactive mode: `hush set KEY`.
+AI agents can use inline values directly: `hush set KEY "value"`. For user-provided secrets, use interactive mode: `hush set KEY`.
 </Aside>
 
 ---

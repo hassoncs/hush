@@ -39,7 +39,7 @@ ${pc.bold('Commands:')}
   init              Initialize hush.yaml config
   encrypt           Encrypt source .hush files
   run -- <cmd>      Run command with secrets in memory (AI-safe)
-  set [VALUE] <KEY> Set a single secret (AI-safe, prompts if no value)
+  set <KEY> [VALUE] Set a single secret (AI-safe, prompts if no value)
   edit [file]       Edit all secrets in $EDITOR
   list              List all variables (shows values)
   inspect           List all variables (masked values, AI-safe)
@@ -117,7 +117,8 @@ ${pc.bold('Examples:')}
   hush run -t api -- wrangler dev  Run filtered for 'api' target (root secrets only)
   cd apps/mobile && hush run -- expo start  Run from subdirectory (applies template + target filters)
   hush set DATABASE_URL         Set a secret interactively (prompts for value)
-  hush set "myvalue" API_KEY    Set a secret inline (no prompt)
+  hush set API_KEY "myvalue"    Set a secret inline (no prompt)
+  echo "val" | hush set KEY     Set a secret from piped input
   hush set API_KEY --gui        Set secret via GUI dialog (for AI agents)
   hush set API_KEY -e prod      Set a production secret
   hush keys setup               Pull key from 1Password or verify local
@@ -330,10 +331,9 @@ function parseArgs(args: string[]): ParsedArgs {
       if (!key) {
         key = arg;
       } else if (!value) {
-        // Second positional arg: shift key to value, this arg is the key
-        // Syntax: hush set <VALUE> <KEY>
-        value = key;
-        key = arg;
+        // Second positional arg is the value
+        // Syntax: hush set <KEY> <VALUE>
+        value = arg;
       }
       continue;
     }

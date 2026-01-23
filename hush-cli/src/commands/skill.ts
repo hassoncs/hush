@@ -72,7 +72,7 @@ npx hush inspect       # See what secrets exist
 ### Scenario 4: Need to Add/Modify Secrets
 
 \`\`\`bash
-npx hush set <VALUE> <KEY> # Add inline (value and key provided)
+npx hush set <KEY> <VALUE> # Add inline (key and value provided)
 npx hush set <KEY>         # Add interactively (prompts for value)
 npx hush edit              # Edit all secrets in $EDITOR
 npx hush inspect           # Verify changes
@@ -222,7 +222,7 @@ LOG_LEVEL=\${LOG_LEVEL:-info}
 | \`npx hush status\` | **Full diagnostic** | First step, always |
 | \`npx hush inspect\` | See variables (masked) | Check what's configured |
 | \`npx hush has <KEY>\` | Check specific variable | Verify a secret exists |
-| \`npx hush set [VALUE] <KEY>\` | Add secret (prompts if no value) | User needs to set a value |
+| \`npx hush set <KEY> [VALUE]\` | Add secret (prompts if no value) | User needs to set a value |
 | \`npx hush edit\` | Edit all secrets | Bulk editing |
 | \`npx hush run -- <cmd>\` | Run with secrets in memory | Actually use the secrets |
 | \`npx hush init\` | Initialize Hush | First-time setup |
@@ -319,8 +319,8 @@ npx hush has API_KEY -q             # Quiet: exit code only (0=set, 1=missing)
 
 **Method 1: Inline value (recommended for AI agents)**
 \`\`\`bash
-npx hush set "postgres://user:pass@host/db" DATABASE_URL
-npx hush set "sk_live_xxx" STRIPE_KEY -e production
+npx hush set DATABASE_URL "postgres://user:pass@host/db"
+npx hush set STRIPE_KEY "sk_live_xxx" -e production
 \`\`\`
 
 **Method 2: Interactive prompt (for users)**
@@ -704,19 +704,19 @@ hush run -t api -- wrangler dev       # Run filtered for 'api' target
 
 ---
 
-### hush set [VALUE] <KEY> ⭐
+### hush set <KEY> [VALUE] ⭐
 
 Add or update a single secret. Prompts for value if not provided inline.
 
 \`\`\`bash
 hush set DATABASE_URL              # Prompts for value interactively
-hush set "postgres://..." DATABASE_URL  # Inline value (no prompt)
+hush set DATABASE_URL "postgres://..."  # Inline value (no prompt)
 hush set API_KEY -e production     # Set in production secrets
 hush set DEBUG --local             # Set personal local override
 \`\`\`
 
 **Input methods (in priority order):**
-1. **Inline value**: \`hush set "myvalue" KEY\` - value provided directly
+1. **Inline value**: \`hush set KEY "myvalue"\` - value provided directly
 2. **Piped input**: \`echo "myvalue" | hush set KEY\` - reads from stdin
 3. **Interactive prompt**: Opens dialog/prompt for user input
 
