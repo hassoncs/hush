@@ -155,7 +155,6 @@ export async function runCommand(ctx: HushContext, options: RunOptions): Promise
   const result = ctx.exec.spawnSync(cmd, args, {
     stdio: 'inherit',
     env: childEnv,
-    shell: true,
     cwd: contextDir,
   });
 
