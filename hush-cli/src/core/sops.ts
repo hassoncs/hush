@@ -2,10 +2,42 @@ import { execSync, spawnSync } from 'node:child_process';
 import { fs } from '../lib/fs.js';
 import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
+import { loadConfig, findProjectRoot } from '../config/loader.js';
+import { keyExists, keyPath } from '../lib/age.js';
+
+function getProjectIdentifier(root: string): string | undefined {
+  const config = loadConfig(root);
+  if (config.project) {
+    return config.project;
+  }
+
+  const pkgPath = join(root, 'package.json');
+  if (fs.existsSync(pkgPath)) {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8') as string);
+    if (typeof pkg.repository === 'string') {
+      const match = pkg.repository.match(/github\.com[/:]([\w-]+\/[\w-]+)/);
+      if (match) return match[1];
+    }
+    if (pkg.repository?.url) {
+      const match = pkg.repository.url.match(/github\.com[/:]([\w-]+\/[\w-]+)/);
+      if (match) return match[1];
+    }
+  }
+
+  return undefined;
+}
 
 function getAgeKeyFile(): string | undefined {
   if (process.env.SOPS_AGE_KEY_FILE) {
     return process.env.SOPS_AGE_KEY_FILE;
+  }
+
+  const projectRoot = findProjectRoot(process.cwd())?.projectRoot;
+  if (projectRoot) {
+    const project = getProjectIdentifier(projectRoot);
+    if (project && keyExists(project)) {
+      return keyPath(project);
+    }
   }
 
   const defaultPath = join(homedir(), '.config', 'sops', 'age', 'key.txt');
@@ -62,9 +94,14 @@ export function decrypt(filePath: string): string {
   } catch (error) {
     const err = error as { stderr?: string; message?: string };
     if (err.stderr?.includes('No identity matched')) {
+      const projectRoot = findProjectRoot(process.cwd())?.projectRoot;
+      const project = projectRoot ? getProjectIdentifier(projectRoot) : undefined;
+      const keyLocation = project
+        ? `~/.config/sops/age/keys/${project.replace(/\//g, '-')}.txt`
+        : '~/.config/sops/age/key.txt';
       throw new Error(
         'SOPS decryption failed: No matching age key found.\n' +
-          'Ensure your age key is at ~/.config/sops/age/key.txt'
+          `Ensure your age key is at ${keyLocation}`
       );
     }
     throw new Error(`SOPS decryption failed: ${err.stderr || err.message}`);
