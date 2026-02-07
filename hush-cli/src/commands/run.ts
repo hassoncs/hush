@@ -34,13 +34,7 @@ function getDecryptedSecrets(ctx: HushContext, projectRoot: string, env: Environ
   }
 
   if (varSources.length === 0) {
-    throw new Error(
-      `No encrypted files found at project root.\n` +
-      `  Expected: ${sharedEncrypted}\n` +
-      `  Project root: ${projectRoot}\n\n` +
-      `  If you haven't encrypted yet, run: npx hush encrypt\n` +
-      `  If running from a subdirectory, ensure hush.yaml exists at the project root.`
-    );
+    return [];
   }
 
   const merged = mergeVars(...varSources);
@@ -79,6 +73,12 @@ export async function runCommand(ctx: HushContext, options: RunOptions): Promise
   const config = ctx.config.loadConfig(projectRoot);
   
   const rootSecrets = getDecryptedSecrets(ctx, projectRoot, env, config);
+
+  if (rootSecrets.length === 0) {
+    ctx.logger.warn(pc.yellow('No encrypted files found. Running command without secrets.'));
+    ctx.logger.warn(pc.dim('  To encrypt secrets, run: npx hush encrypt'));
+  }
+
   const rootSecretsRecord = getRootSecretsAsRecord(rootSecrets);
 
   const localTemplate = loadLocalTemplates(contextDir, env, ctx.fs);
