@@ -39,6 +39,7 @@ This tells you:
 | \`No hush.yaml found\` | Hush not initialized | Run \`npx hush init\` |
 | \`SOPS not installed\` | Missing prerequisite | \`brew install sops\` |
 | \`age key not found\` | Missing encryption key | \`npx hush keys setup\` |
+| \`age key configured\` but decrypt fails | direnv not loaded | Run \`direnv allow\` in project directory |
 | \`Project: not set\` | Key management limited | Add \`project:\` to hush.yaml |
 
 **Note:** Any \`.env\` file is suspect - Hush uses \`.hush\` files everywhere. Subdirectory \`.hush\` files are templates (safe to commit).
@@ -346,6 +347,39 @@ The dialog shows the pasted value for easy verification.
 
 ---
 
+## Troubleshooting
+
+### Decrypt fails with "no identity matched any of the recipients"
+
+This is the most common issue - SOPS can't find the decryption key.
+
+**Cause:** Hush uses per-project keys at \`~/.config/sops/age/keys/{project}.txt\`, but SOPS needs the \`SOPS_AGE_KEY_FILE\` env var to find them.
+
+**Fix:**
+\`\`\`bash
+# 1. Verify the key exists
+npx hush keys list
+
+# 2. Ensure direnv is set up
+brew install direnv
+echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc  # or bash
+
+# 3. Allow direnv in the project (loads .envrc)
+cd /path/to/project
+direnv allow
+
+# 4. Verify
+npx hush status   # Should show "age key configured"
+npx hush inspect  # Should now work
+\`\`\`
+
+### Key listed but wrong project
+
+If \`npx hush keys list\` shows a key but for the wrong project:
+\`\`\`bash
+npx hush keys setup   # Will pull correct key from 1Password or prompt
+\`\`\`
+
 ## Additional Resources
 
 - **First-time setup**: [SETUP.md](SETUP.md)
@@ -607,12 +641,49 @@ git commit -m "chore: add Hush secrets management"
 
 When a new team member joins:
 
-1. **Get the age private key** from an existing team member
-2. **Save it** to \`~/.config/sops/age/key.txt\`
-3. **Run** \`npx hush run -- npm install\` to verify decryption works
-4. **Start developing** with \`npx hush run -- npm run dev\`
+### With 1Password (Recommended)
 
-The private key should be shared securely (password manager, encrypted channel, etc.)
+\`\`\`bash
+npx hush keys setup   # Auto-pulls key from 1Password
+\`\`\`
+
+### Without 1Password
+
+1. **Get the age private key** from an existing team member
+2. **Save it** to \`~/.config/sops/age/keys/{project}.txt\` (check \`npx hush status\` for exact path)
+3. **Set up direnv** to load the key (see below)
+4. **Verify** with \`npx hush status\` and \`npx hush inspect\`
+
+### Critical: Set Up direnv
+
+Hush uses per-project keys. SOPS needs to know where to find them via \`SOPS_AGE_KEY_FILE\`.
+
+**1. Install direnv:**
+\`\`\`bash
+brew install direnv                    # macOS
+# Add to ~/.zshrc or ~/.bashrc:
+eval "$(direnv hook zsh)"              # or bash
+\`\`\`
+
+**2. Create/verify .envrc in the project:**
+\`\`\`bash
+# .envrc (should already exist if project is set up)
+export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys/{project-slug}.txt"
+\`\`\`
+
+**3. Allow direnv:**
+\`\`\`bash
+cd /path/to/project
+direnv allow
+\`\`\`
+
+**4. Verify setup:**
+\`\`\`bash
+npx hush status    # Should show "age key configured"
+npx hush inspect   # Should decrypt and show masked secrets
+\`\`\`
+
+The private key should be shared securely (1Password is ideal, or password manager, encrypted channel)
 
 ---
 
@@ -640,8 +711,47 @@ brew install age  # macOS
 brew install sops  # macOS
 \`\`\`
 
-### "Error: no matching keys found"
-Your age key doesn't match. Get the correct private key from a team member.
+### "no identity matched any of the recipients" or "Error: no matching keys found"
+
+This error means SOPS can't find the decryption key. **Most common cause: direnv not loaded.**
+
+**Step 1: Check if the key file exists**
+\`\`\`bash
+npx hush keys list   # Shows local and 1Password keys
+\`\`\`
+
+If the key is listed but decryption fails, the issue is that SOPS doesn't know where to find it.
+
+**Step 2: Set up direnv (CRITICAL for per-project keys)**
+
+Hush uses per-project keys at \`~/.config/sops/age/keys/{project}.txt\`. SOPS needs the \`SOPS_AGE_KEY_FILE\` environment variable set to find it.
+
+\`\`\`bash
+# Install direnv (if not already installed)
+brew install direnv
+
+# Add to your shell (add to ~/.zshrc or ~/.bashrc)
+eval "$(direnv hook zsh)"   # or bash
+\`\`\`
+
+**Step 3: Create .envrc in the project root**
+\`\`\`bash
+# .envrc
+export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys/{project-slug}.txt"
+\`\`\`
+
+Replace \`{project-slug}\` with your project identifier (e.g., \`myorg-myrepo\`). Check \`npx hush status\` to see the expected filename.
+
+**Step 4: Allow direnv**
+\`\`\`bash
+direnv allow
+\`\`\`
+
+**Step 5: Verify**
+\`\`\`bash
+npx hush status   # Should show "age key configured"
+npx hush inspect  # Should decrypt and show masked secrets
+\`\`\`
 
 ### "hush.yaml not found"
 Run \`npx hush init\` to generate configuration.

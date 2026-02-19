@@ -387,7 +387,7 @@ Use `hush push -t <target> --dry-run --verbose` to preview exactly what secrets 
 
 ## status
 
-Show configuration and file status.
+Show configuration and file status. **This is the first command to run when troubleshooting.**
 
 ```bash
 hush status
@@ -398,25 +398,43 @@ hush status
 ```
 Hush Status
 
-Configuration: hush.yaml
+Config:
+  hush.yaml
+  Project: myorg/myrepo
 
-Sources:
-  shared: .env (encrypted: yes, modified: no)
-  development: .env.development (encrypted: yes, modified: no)
-  production: .env.production (encrypted: yes, modified: no)
+Prerequisites:
+  SOPS installed
+  age key configured
+
+Key Status:
+  Local key: ~/.config/sops/age/keys/myorg-myrepo.txt
+  1Password backup: synced
+
+Source Files:
+  .hush.encrypted
+  .hush.development.encrypted
+  .hush.production.encrypted
+  .hush.local (optional, not found)
 
 Targets:
-  root (.)
-    format: dotenv
-  app (./packages/app)
-    format: dotenv
-    include: EXPO_PUBLIC_*
-  api (./packages/api)
-    format: wrangler
-    exclude: EXPO_PUBLIC_*
-
-All encrypted files are up to date.
+  root ./ dotenv -> .env.development
+  app ./packages/app dotenv -> .env.development
+  api ./packages/api wrangler -> .dev.vars
 ```
+
+### Troubleshooting with Status
+
+| You See | Meaning | Fix |
+|---------|---------|-----|
+| `SOPS not installed` | Missing prerequisite | `brew install sops` |
+| `age not installed` | Missing prerequisite | `brew install age` |
+| `age key not found` | No local key | `npx hush keys setup` |
+| `age key configured` but commands fail | direnv not loaded | `direnv allow` |
+| `1Password backup: not found` | Key not in 1Password | `npx hush keys push` |
+
+<Aside type="tip">
+If `hush status` shows "age key configured" but `hush inspect` fails with "no identity matched", your direnv isn't loaded. Run `direnv allow` in the project directory.
+</Aside>
 
 ---
 
@@ -659,3 +677,82 @@ hush list -e production
 <Aside type="danger">
 This command shows actual secret values in the terminal. Use `hush inspect` instead when working with AI assistants.
 </Aside>
+
+---
+
+## Troubleshooting
+
+### "no identity matched any of the recipients"
+
+This error means SOPS cannot find your decryption key. 
+
+**Most common cause:** direnv not loaded.
+
+Hush uses per-project keys at `~/.config/sops/age/keys/{project}.txt`. SOPS needs the `SOPS_AGE_KEY_FILE` environment variable to locate them.
+
+```bash
+# 1. Verify direnv is installed and hooked
+brew install direnv
+echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc  # or bash
+source ~/.zshrc
+
+# 2. Allow direnv in the project
+cd /path/to/project
+direnv allow
+
+# 3. Verify the env var is set
+echo $SOPS_AGE_KEY_FILE
+# Should output: /Users/you/.config/sops/age/keys/project-name.txt
+
+# 4. Test
+hush status
+hush inspect
+```
+
+### "age key not found"
+
+The key file doesn't exist at the expected location.
+
+```bash
+# Check where hush expects the key
+hush status   # Look at "Local key:" line
+
+# Option 1: Pull from 1Password
+hush keys setup
+
+# Option 2: Get from team member and save manually
+# Save to the path shown in hush status
+```
+
+### Key exists but wrong project
+
+If you have a key but it's for a different project:
+
+```bash
+# List all local keys
+hush keys list
+
+# Pull the correct key
+hush keys setup
+```
+
+### "SOPS is not installed"
+
+```bash
+brew install sops age   # macOS
+# See Getting Started for Linux/Windows
+```
+
+### direnv not loading automatically
+
+Make sure you've added the direnv hook to your shell:
+
+```bash
+# For zsh (~/.zshrc)
+eval "$(direnv hook zsh)"
+
+# For bash (~/.bashrc)
+eval "$(direnv hook bash)"
+```
+
+Then reload your shell or open a new terminal.

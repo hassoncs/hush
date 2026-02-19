@@ -13,11 +13,19 @@ Hush requires **Node.js 18+** and delegates encryption to standard tools.
 
 1.  **[SOPS](https://github.com/getsops/sops)** - The standard for secret operations
 2.  **[age](https://github.com/FiloSottile/age)** - Modern, simple key management
+3.  **[direnv](https://direnv.net/)** - Automatic environment loading (for per-project keys)
 
 <Tabs>
   <TabItem label="macOS">
     ```bash
-    brew install sops age
+    brew install sops age direnv
+    
+    # Add direnv hook to your shell (add to ~/.zshrc or ~/.bashrc)
+    echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc   # for zsh
+    # or: echo 'eval "$(direnv hook bash)"' >> ~/.bashrc   # for bash
+    
+    # Reload your shell
+    source ~/.zshrc
     ```
   </TabItem>
   <TabItem label="Linux">
@@ -31,19 +39,28 @@ Hush requires **Node.js 18+** and delegates encryption to standard tools.
     curl -LO https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz
     tar xzf age-v1.1.1-linux-amd64.tar.gz
     sudo mv age/age /usr/local/bin/
+    
+    # direnv
+    curl -sfL https://direnv.net/install.sh | bash
+    echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
+    source ~/.bashrc
     ```
   </TabItem>
   <TabItem label="Windows">
     ```powershell
     # Using scoop
-    scoop install sops age
+    scoop install sops age direnv
     
     # Or using chocolatey
-    choco install sops age
+    choco install sops age direnv
     ```
-    *Note: Hush fully supports Windows (PowerShell/CMD).*
+    *Note: Hush fully supports Windows (PowerShell/CMD). For direnv on Windows, see [direnv.net](https://direnv.net/) for setup instructions.*
   </TabItem>
 </Tabs>
+
+<Aside type="note">
+**Why direnv?** Hush uses per-project encryption keys stored at `~/.config/sops/age/keys/{project}.txt`. SOPS needs the `SOPS_AGE_KEY_FILE` environment variable to find them. direnv automatically loads this when you `cd` into the project.
+</Aside>
 
 ## Installation
 
@@ -126,7 +143,28 @@ Hush requires **Node.js 18+** and delegates encryption to standard tools.
 
    This creates encrypted versions of your source files (`.hush.encrypted`, etc.) that are safe to commit.
 
-6. **Run with secrets**
+6. **Set up direnv for key loading**
+
+   Create a `.envrc` file in your project root:
+
+   ```bash
+   # .envrc
+   export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys/YOUR_PROJECT.txt"
+   ```
+
+   Replace `YOUR_PROJECT` with your project identifier (visible in `npx hush status` under "Local key").
+
+   Then allow direnv to load it:
+
+   ```bash
+   direnv allow
+   ```
+
+   <Aside type="tip">
+   For team projects, commit `.envrc` to git so everyone gets the correct key path automatically.
+   </Aside>
+
+7. **Run with secrets**
 
    ```bash
    npx hush run -- npm start
@@ -145,6 +183,37 @@ npx hush status
 ```
 
 This shows your configuration, encrypted files, and target distribution.
+
+## Troubleshooting
+
+### "no identity matched any of the recipients"
+
+This is the most common error. It means SOPS can't find your decryption key.
+
+**Most likely cause:** direnv isn't loaded.
+
+```bash
+# 1. Check that direnv is allowed
+direnv allow
+
+# 2. Verify the environment variable is set
+echo $SOPS_AGE_KEY_FILE   # Should show the path to your key file
+
+# 3. Test decryption
+npx hush status
+npx hush inspect
+```
+
+If `SOPS_AGE_KEY_FILE` is empty, make sure you've:
+1. Installed direnv and added the hook to your shell
+2. Reloaded your shell (`source ~/.zshrc` or open a new terminal)
+3. Run `direnv allow` in the project directory
+
+### "age key not found"
+
+The key file doesn't exist. Either:
+- Run `npx hush keys setup` to pull from 1Password
+- Get the key from a team member and save it to the path shown in `npx hush status`
 
 ## Next Steps
 

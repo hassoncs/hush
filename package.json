@@ -1,27 +1,12 @@
 {
-  "name": "hush-monorepo",
-  "version": "0.0.0",
-  "private": true,
-  "workspaces": [
-    "hush-cli",
-    "docs"
-  ],
-  "description": "Hush CLI and documentation monorepo",
-  "scripts": {
-    "build": "bun run --filter '*' build",
-    "test": "bun run --filter '*' test",
-    "dev": "bun run --filter '*' dev",
-    "type-check": "bun run --filter '*' type-check",
-    "cli:build": "bun run --filter @chriscode/hush build",
-    "cli:test": "bun run --filter @chriscode/hush test",
-    "docs:dev": "bun run --filter docs dev",
-    "docs:build": "bun run --filter docs build",
-    "docs:preview": "bun run --filter docs preview",
-    "docs:deploy": "bun run --filter docs build && bun run --filter docs deploy",
-    "changelog": "./scripts/changelog.sh",
-    "release": "./scripts/release.sh"
+  "name": "hush-test-project",
+  "version": "1.0.0",
+  "description": "Test project for Hush setup",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/test-org/hush-test-project.git"
   },
-  "engines": {
-    "node": ">=18"
+  "dependencies": {
+    "@chriscode/hush": "^5.0.5"
   }
 }
