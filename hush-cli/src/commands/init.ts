@@ -171,8 +171,22 @@ export async function initCommand(ctx: HushContext, options: InitOptions): Promi
 
   const existingConfig = ctx.config.findProjectRoot(root);
   if (existingConfig) {
-    ctx.logger.error(pc.red(`Config already exists: ${existingConfig.configPath}`));
-    ctx.process.exit(1);
+    const sopsPath = ctx.path.join(root, '.sops.yaml');
+    if (ctx.fs.existsSync(sopsPath)) {
+      ctx.logger.error(pc.red(`Config already exists: ${existingConfig.configPath}`));
+      ctx.process.exit(1);
+    }
+
+    ctx.logger.log(pc.yellow(`hush.yaml already exists. Completing setup (creating .sops.yaml)...\n`));
+
+    const existingHushConfig = ctx.config.loadConfig(root);
+    const project = existingHushConfig.project ?? getProjectFromPackageJson(ctx, root);
+    const keyResult = await setupKey(ctx, root, project ?? null);
+    if (keyResult) {
+      createSopsConfig(ctx, root, keyResult.publicKey);
+      ctx.logger.log(pc.green('\nSetup complete. Run "hush encrypt" to encrypt your secrets.'));
+    }
+    return;
   }
 
   ctx.logger.log(pc.blue('Initializing hush...\n'));
