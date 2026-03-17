@@ -146,8 +146,8 @@ export async function runCommand(ctx: HushContext, options: RunOptions): Promise
   }
 
   const childEnv: NodeJS.ProcessEnv = {
-    ...ctx.process.env,
     ...Object.fromEntries(vars.map(v => [v.key, v.value])),
+    ...ctx.process.env,
   };
 
   const [cmd, ...args] = command;
