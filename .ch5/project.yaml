@@ -1,0 +1,30 @@
+id: hush
+version: 1
+project:
+  id: hush
+  name: Hush
+  kind: tool
+  lifecycle: active
+  summary: AI-native secrets management CLI with SOPS/age encryption and 1Password sync
+  owners:
+    - id: chris
+      role: owner
+  tags:
+    - secrets
+    - encryption
+    - cli
+    - devtools
+  roots:
+    - locator: .
+      role: primary
+  repos:
+    - id: primary
+      locator: .
+      role: primary
+  docs:
+    - locator: README.md
+      role: overview
+    - locator: AGENTS.md
+      role: agent-guide
+  aliases:
+    - hush

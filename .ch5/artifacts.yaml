@@ -1,0 +1,32 @@
+version: 1
+artifacts:
+  hush-cli:
+    id: hush-cli
+    kind: cli
+    locator: .
+    entry:
+      command: hush
+      path: bin/hush
+    runtimeRef: node
+    subcommands:
+      - id: init
+        name: init
+      - id: set
+        name: set
+      - id: run
+        name: run
+      - id: status
+        name: status
+      - id: inspect
+        name: inspect
+      - id: encrypt
+        name: encrypt
+      - id: keys
+        name: keys
+      - id: edit
+        name: edit
+    publishes:
+      - id: hush-bin
+        stablePath: ~/.local/bin/hush
+        sourceLocator: bin/hush
+        symlink: true

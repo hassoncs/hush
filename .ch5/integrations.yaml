@@ -1,0 +1,21 @@
+version: 1
+integrations:
+  1password:
+    id: 1password
+    provider: 1password
+    baseUrls:
+      - https://my.1password.com
+    authMode: cli
+    networkScope: public
+  sops:
+    id: sops
+    provider: sops
+    networkScope: local
+  github:
+    id: github
+    provider: github
+    accountRef: personal-github
+  npm:
+    id: npm
+    provider: npm
+    networkScope: public

@@ -1,0 +1,21 @@
+version: 1
+platform:
+  supported:
+    os:
+      - macos
+      - linux
+    runtimes:
+      - node
+  requires:
+    - id: sops
+      kind: build-tool
+      value: sops
+      required: true
+    - id: age
+      kind: build-tool
+      value: age
+      required: true
+    - id: op-cli
+      kind: build-tool
+      value: 1password-cli
+      required: false
