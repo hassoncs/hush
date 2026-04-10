@@ -4,3 +4,20 @@ dist/
 .DS_Store
 .astro/
 docs/.astro/
+.sisyphus/
+.worktrees/
+.mcp_data/
+.env
+.env.local
+.env.*.local
+.hush.local
+
+# Standard patterns
+.DS_Store
+*.log
+.mutagen.yml
+
+# Standard patterns
+.DS_Store
+*.log
+.mutagen.yml

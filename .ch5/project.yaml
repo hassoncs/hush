@@ -5,7 +5,7 @@ project:
   name: Hush
   kind: tool
   lifecycle: active
-  summary: AI-native secrets management CLI with SOPS/age encryption and 1Password sync
+  summary: AI-native secrets management CLI using SOPS/age encryption and 1Password sync, keeping secrets encrypted at rest and decrypting only in memory at runtime.
   owners:
     - id: chris
       role: owner
@@ -14,6 +14,26 @@ project:
     - encryption
     - cli
     - devtools
+    - sops-age
+    - ai-safe
+    - framework-routing
+    - auto-release
+  key_concepts:
+    - encrypted at rest
+    - SOPS/age encryption
+    - 1Password key backup
+    - AI-safe commands
+    - framework routing
+    - auto-release CI
+  related_projects:
+    - id: secret-proxy
+      relationship: integrates-with
+    - id: opencode-secret-masking-plugin
+      relationship: integrates-with
+    - id: automation-core
+      relationship: integrates-with
+  zoekt:
+    enabled: true
   roots:
     - locator: .
       role: primary
