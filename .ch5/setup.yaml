@@ -1,0 +1,22 @@
+version: 1
+globalPrerequisites:
+  - nodejs
+  - pnpm
+  - git
+  - ch5
+  - hush
+
+steps:
+  - id: deps
+    description: Install dependencies
+    command: pnpm install
+    cwd: .
+  - id: ch5-identity
+    description: Validate CH5 project identity
+    command: ch5 validate . --json
+    cwd: .
+  - id: build
+    description: Build the project
+    command: pnpm build
+    cwd: .
+    condition: always
