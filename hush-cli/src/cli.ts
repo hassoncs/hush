@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
 import pc from 'picocolors';
-import type { Environment } from './types.js';
+import type { Environment, StoreMode } from './types.js';
 import { defaultContext } from './context.js';
 import { encryptCommand } from './commands/encrypt.js';
 import { decryptCommand } from './commands/decrypt.js';
@@ -23,6 +23,7 @@ import { templateCommand } from './commands/template.js';
 import { expansionsCommand } from './commands/expansions.js';
 import { migrateCommand } from './commands/migrate.js';
 import { findConfigPath, loadConfig, checkSchemaVersion } from './config/loader.js';
+import { resolveStoreContext } from './store.js';
 import { checkForUpdate } from './utils/version-check.js';
 
 const require = createRequire(import.meta.url);
@@ -62,7 +63,7 @@ ${pc.bold('Advanced Commands:')}
 
 ${pc.bold('Options:')}
   -e, --env <env>   Environment: development or production (default: development)
-  -r, --root <dir>  Root directory (default: current directory)
+  -r, --root <dir>  Start directory for project mode, execution directory for run (default: current directory)
   -t, --target <t>  Target name from hush.yaml (run/resolve/push)
   -q, --quiet       Suppress output (has/check commands)
   --dry-run         Preview changes without applying (push only)
@@ -72,7 +73,7 @@ ${pc.bold('Options:')}
   --only-changed    Only check git-modified files (check only)
   --require-source  Fail if source file is missing (check only)
   --allow-plaintext Allow plaintext .env files (check only, not recommended)
-  --global          Install skill to ~/.claude/skills/ (skill only)
+  --global          Use explicit global store at ~/.hush (or install skill globally)
   --local           Install skill to ./.claude/skills/ (skill/set only)
   --gui             Use macOS dialog for input (set only, for AI agents)
   -h, --help        Show this help message
@@ -120,6 +121,8 @@ ${pc.bold('Examples:')}
   hush set API_KEY "myvalue"    Set a secret inline (no prompt)
   echo "val" | hush set KEY     Set a secret from piped input
   hush set API_KEY --gui        Set secret via GUI dialog (for AI agents)
+  hush set --global OPENAI_API_KEY  Set a global secret in ~/.hush
+  hush run --global -- npm start    Run with global secrets only
   hush set API_KEY -e prod      Set a production secret
   hush keys setup               Pull key from 1Password or verify local
   hush keys generate            Generate new key + backup to 1Password
@@ -401,29 +404,31 @@ async function main(): Promise<void> {
   }
 
   const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, value, target, cmdArgs } = parseArgs(args);
+  const storeMode: StoreMode = global && command !== 'skill' ? 'global' : 'project';
+  const store = resolveStoreContext(root, storeMode);
 
   if (command !== 'run' && !json && !quiet) {
     checkForUpdate(VERSION);
   }
 
-  checkMigrationNeeded(root, command);
+  checkMigrationNeeded(store.root, command);
 
   try {
     switch (command) {
       case 'init':
-        await initCommand(defaultContext, { root });
+        await initCommand(defaultContext, { store });
         break;
 
       case 'encrypt':
-        await encryptCommand(defaultContext, { root });
+        await encryptCommand(defaultContext, { store });
         break;
 
       case 'decrypt':
-        await decryptCommand(defaultContext, { root, env, force });
+        await decryptCommand(defaultContext, { store, env, force });
         break;
 
       case 'run':
-        await runCommand(defaultContext, { root, env, target, command: cmdArgs });
+        await runCommand(defaultContext, { store, cwd: root, env, target, command: cmdArgs });
         break;
 
       case 'set': {
@@ -433,20 +438,20 @@ async function main(): Promise<void> {
         } else if (envExplicit) {
           setFile = env;
         }
-        await setCommand(defaultContext, { root, file: setFile, key, value, gui });
+        await setCommand(defaultContext, { store, file: setFile, key, value, gui });
         break;
       }
 
       case 'edit':
-        await editCommand(defaultContext, { root, file });
+        await editCommand(defaultContext, { store, file });
         break;
 
       case 'list':
-        await listCommand(defaultContext, { root, env });
+        await listCommand(defaultContext, { store, env });
         break;
 
       case 'inspect':
-        await inspectCommand(defaultContext, { root, env });
+        await inspectCommand(defaultContext, { store, env });
         break;
 
       case 'has':
@@ -454,21 +459,21 @@ async function main(): Promise<void> {
           console.error(pc.red('Usage: hush has <KEY>'));
           process.exit(1);
         }
-        await hasCommand(defaultContext, { root, env, key, quiet });
+        await hasCommand(defaultContext, { store, env, key, quiet });
         break;
 
       case 'check':
-        await checkCommand(defaultContext, { root, warn, json, quiet, onlyChanged, requireSource, allowPlaintext });
+        await checkCommand(defaultContext, { store, warn, json, quiet, onlyChanged, requireSource, allowPlaintext });
         break;
 
 
 
       case 'push':
-        await pushCommand(defaultContext, { root, dryRun, verbose, target });
+        await pushCommand(defaultContext, { store, dryRun, verbose, target });
         break;
 
       case 'status':
-        await statusCommand(defaultContext, { root });
+        await statusCommand(defaultContext, { store });
         break;
 
       case 'skill':
@@ -481,7 +486,7 @@ async function main(): Promise<void> {
           console.error(pc.dim('Commands: setup, generate, pull, push, list'));
           process.exit(1);
         }
-        await keysCommand(defaultContext, { root, subcommand, vault, force });
+        await keysCommand(defaultContext, { store, subcommand, vault, force });
         break;
 
       case 'resolve':
@@ -490,7 +495,7 @@ async function main(): Promise<void> {
           console.error(pc.dim('Example: hush resolve api-workers'));
           process.exit(1);
         }
-        await resolveCommand(defaultContext, { root, env, target });
+        await resolveCommand(defaultContext, { store, env, target });
         break;
 
       case 'trace':
@@ -499,7 +504,7 @@ async function main(): Promise<void> {
           console.error(pc.dim('Example: hush trace DATABASE_URL'));
           process.exit(1);
         }
-        await traceCommand(defaultContext, { root, env, key });
+        await traceCommand(defaultContext, { store, env, key });
         break;
 
       case 'template':
