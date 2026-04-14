@@ -5,13 +5,14 @@ import { interpolateVars, getUnresolvedVars } from '../core/interpolate.js';
 import { mergeVars } from '../core/merge.js';
 import { parseEnvContent } from '../core/parse.js';
 import { loadLocalTemplates, resolveTemplateVars } from '../core/template.js';
-import type { RunOptions, EnvVar, HushConfig, Environment, HushContext } from '../types.js';
+import type { RunOptions, EnvVar, HushConfig, Environment, HushContext, StoreContext } from '../types.js';
 
 function getEncryptedPath(sourcePath: string): string {
   return sourcePath + '.encrypted';
 }
 
-function getDecryptedSecrets(ctx: HushContext, projectRoot: string, env: Environment, config: HushConfig): EnvVar[] {
+function getDecryptedSecrets(ctx: HushContext, store: StoreContext, env: Environment, config: HushConfig): EnvVar[] {
+  const projectRoot = store.root;
   const sharedEncrypted = join(projectRoot, getEncryptedPath(config.sources.shared));
   const envEncrypted = join(projectRoot, getEncryptedPath(config.sources[env]));
   const localEncrypted = join(projectRoot, getEncryptedPath(config.sources.local));
@@ -19,17 +20,17 @@ function getDecryptedSecrets(ctx: HushContext, projectRoot: string, env: Environ
   const varSources: EnvVar[][] = [];
 
   if (ctx.fs.existsSync(sharedEncrypted)) {
-    const content = ctx.sops.decrypt(sharedEncrypted);
+    const content = ctx.sops.decrypt(sharedEncrypted, { root: projectRoot, keyIdentity: store.keyIdentity });
     varSources.push(parseEnvContent(content));
   }
 
   if (ctx.fs.existsSync(envEncrypted)) {
-    const content = ctx.sops.decrypt(envEncrypted);
+    const content = ctx.sops.decrypt(envEncrypted, { root: projectRoot, keyIdentity: store.keyIdentity });
     varSources.push(parseEnvContent(content));
   }
 
   if (ctx.fs.existsSync(localEncrypted)) {
-    const content = ctx.sops.decrypt(localEncrypted);
+    const content = ctx.sops.decrypt(localEncrypted, { root: projectRoot, keyIdentity: store.keyIdentity });
     varSources.push(parseEnvContent(content));
   }
 
@@ -50,7 +51,7 @@ function getRootSecretsAsRecord(vars: EnvVar[]): Record<string, string> {
 }
 
 export async function runCommand(ctx: HushContext, options: RunOptions): Promise<void> {
-  const { root, env, target, command } = options;
+  const { store, cwd, env, target, command } = options;
   
   if (!command || command.length === 0) {
     ctx.logger.error('Usage: hush run -- <command>');
@@ -60,19 +61,18 @@ export async function runCommand(ctx: HushContext, options: RunOptions): Promise
     ctx.process.exit(1);
   }
 
-  const contextDir = root;
-  const projectInfo = ctx.config.findProjectRoot(contextDir);
-  
-  if (!projectInfo) {
+  const contextDir = cwd;
+  const projectRoot = store.root;
+
+  if (store.mode === 'project' && !store.configPath) {
     ctx.logger.error('No hush.yaml found in current directory or any parent directory.');
     ctx.logger.error(pc.dim('Run: npx hush init'));
     ctx.process.exit(1);
   }
 
-  const { projectRoot } = projectInfo;
   const config = ctx.config.loadConfig(projectRoot);
   
-  const rootSecrets = getDecryptedSecrets(ctx, projectRoot, env, config);
+  const rootSecrets = getDecryptedSecrets(ctx, store, env, config);
 
   if (rootSecrets.length === 0) {
     ctx.logger.warn(pc.yellow('No encrypted files found. Running command without secrets.'));
@@ -81,7 +81,9 @@ export async function runCommand(ctx: HushContext, options: RunOptions): Promise
 
   const rootSecretsRecord = getRootSecretsAsRecord(rootSecrets);
 
-  const localTemplate = loadLocalTemplates(contextDir, env, ctx.fs);
+  const localTemplate = store.mode === 'global'
+    ? { hasTemplate: false, vars: [] }
+    : loadLocalTemplates(contextDir, env, ctx.fs);
 
   // 1. Resolve Template Vars
   let templateVars: EnvVar[] = [];

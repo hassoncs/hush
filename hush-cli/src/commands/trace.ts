@@ -1,13 +1,7 @@
 import { join } from 'node:path';
 import pc from 'picocolors';
 import { parseEnvContent } from '../core/parse.js';
-import type { Environment, Target, HushContext } from '../types.js';
-
-export interface TraceOptions {
-  root: string;
-  env: Environment;
-  key: string;
-}
+import type { TraceOptions, Target, HushContext } from '../types.js';
 
 function matchesPattern(key: string, pattern: string): boolean {
   const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
@@ -47,7 +41,8 @@ function getTargetDisposition(key: string, target: Target): TargetDisposition {
 }
 
 export async function traceCommand(ctx: HushContext, options: TraceOptions): Promise<void> {
-  const { root, env, key } = options;
+  const { store, env, key } = options;
+  const root = store.root;
   const config = ctx.config.loadConfig(root);
 
   ctx.logger.log(pc.bold(`\nTracing variable: ${pc.cyan(key)}\n`));
@@ -70,7 +65,7 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
     }
 
     try {
-      const content = ctx.sops.decrypt(source.path);
+        const content = ctx.sops.decrypt(source.path, { root, keyIdentity: store.keyIdentity });
       const vars = parseEnvContent(content);
       const found = vars.some(v => v.key === key);
       source.found = found;

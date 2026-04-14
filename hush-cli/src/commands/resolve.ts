@@ -4,14 +4,8 @@ import { interpolateVars } from '../core/interpolate.js';
 import { mergeVars } from '../core/merge.js';
 import { parseEnvContent } from '../core/parse.js';
 import { loadLocalTemplates } from '../core/template.js';
-import type { EnvVar, Environment, Target, HushContext } from '../types.js';
+import type { EnvVar, Environment, ResolveOptions, Target, HushContext } from '../types.js';
 import { FORMAT_OUTPUT_FILES } from '../types.js';
-
-export interface ResolveOptions {
-  root: string;
-  env: Environment;
-  target: string;
-}
 
 interface VarSource {
   key: string;
@@ -41,7 +35,8 @@ function getOutputFilename(target: Target, env: Environment): string {
 }
 
 export async function resolveCommand(ctx: HushContext, options: ResolveOptions): Promise<void> {
-  const { root, env, target: targetName } = options;
+  const { store, env, target: targetName } = options;
+  const root = store.root;
   const config = ctx.config.loadConfig(root);
 
   const target = config.targets.find(t => t.name === targetName);
@@ -60,7 +55,7 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
 
   const loadSource = (path: string, sourceName: string) => {
     if (!ctx.fs.existsSync(path)) return;
-    const content = ctx.sops.decrypt(path);
+    const content = ctx.sops.decrypt(path, { root, keyIdentity: store.keyIdentity });
     const vars = parseEnvContent(content);
     const sourceVars: VarSource[] = [];
     for (const v of vars) {
