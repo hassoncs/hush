@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runCommand } from '../src/commands/run.js';
-import type { HushContext } from '../src/types.js';
+import type { HushContext, StoreContext } from '../src/types.js';
+
+function createStore(): StoreContext {
+  return {
+    mode: 'project',
+    root: '/root',
+    configPath: '/root/hush.yaml',
+    keyIdentity: 'test/repo',
+    displayLabel: '/root',
+  };
+}
 
 describe('Issue 1 Reproduction: Templates vs Target Filters', () => {
   const mockSpawnSync = vi.fn();
@@ -26,6 +36,9 @@ describe('Issue 1 Reproduction: Templates vs Target Filters', () => {
       spawnSync: mockSpawnSync,
       execSync: vi.fn(),
     },
+    path: {
+      join: (...parts: string[]) => parts.join('/'),
+    },
     logger: {
       log: vi.fn(),
       error: vi.fn(),
@@ -36,13 +49,33 @@ describe('Issue 1 Reproduction: Templates vs Target Filters', () => {
       cwd: () => '/root/app', // Simulate running from subdirectory
       exit: mockProcessExit as any,
       env: {},
+      stdin: {} as any,
+      stdout: { write: vi.fn() } as any,
     },
     config: {
       loadConfig: mockLoadConfig,
       findProjectRoot: mockFindProjectRoot,
     },
+    age: {
+      ageAvailable: vi.fn(),
+      ageGenerate: vi.fn(),
+      keyExists: vi.fn(),
+      keySave: vi.fn(),
+      keyPath: vi.fn(),
+      keyLoad: vi.fn(),
+      agePublicFromPrivate: vi.fn(),
+    },
+    onepassword: {
+      opInstalled: vi.fn(),
+      opAvailable: vi.fn(),
+      opGetKey: vi.fn(),
+      opStoreKey: vi.fn(),
+    },
     sops: {
       decrypt: mockDecrypt,
+      encrypt: vi.fn(),
+      edit: vi.fn(),
+      isSopsInstalled: vi.fn().mockReturnValue(true),
     },
   };
 
@@ -52,11 +85,6 @@ describe('Issue 1 Reproduction: Templates vs Target Filters', () => {
     mockSpawnSync.mockReturnValue({ status: 0 });
     mockProcessExit.mockImplementation((code: number) => {
       throw new Error(`Process exit: ${code}`);
-    });
-
-    mockFindProjectRoot.mockReturnValue({
-      configPath: '/root/hush.yaml',
-      projectRoot: '/root',
     });
 
     mockLoadConfig.mockReturnValue({
@@ -98,7 +126,8 @@ describe('Issue 1 Reproduction: Templates vs Target Filters', () => {
   it('should merge template expansions AND target filtered variables', async () => {
     try {
       await runCommand(mockContext, {
-        root: '/root/app', 
+        store: createStore(),
+        cwd: '/root/app', 
         env: 'development',
         command: ['printenv'],
       });

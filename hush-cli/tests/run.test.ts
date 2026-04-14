@@ -1,6 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runCommand } from '../src/commands/run.js';
-import type { HushContext, RunOptions } from '../src/types.js';
+import type { HushContext, StoreContext } from '../src/types.js';
+
+function createStore(mode: 'project' | 'global' = 'project'): StoreContext {
+  return {
+    mode,
+    root: '/root',
+    configPath: '/root/hush.yaml',
+    keyIdentity: mode === 'global' ? 'hush-global' : 'test/repo',
+    displayLabel: mode === 'global' ? '~/.hush' : '/root',
+  };
+}
 
 describe('runCommand', () => {
   const mockSpawnSync = vi.fn();
@@ -26,6 +36,9 @@ describe('runCommand', () => {
       spawnSync: mockSpawnSync,
       execSync: vi.fn(),
     },
+    path: {
+      join: (...parts: string[]) => parts.join('/'),
+    },
     logger: {
       log: vi.fn(),
       error: mockConsoleError,
@@ -36,13 +49,33 @@ describe('runCommand', () => {
       cwd: () => '/root',
       exit: mockProcessExit as any,
       env: {},
+      stdin: {} as any,
+      stdout: { write: vi.fn() } as any,
     },
     config: {
       loadConfig: mockLoadConfig,
       findProjectRoot: mockFindProjectRoot,
     },
+    age: {
+      ageAvailable: vi.fn(),
+      ageGenerate: vi.fn(),
+      keyExists: vi.fn(),
+      keySave: vi.fn(),
+      keyPath: vi.fn(),
+      keyLoad: vi.fn(),
+      agePublicFromPrivate: vi.fn(),
+    },
+    onepassword: {
+      opInstalled: vi.fn(),
+      opAvailable: vi.fn(),
+      opGetKey: vi.fn(),
+      opStoreKey: vi.fn(),
+    },
     sops: {
       decrypt: mockDecrypt,
+      encrypt: vi.fn(),
+      edit: vi.fn(),
+      isSopsInstalled: vi.fn().mockReturnValue(true),
     },
   };
 
@@ -52,11 +85,6 @@ describe('runCommand', () => {
     mockSpawnSync.mockReturnValue({ status: 0 });
     mockProcessExit.mockImplementation((code: number) => {
       throw new Error(`Process exit: ${code}`);
-    });
-
-    mockFindProjectRoot.mockReturnValue({
-      configPath: '/root/hush.yaml',
-      projectRoot: '/root',
     });
 
     mockLoadConfig.mockReturnValue({
@@ -85,7 +113,8 @@ describe('runCommand', () => {
   it('runs command with injected environment variables', async () => {
     try {
       await runCommand(mockContext, {
-        root: '/root',
+        store: createStore(),
+        cwd: '/root',
         env: 'development',
         command: ['echo', 'hello'],
       });
@@ -108,7 +137,8 @@ describe('runCommand', () => {
   it('injects CLOUDFLARE_INCLUDE_PROCESS_ENV for wrangler target', async () => {
     try {
       await runCommand(mockContext, {
-        root: '/root',
+        store: createStore(),
+        cwd: '/root',
         env: 'development',
         target: 'api',
         command: ['wrangler', 'dev'],
@@ -140,7 +170,8 @@ describe('runCommand', () => {
 
     try {
       await runCommand(mockContext, {
-        root: '/root',
+        store: createStore(),
+        cwd: '/root',
         env: 'development',
         target: 'api',
         command: ['wrangler', 'dev'],
@@ -156,7 +187,8 @@ describe('runCommand', () => {
   it('does not inject CLOUDFLARE_INCLUDE_PROCESS_ENV for non-wrangler target', async () => {
     try {
       await runCommand(mockContext, {
-        root: '/root',
+        store: createStore(),
+        cwd: '/root',
         env: 'development',
         target: 'app',
         command: ['npm', 'start'],
@@ -172,6 +204,46 @@ describe('runCommand', () => {
         env: expect.not.objectContaining({
           CLOUDFLARE_INCLUDE_PROCESS_ENV: 'true',
         }),
+      })
+    );
+  });
+
+  it('does not load subdirectory templates in explicit global mode', async () => {
+    mockLoadConfig.mockReturnValue({
+      sources: {
+        shared: '.hush',
+        development: '.hush.development',
+        production: '.hush.production',
+        local: '.hush.local',
+      },
+      targets: [{ name: 'root', path: '.', format: 'dotenv' }],
+    });
+
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('.encrypted')) return true;
+      if (p.endsWith('/app/.hush')) return true;
+      return false;
+    });
+
+    try {
+      await runCommand(mockContext, {
+        store: createStore('global'),
+        cwd: '/root/app',
+        env: 'development',
+        command: ['printenv'],
+      });
+    } catch (e: any) {
+      if (e.message !== 'Process exit: 0') throw e;
+    }
+
+    expect(mockSpawnSync).toHaveBeenCalledWith(
+      'printenv',
+      [],
+      expect.objectContaining({
+        env: expect.not.objectContaining({
+          EXPO_PUBLIC_SUPABASE_URL: expect.any(String),
+        }),
+        cwd: '/root/app',
       })
     );
   });
