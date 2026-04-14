@@ -339,9 +339,9 @@ cat secret.txt | npx hush set CERT_CONTENT
 
 ### GUI dialog for AI agents
 
-When running in a non-TTY environment (like AI agents), use \`--gui\`:
+When running in a non-TTY environment (like AI agents), use \`--gui\` to explicitly open a native dialog:
 \`\`\`bash
-npx hush set API_KEY --gui          # Opens visible dialog
+npx hush set API_KEY --gui          # Opens visible native dialog
 \`\`\`
 The dialog shows the pasted value for easy verification.
 
@@ -783,8 +783,9 @@ All secrets are stored encrypted in \`.hush.encrypted\` files. Never read \`.env
 | Option | Description |
 |--------|-------------|
 | \`-e, --env <env>\` | Environment: \`development\` / \`production\`. Default: \`development\` |
-| \`-r, --root <dir>\` | Root directory containing \`hush.yaml\`. Default: current directory |
+| \`-r, --root <dir>\` | Start directory for project mode, execution directory for \`run\` |
 | \`-t, --target <name>\` | Target name from hush.yaml (for \`run\` command) |
+| \`--global\` | Use the explicit global store at \`~/.hush\` |
 | \`--local\` | Use local overrides (for \`set\` command) |
 | \`-h, --help\` | Show help message |
 | \`-v, --version\` | Show version number |
@@ -799,6 +800,7 @@ All secrets are stored encrypted in \`.hush.encrypted\` files. Never read \`.env
 
 Decrypts secrets to memory and runs a command with them as environment variables.
 Secrets never touch the disk as plaintext.
+Use \`--global\` when you want to read only from \`~/.hush\`.
 
 \`\`\`bash
 hush run -- npm start              # Run with development secrets
@@ -822,6 +824,7 @@ Add or update a single secret. Prompts for value if not provided inline.
 hush set DATABASE_URL              # Prompts for value interactively
 hush set DATABASE_URL "postgres://..."  # Inline value (no prompt)
 hush set API_KEY -e production     # Set in production secrets
+hush set --global OPENAI_API_KEY   # Set in the explicit global store
 hush set DEBUG --local             # Set personal local override
 \`\`\`
 
@@ -832,7 +835,7 @@ hush set DEBUG --local             # Set personal local override
 
 **GUI dialog (--gui flag):**
 \`\`\`bash
-hush set API_KEY --gui             # Opens visible dialog (for AI agents)
+hush set API_KEY --gui             # Opens visible native dialog (for AI agents)
 \`\`\`
 The GUI dialog shows the value as you type/paste for easier verification.
 

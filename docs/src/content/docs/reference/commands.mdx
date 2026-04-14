@@ -27,7 +27,8 @@ Hush keeps secrets **encrypted at rest**. The primary way to use secrets is `hus
 | Option | Description |
 |--------|-------------|
 | `-e, --env <env>` | Environment: `development` or `production` (default: `development`) |
-| `-r, --root <dir>` | Root directory (default: current directory) |
+| `-r, --root <dir>` | Start directory for project mode, execution directory for `run` |
+| `--global` | Use the explicit global store at `~/.hush` |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
 
@@ -48,6 +49,9 @@ hush run -e prod -- npm build
 # Run with secrets filtered for a specific target
 hush run -t api -- wrangler dev
 hush run --target web -- npm start
+
+# Run with global secrets only
+hush run --global -- npm start
 ```
 
 ### Options
@@ -67,6 +71,8 @@ hush run --target web -- npm start
 5. Merges template vars + filtered root secrets (additive)
 6. Spawns the child process with secrets as environment variables
 7. Inherits stdin/stdout/stderr for full interactivity
+
+When `--global` is used, Hush reads only from `~/.hush`. It does not merge project secrets.
 
 ### Examples
 
@@ -109,6 +115,9 @@ hush set API_KEY -e production
 # Set in local overrides (.hush.local.encrypted)
 hush set MY_OVERRIDE --local
 
+# Set in the explicit global store
+hush set --global OPENAI_API_KEY
+
 # Piped input (for scripts/automation)
 echo "my-secret" | hush set MY_KEY
 cat cert.pem | hush set CERTIFICATE
@@ -120,13 +129,14 @@ cat cert.pem | hush set CERTIFICATE
 |--------|-------------|
 | `-e, --env <env>` | Target environment file (default: shared `.hush.encrypted`) |
 | `--local` | Set in `.hush.local.encrypted` (personal overrides, not committed) |
-| `--gui` | Use GUI dialog for input (shows value for verification) |
+| `--gui` | Use a native GUI dialog for input instead of terminal or piped input |
+| `--global` | Set the secret in `~/.hush` instead of the current project store |
 
 ### Input Methods (Priority Order)
 
 1. **Inline value**: `hush set KEY "value"` - value provided directly
 2. **Piped input**: `echo "value" | hush set KEY` - reads from stdin
-3. **GUI dialog**: Opens when `--gui` flag used or no TTY available
+3. **GUI dialog**: Opens when `--gui` flag is used
 4. **Interactive prompt**: Terminal prompt with visible input
 
 ### How It Works
@@ -191,9 +201,14 @@ Generate a `hush.yaml` configuration file with auto-detected targets.
 
 ```bash
 hush init
+
+# Initialize the explicit global store
+hush init --global
 ```
 
 This command scans your monorepo for packages with `package.json` files and creates an initial configuration.
+
+When `--global` is used, Hush initializes `~/.hush` with a single root target and a dedicated global key identity.
 
 ### Example Output
 
@@ -391,12 +406,18 @@ Show configuration and file status. **This is the first command to run when trou
 
 ```bash
 hush status
+
+# Inspect the explicit global store
+hush status --global
 ```
 
 ### Example Output
 
 ```
 Hush Status
+
+Store:
+  project (/path/to/repo)
 
 Config:
   hush.yaml
