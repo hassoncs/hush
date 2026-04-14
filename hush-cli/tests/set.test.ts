@@ -2,10 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { HushContext, StoreContext } from '../src/types.js';
 
 const setKeyMock = vi.fn();
+const platformMock = vi.fn(() => 'darwin');
 
 vi.mock('../src/core/sops.js', () => ({
   setKey: setKeyMock,
 }));
+
+vi.mock('node:os', async () => {
+  const actual = await vi.importActual<typeof import('node:os')>('node:os');
+  return {
+    ...actual,
+    platform: platformMock,
+  };
+});
 
 function createMockStdin(overrides: Partial<NodeJS.ReadStream> = {}): NodeJS.ReadStream {
   return {
@@ -107,6 +116,8 @@ describe('set command argument parsing', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.resetModules();
+    platformMock.mockReturnValue('darwin');
     mockProcessExit.mockImplementation((code: number) => {
       throw new Error(`Process exit: ${code}`);
     });
