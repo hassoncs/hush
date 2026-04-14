@@ -44,22 +44,22 @@ export interface EnvVar {
 }
 
 export interface EncryptOptions {
-  root: string;
+  store: StoreContext;
 }
 
 export interface DecryptOptions {
-  root: string;
+  store: StoreContext;
   env: Environment;
   force: boolean;
 }
 
 export interface EditOptions {
-  root: string;
+  store: StoreContext;
   file?: 'shared' | 'development' | 'production' | 'local';
 }
 
 export interface SetOptions {
-  root: string;
+  store: StoreContext;
   file?: 'shared' | 'development' | 'production' | 'local';
   key?: string;
   value?: string;
@@ -67,34 +67,35 @@ export interface SetOptions {
 }
 
 export interface RunOptions {
-  root: string;
+  store: StoreContext;
+  cwd: string;
   env: Environment;
   target?: string;
   command: string[];
 }
 
 export interface PushOptions {
-  root: string;
+  store: StoreContext;
   dryRun: boolean;
   verbose: boolean;
   target?: string;
 }
 
 export interface StatusOptions {
-  root: string;
+  store: StoreContext;
 }
 
 export interface InitOptions {
-  root: string;
+  store: StoreContext;
 }
 
 export interface ListOptions {
-  root: string;
+  store: StoreContext;
   env: Environment;
 }
 
 export interface CheckOptions {
-  root: string;
+  store: StoreContext;
   warn: boolean;
   json: boolean;
   quiet: boolean;
@@ -133,15 +134,25 @@ export interface SkillOptions {
 }
 
 export interface ResolveOptions {
-  root: string;
+  store: StoreContext;
   env: Environment;
   target: string;
 }
 
 export interface TraceOptions {
-  root: string;
+  store: StoreContext;
   env: Environment;
   key: string;
+}
+
+export type StoreMode = 'project' | 'global';
+
+export interface StoreContext {
+  mode: StoreMode;
+  root: string;
+  configPath: string | null;
+  keyIdentity?: string;
+  displayLabel: string;
 }
 
 export const DEFAULT_SOURCES: SourceFiles = {
@@ -225,7 +236,9 @@ export interface HushContext {
     opStoreKey(project: string, privateKey: string, publicKey: string): void;
   };
   sops: {
-    decrypt(path: string): string;
+    decrypt(path: string, options?: { root?: string; keyIdentity?: string }): string;
+    encrypt(inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }): void;
+    edit(path: string, options?: { root?: string; keyIdentity?: string }): void;
     isSopsInstalled(): boolean;
   };
 }
