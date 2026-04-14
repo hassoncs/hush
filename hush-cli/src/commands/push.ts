@@ -119,7 +119,8 @@ function getPagesProject(target: Target): string {
 }
 
 export async function pushCommand(ctx: HushContext, options: PushOptions): Promise<void> {
-  const { root, dryRun, verbose, target: targetFilter } = options;
+  const { store, dryRun, verbose, target: targetFilter } = options;
+  const root = store.root;
   const config = ctx.config.loadConfig(root);
 
   ctx.logger.log(pc.blue('Pushing production secrets to Cloudflare...'));
@@ -136,12 +137,12 @@ export async function pushCommand(ctx: HushContext, options: PushOptions): Promi
   const varSources: EnvVar[][] = [];
 
   if (ctx.fs.existsSync(sharedEncrypted)) {
-    const content = ctx.sops.decrypt(sharedEncrypted);
+    const content = ctx.sops.decrypt(sharedEncrypted, { root, keyIdentity: store.keyIdentity });
     varSources.push(parseEnvContent(content));
   }
 
   if (ctx.fs.existsSync(prodEncrypted)) {
-    const content = ctx.sops.decrypt(prodEncrypted);
+    const content = ctx.sops.decrypt(prodEncrypted, { root, keyIdentity: store.keyIdentity });
     varSources.push(parseEnvContent(content));
   }
 

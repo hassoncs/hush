@@ -3,6 +3,8 @@ import pc from 'picocolors';
 import { describeFilter } from '../core/filter.js';
 import type { HushContext, StatusOptions } from '../types.js';
 import { FORMAT_OUTPUT_FILES } from '../types.js';
+import { getProjectIdentifier } from '../project.js';
+import { GLOBAL_STORE_KEY_IDENTITY } from '../store.js';
 
 function findRootPlaintextEnvFiles(ctx: HushContext, root: string): string[] {
   const results: string[] = [];
@@ -19,36 +21,15 @@ function findRootPlaintextEnvFiles(ctx: HushContext, root: string): string[] {
   return results;
 }
 
-function getProjectFromConfig(ctx: HushContext, root: string): string | null {
-  const config = ctx.config.loadConfig(root);
-  if (config.project) return config.project;
-
-  const pkgPath = join(root, 'package.json');
-  if (ctx.fs.existsSync(pkgPath)) {
-    try {
-      const pkg = JSON.parse(ctx.fs.readFileSync(pkgPath, 'utf-8') as string);
-      if (typeof pkg.repository === 'string') {
-        const match = pkg.repository.match(/github\.com[/:]([\w-]+\/[\w-]+)/);
-        if (match) return match[1];
-      }
-      if (pkg.repository?.url) {
-        const match = pkg.repository.url.match(/github\.com[/:]([\w-]+\/[\w-]+)/);
-        if (match) return match[1];
-      }
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
 export async function statusCommand(ctx: HushContext, options: StatusOptions): Promise<void> {
-  const { root } = options;
+  const { store } = options;
+  const root = store.root;
   const config = ctx.config.loadConfig(root);
-  const projectRootResult = ctx.config.findProjectRoot(root);
-  const configPath = projectRootResult ? projectRootResult.configPath : null;
+  const configPath = store.configPath;
 
   ctx.logger.log(pc.blue('Hush Status\n'));
+  ctx.logger.log(pc.bold('Store:'));
+  ctx.logger.log(`  ${pc.cyan(store.mode)} ${pc.dim(`(${store.displayLabel})`)}`);
 
   const plaintextFiles = findRootPlaintextEnvFiles(ctx, root);
   
@@ -73,7 +54,9 @@ export async function statusCommand(ctx: HushContext, options: StatusOptions): P
     ctx.logger.log(pc.dim('  No hush.yaml found (using defaults)'));
   }
 
-  const project = getProjectFromConfig(ctx, root);
+  const project = store.mode === 'global'
+    ? GLOBAL_STORE_KEY_IDENTITY
+    : getProjectIdentifier(root) ?? null;
   if (configPath) {
     if (project) {
       ctx.logger.log(pc.green(`  Project: ${project}`));
