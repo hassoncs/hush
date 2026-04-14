@@ -6,23 +6,23 @@ import { parseEnvContent } from '../core/parse.js';
 import type { EnvVar, ListOptions, HushContext } from '../types.js';
 
 export async function listCommand(ctx: HushContext, options: ListOptions): Promise<void> {
-  const { root, env } = options;
-  const config = ctx.config.loadConfig(root);
+  const { store, env } = options;
+  const config = ctx.config.loadConfig(store.root);
 
   ctx.logger.log(pc.blue(`Variables for ${env}:\n`));
 
-  const sharedEncrypted = join(root, config.sources.shared + '.encrypted');
-  const envEncrypted = join(root, config.sources[env] + '.encrypted');
+  const sharedEncrypted = join(store.root, config.sources.shared + '.encrypted');
+  const envEncrypted = join(store.root, config.sources[env] + '.encrypted');
 
   const varSources: EnvVar[][] = [];
 
   if (ctx.fs.existsSync(sharedEncrypted)) {
-    const content = ctx.sops.decrypt(sharedEncrypted);
+    const content = ctx.sops.decrypt(sharedEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
     varSources.push(parseEnvContent(content));
   }
 
   if (ctx.fs.existsSync(envEncrypted)) {
-    const content = ctx.sops.decrypt(envEncrypted);
+    const content = ctx.sops.decrypt(envEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
     varSources.push(parseEnvContent(content));
   }
 

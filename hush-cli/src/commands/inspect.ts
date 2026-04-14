@@ -8,29 +8,29 @@ import { maskVars, formatMaskedVar } from '../core/mask.js';
 import { mergeVars } from '../core/merge.js';
 import { parseEnvContent } from '../core/parse.js';
 
-import type { EnvVar, Environment, HushContext } from '../types.js';
+import type { EnvVar, Environment, HushContext, StoreContext } from '../types.js';
 
 export interface InspectOptions {
-  root: string;
+  store: StoreContext;
   env: Environment;
 }
 
 export async function inspectCommand(ctx: HushContext, options: InspectOptions): Promise<void> {
-  const { root, env } = options;
-  const config = ctx.config.loadConfig(root);
+  const { store, env } = options;
+  const config = ctx.config.loadConfig(store.root);
 
-  const sharedEncrypted = join(root, config.sources.shared + '.encrypted');
-  const envEncrypted = join(root, config.sources[env] + '.encrypted');
+  const sharedEncrypted = join(store.root, config.sources.shared + '.encrypted');
+  const envEncrypted = join(store.root, config.sources[env] + '.encrypted');
 
   const varSources: EnvVar[][] = [];
 
   if (fs.existsSync(sharedEncrypted)) {
-    const content = ctx.sops.decrypt(sharedEncrypted);
+    const content = ctx.sops.decrypt(sharedEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
     varSources.push(parseEnvContent(content));
   }
 
   if (fs.existsSync(envEncrypted)) {
-    const content = ctx.sops.decrypt(envEncrypted);
+    const content = ctx.sops.decrypt(envEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
     varSources.push(parseEnvContent(content));
   }
 

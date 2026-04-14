@@ -3,31 +3,31 @@ import pc from 'picocolors';
 import { interpolateVars } from '../core/interpolate.js';
 import { mergeVars } from '../core/merge.js';
 import { parseEnvContent } from '../core/parse.js';
-import type { EnvVar, Environment, HushContext } from '../types.js';
+import type { EnvVar, Environment, HushContext, StoreContext } from '../types.js';
 
 export interface HasOptions {
-  root: string;
+  store: StoreContext;
   env: Environment;
   key: string;
   quiet: boolean;
 }
 
 export async function hasCommand(ctx: HushContext, options: HasOptions): Promise<void> {
-  const { root, env, key, quiet } = options;
-  const config = ctx.config.loadConfig(root);
+  const { store, env, key, quiet } = options;
+  const config = ctx.config.loadConfig(store.root);
 
-  const sharedEncrypted = join(root, config.sources.shared + '.encrypted');
-  const envEncrypted = join(root, config.sources[env] + '.encrypted');
+  const sharedEncrypted = join(store.root, config.sources.shared + '.encrypted');
+  const envEncrypted = join(store.root, config.sources[env] + '.encrypted');
 
   const varSources: EnvVar[][] = [];
 
   if (ctx.fs.existsSync(sharedEncrypted)) {
-    const content = ctx.sops.decrypt(sharedEncrypted);
+    const content = ctx.sops.decrypt(sharedEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
     varSources.push(parseEnvContent(content));
   }
 
   if (ctx.fs.existsSync(envEncrypted)) {
-    const content = ctx.sops.decrypt(envEncrypted);
+    const content = ctx.sops.decrypt(envEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
     varSources.push(parseEnvContent(content));
   }
 
