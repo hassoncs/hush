@@ -3,6 +3,8 @@ export type {
   Environment,
   Target,
   SourceFiles,
+  StoreContext,
+  StoreMode,
   HushConfig,
   EnvVar,
   DecryptOptions,
@@ -15,6 +17,7 @@ export type {
 } from './types.js';
 
 export { DEFAULT_SOURCES, FORMAT_OUTPUT_FILES } from './types.js';
+export { resolveStoreContext, GLOBAL_STORE_ROOT, GLOBAL_STORE_KEY_IDENTITY } from './store.js';
 
 export { loadConfig, findConfigPath, validateConfig } from './config/loader.js';
 

@@ -31,16 +31,38 @@ function readFromStdinPipe(ctx: HushContext): Promise<string> {
   });
 }
 
-function promptViaMacOSDialog(ctx: HushContext, key: string): string | null {
+function getExecErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return 'unknown error';
+  }
+
+  const execError = error as Error & { stderr?: string | Buffer };
+
+  if (typeof execError.stderr === 'string' && execError.stderr.trim()) {
+    return execError.stderr.trim();
+  }
+
+  if (Buffer.isBuffer(execError.stderr) && execError.stderr.length > 0) {
+    return execError.stderr.toString('utf-8').trim();
+  }
+
+  return execError.message;
+}
+
+function promptViaMacOSDialog(ctx: HushContext, key: string): string {
   try {
-    const script = `display dialog "Enter value for ${key}:" default answer "" with title "Hush - Set Secret"`;
-    const result = ctx.exec.execSync(`osascript -e '${script}' -e 'text returned of result'`, {
+    const script = `text returned of (display dialog "Enter value for ${key}:" default answer "" with hidden answer with title "Hush - Set Secret")`;
+    const result = ctx.exec.execSync(`osascript -e '${script}'`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     return result.toString().trim();
-  } catch {
-    return null;
+  } catch (error) {
+    const message = getExecErrorMessage(error);
+    if (message.toLowerCase().includes('user canceled')) {
+      throw new Error('Cancelled');
+    }
+    throw new Error(`macOS dialog failed: ${message}`);
   }
 }
 
@@ -163,7 +185,7 @@ function promptViaTTY(ctx: HushContext, key: string): Promise<string> {
 }
 
 async function promptForValue(ctx: HushContext, key: string, forceGui: boolean): Promise<string> {
-  if (hasStdinPipe(ctx)) {
+  if (!forceGui && hasStdinPipe(ctx)) {
     return readFromStdinPipe(ctx);
   }
 
@@ -199,12 +221,12 @@ async function promptForValue(ctx: HushContext, key: string, forceGui: boolean):
 }
 
 export async function setCommand(ctx: HushContext, options: SetOptions): Promise<void> {
-  const { root, file, key, value: inlineValue, gui } = options;
-  const config = ctx.config.loadConfig(root);
+  const { store, file, key, value: inlineValue, gui } = options;
+  const config = ctx.config.loadConfig(store.root);
 
   const fileKey: FileKey = file ?? 'shared';
   const sourcePath = config.sources[fileKey];
-  const encryptedPath = join(root, sourcePath + '.encrypted');
+  const encryptedPath = join(store.root, sourcePath + '.encrypted');
 
   if (!key) {
     ctx.logger.error(pc.red('Usage: hush set <KEY> [-e environment]'));
@@ -214,7 +236,7 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     ctx.process.exit(1);
   }
 
-  if (!ctx.fs.existsSync(encryptedPath) && !ctx.fs.existsSync(join(root, '.sops.yaml'))) {
+  if (!ctx.fs.existsSync(encryptedPath) && !ctx.fs.existsSync(join(store.root, '.sops.yaml'))) {
     ctx.logger.error(pc.red('Hush is not initialized in this directory'));
     ctx.logger.error(pc.dim('Run "hush init" first, then "hush encrypt"'));
     ctx.process.exit(1);
@@ -228,7 +250,7 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       ctx.process.exit(1);
     }
 
-    setKey(encryptedPath, key, value);
+    setKey(encryptedPath, key, value, { root: store.root, keyIdentity: store.keyIdentity });
 
     const envLabel = fileKey === 'shared' ? '' : ` in ${fileKey}`;
     ctx.logger.log(pc.green(`\n${key} set${envLabel} (${value.length} chars, encrypted)`));

@@ -1,5 +1,34 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { HushContext } from '../src/types.js';
+import type { HushContext, StoreContext } from '../src/types.js';
+
+const setKeyMock = vi.fn();
+
+vi.mock('../src/core/sops.js', () => ({
+  setKey: setKeyMock,
+}));
+
+function createMockStdin(overrides: Partial<NodeJS.ReadStream> = {}): NodeJS.ReadStream {
+  return {
+    isTTY: true,
+    setEncoding: vi.fn(),
+    on: vi.fn(),
+    resume: vi.fn(),
+    pause: vi.fn(),
+    setRawMode: vi.fn(),
+    removeListener: vi.fn(),
+    ...overrides,
+  } as unknown as NodeJS.ReadStream;
+}
+
+function createStore(mode: 'project' | 'global' = 'project'): StoreContext {
+  return {
+    mode,
+    root: mode === 'global' ? '/Users/test/.hush' : '/root',
+    configPath: mode === 'global' ? '/Users/test/.hush/hush.yaml' : '/root/hush.yaml',
+    keyIdentity: mode === 'global' ? 'hush-global' : 'test/repo',
+    displayLabel: mode === 'global' ? '~/.hush' : '/root',
+  };
+}
 
 describe('set command argument parsing', () => {
   const mockConsoleError = vi.fn();
@@ -34,7 +63,7 @@ describe('set command argument parsing', () => {
         cwd: () => '/root',
         exit: mockProcessExit as any,
         env: {},
-        stdin: { isTTY: true } as any,
+        stdin: createMockStdin(),
         stdout: { write: vi.fn() } as any,
       },
       config: {
@@ -69,6 +98,8 @@ describe('set command argument parsing', () => {
       },
       sops: {
         decrypt: vi.fn(),
+        encrypt: vi.fn(),
+        edit: vi.fn(),
         isSopsInstalled: vi.fn().mockReturnValue(true),
       },
     };
@@ -87,7 +118,7 @@ describe('set command argument parsing', () => {
 
     try {
       await setCommand(ctx, {
-        root: '/root',
+        store: createStore(),
         key: undefined,
       });
       expect.fail('Should have exited');
@@ -96,6 +127,87 @@ describe('set command argument parsing', () => {
     }
 
     expect(mockConsoleError).toHaveBeenCalledWith(expect.stringContaining('Usage: hush set'));
+  });
+
+  it('prefers GUI prompt over piped stdin when --gui is set', async () => {
+    const ctx = createMockContext();
+    const execSync = vi.fn().mockReturnValue('gui-secret\n');
+
+    ctx.exec.execSync = execSync;
+    ctx.process.stdin = createMockStdin({
+      isTTY: false,
+    });
+
+    const { setCommand } = await import('../src/commands/set.js');
+
+    await setCommand(ctx, {
+      store: createStore(),
+      key: 'API_KEY',
+      gui: true,
+    });
+
+    expect(execSync).toHaveBeenCalledOnce();
+    expect(execSync).toHaveBeenCalledWith(
+      expect.stringContaining('text returned of (display dialog'),
+      expect.objectContaining({
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+    );
+    expect(execSync).toHaveBeenCalledWith(expect.stringContaining('with hidden answer'), expect.anything());
+    expect(setKeyMock).toHaveBeenCalledWith('/root/.hush.encrypted', 'API_KEY', 'gui-secret', {
+      root: '/root',
+      keyIdentity: 'test/repo',
+    });
+  });
+
+  it('surfaces macOS dialog launch failures instead of treating them as empty input', async () => {
+    const ctx = createMockContext();
+    const error = Object.assign(new Error('execution error'), {
+      stderr: 'not authorized to send Apple events to System Events',
+    });
+
+    ctx.exec.execSync = vi.fn().mockImplementation(() => {
+      throw error;
+    });
+
+    const { setCommand } = await import('../src/commands/set.js');
+
+    await expect(
+      setCommand(ctx, {
+        store: createStore(),
+        key: 'API_KEY',
+        gui: true,
+      })
+    ).rejects.toThrow('macOS dialog failed: not authorized to send Apple events to System Events');
+
+    expect(mockConsoleError).not.toHaveBeenCalledWith(expect.stringContaining('No value entered, aborting'));
+  });
+
+  it('treats dialog cancellation as cancellation instead of a generic GUI failure', async () => {
+    const ctx = createMockContext();
+    const error = Object.assign(new Error('execution error'), {
+      stderr: 'User canceled.',
+    });
+
+    ctx.exec.execSync = vi.fn().mockImplementation(() => {
+      throw error;
+    });
+
+    const { setCommand } = await import('../src/commands/set.js');
+
+    try {
+      await setCommand(ctx, {
+        store: createStore(),
+        key: 'API_KEY',
+        gui: true,
+      });
+      expect.fail('Should have exited');
+    } catch (e: any) {
+      expect(e.message).toBe('Process exit: 1');
+    }
+
+    expect(ctx.logger.log).toHaveBeenCalledWith(expect.stringContaining('Cancelled'));
   });
 });
 
@@ -144,6 +256,14 @@ describe('CLI argument parsing for set command', () => {
     expect(result.gui).toBe(true);
   });
 
+  it('parses hush set --global KEY correctly', () => {
+    const result = parseArgs(['set', '--global', 'MY_KEY']);
+
+    expect(result.command).toBe('set');
+    expect(result.key).toBe('MY_KEY');
+    expect(result.global).toBe(true);
+  });
+
   it('parses value with spaces', () => {
     const result = parseArgs(['set', 'MY_KEY', 'value with spaces']);
     
@@ -167,6 +287,7 @@ function createParseArgs(): (args: string[]) => any {
     let envExplicit = false;
     let root = process.cwd();
     let local = false;
+    let global = false;
     let gui = false;
     let key: string | undefined;
     let value: string | undefined;
@@ -192,6 +313,11 @@ function createParseArgs(): (args: string[]) => any {
         continue;
       }
 
+      if (arg === '--global') {
+        global = true;
+        continue;
+      }
+
       if (arg === '--gui') {
         gui = true;
         continue;
@@ -212,6 +338,6 @@ function createParseArgs(): (args: string[]) => any {
       }
     }
 
-    return { command, env, envExplicit, root, local, gui, key, value };
+    return { command, env, envExplicit, root, local, global, gui, key, value };
   };
 }

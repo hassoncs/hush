@@ -2,39 +2,28 @@ import { execSync, spawnSync } from 'node:child_process';
 import { fs } from '../lib/fs.js';
 import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
-import { loadConfig, findProjectRoot } from '../config/loader.js';
 import { keyExists, keyPath } from '../lib/age.js';
+import { findProjectRoot } from '../config/loader.js';
+import { getProjectIdentifier } from '../project.js';
 
-function getProjectIdentifier(root: string): string | undefined {
-  const config = loadConfig(root);
-  if (config.project) {
-    return config.project;
-  }
-
-  const pkgPath = join(root, 'package.json');
-  if (fs.existsSync(pkgPath)) {
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8') as string);
-    if (typeof pkg.repository === 'string') {
-      const match = pkg.repository.match(/github\.com[/:]([\w-]+\/[\w-]+)/);
-      if (match) return match[1];
-    }
-    if (pkg.repository?.url) {
-      const match = pkg.repository.url.match(/github\.com[/:]([\w-]+\/[\w-]+)/);
-      if (match) return match[1];
-    }
-  }
-
-  return undefined;
+interface SopsOptions {
+  root?: string;
+  keyIdentity?: string;
 }
 
-function getAgeKeyFile(): string | undefined {
+function getAgeKeyFile(options?: SopsOptions): string | undefined {
   if (process.env.SOPS_AGE_KEY_FILE) {
     return process.env.SOPS_AGE_KEY_FILE;
   }
 
-  const projectRoot = findProjectRoot(process.cwd())?.projectRoot;
+  const keyIdentity = options?.keyIdentity;
+  if (keyIdentity && keyExists(keyIdentity)) {
+    return keyPath(keyIdentity);
+  }
+
+  const projectRoot = options?.root ?? findProjectRoot(process.cwd())?.projectRoot;
   if (projectRoot) {
-    const project = getProjectIdentifier(projectRoot);
+    const project = keyIdentity ?? getProjectIdentifier(projectRoot);
     if (project && keyExists(project)) {
       return keyPath(project);
     }
@@ -48,8 +37,8 @@ function getAgeKeyFile(): string | undefined {
   return undefined;
 }
 
-function getSopsEnv(): NodeJS.ProcessEnv {
-  const ageKeyFile = getAgeKeyFile();
+function getSopsEnv(options?: SopsOptions): NodeJS.ProcessEnv {
+  const ageKeyFile = getAgeKeyFile(options);
   if (ageKeyFile) {
     return { ...process.env, SOPS_AGE_KEY_FILE: ageKeyFile };
   }
@@ -72,7 +61,7 @@ export function isAgeKeyConfigured(): boolean {
   return getAgeKeyFile() !== undefined;
 }
 
-export function decrypt(filePath: string): string {
+export function decrypt(filePath: string, options?: SopsOptions): string {
   if (!fs.existsSync(filePath)) {
     throw new Error(`Encrypted file not found: ${filePath}`);
   }
@@ -87,15 +76,15 @@ export function decrypt(filePath: string): string {
       {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: getSopsEnv(),
+        env: getSopsEnv(options),
       }
     );
     return result;
   } catch (error) {
     const err = error as { stderr?: string; message?: string };
     if (err.stderr?.includes('No identity matched')) {
-      const projectRoot = findProjectRoot(process.cwd())?.projectRoot;
-      const project = projectRoot ? getProjectIdentifier(projectRoot) : undefined;
+      const projectRoot = options?.root ?? findProjectRoot(process.cwd())?.projectRoot;
+      const project = options?.keyIdentity ?? (projectRoot ? getProjectIdentifier(projectRoot) : undefined);
       const keyLocation = project
         ? `~/.config/sops/age/keys/${project.replace(/\//g, '-')}.txt`
         : '~/.config/sops/age/key.txt';
@@ -108,7 +97,7 @@ export function decrypt(filePath: string): string {
   }
 }
 
-export function encrypt(inputPath: string, outputPath: string): void {
+export function encrypt(inputPath: string, outputPath: string, options?: SopsOptions): void {
   if (!fs.existsSync(inputPath)) {
     throw new Error(`Input file not found: ${inputPath}`);
   }
@@ -123,7 +112,7 @@ export function encrypt(inputPath: string, outputPath: string): void {
       {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: getSopsEnv(),
+        env: getSopsEnv(options),
       }
     );
   } catch (error) {
@@ -132,7 +121,7 @@ export function encrypt(inputPath: string, outputPath: string): void {
   }
 }
 
-export function edit(filePath: string): void {
+export function edit(filePath: string, options?: SopsOptions): void {
   if (!fs.existsSync(filePath)) {
     throw new Error(`Encrypted file not found: ${filePath}`);
   }
@@ -146,7 +135,7 @@ export function edit(filePath: string): void {
     ['--input-type', 'dotenv', '--output-type', 'dotenv', filePath],
     {
       stdio: 'inherit',
-      env: getSopsEnv(),
+      env: getSopsEnv(options),
       shell: true
     }
   );
@@ -156,7 +145,7 @@ export function edit(filePath: string): void {
   }
 }
 
-export function setKey(filePath: string, key: string, value: string): void {
+export function setKey(filePath: string, key: string, value: string, options?: SopsOptions): void {
   if (!isSopsInstalled()) {
     throw new Error('SOPS is not installed. Install with: brew install sops');
   }
@@ -164,7 +153,7 @@ export function setKey(filePath: string, key: string, value: string): void {
   let content = '';
   
   if (fs.existsSync(filePath)) {
-    content = decrypt(filePath);
+    content = decrypt(filePath, options);
   }
 
   const lines = content.split('\n').filter(line => line.trim() !== '');
@@ -195,7 +184,7 @@ export function setKey(filePath: string, key: string, value: string): void {
       {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: getSopsEnv(),
+        env: getSopsEnv(options),
       }
     );
   } finally {
