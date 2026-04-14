@@ -67,7 +67,7 @@ jobs:
         id: version
         run: |
           # Get current npm version
-          CURRENT_NPM_VERSION=$(npm view @chriscode/hush version 2>/dev/null || echo "0.0.0")
+          CURRENT_NPM_VERSION=$(npx -y npm@11.5.1 view @chriscode/hush version 2>/dev/null || echo "0.0.0")
           echo "current_npm_version=$CURRENT_NPM_VERSION" >> $GITHUB_OUTPUT
           
           # Get current package.json version
@@ -132,7 +132,7 @@ jobs:
           NEW_VERSION="${{ steps.version.outputs.new_version }}"
           
           # Check if this version exists on npm
-          if npm view "@chriscode/hush@$NEW_VERSION" version >/dev/null 2>&1; then
+          if npx -y npm@11.5.1 view "@chriscode/hush@$NEW_VERSION" version >/dev/null 2>&1; then
             echo "Version $NEW_VERSION already published, skipping"
             echo "already_published=true" >> $GITHUB_OUTPUT
           else
@@ -151,13 +151,13 @@ jobs:
           else
             cd hush-cli
             # Use npm pkg set instead of npm version to avoid git hooks/issues
-            npm pkg set version="$NEW_VERSION"
+            npx -y npm@11.5.1 pkg set version="$NEW_VERSION"
             echo "Updated package.json to version $NEW_VERSION"
           fi
       
       - name: Publish to npm (trusted publishing)
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
-        run: npm publish --access public --provenance
+        run: npx -y npm@11.5.1 publish --access public --provenance
         working-directory: hush-cli
       
       - name: Create git tag
