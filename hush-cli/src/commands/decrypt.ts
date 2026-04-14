@@ -58,7 +58,7 @@ async function confirmDangerousOperation(ctx: HushContext): Promise<boolean> {
 }
 
 export async function decryptCommand(ctx: HushContext, options: DecryptOptions): Promise<void> {
-  const { root, env, force } = options;
+  const { store, env, force } = options;
 
   if (!force) {
     console.error(pc.red('Error: decrypt requires --force flag'));
@@ -76,25 +76,25 @@ export async function decryptCommand(ctx: HushContext, options: DecryptOptions):
     ctx.process.exit(0);
   }
 
-  const config = ctx.config.loadConfig(root);
+  const config = ctx.config.loadConfig(store.root);
 
   ctx.logger.log(pc.yellow(`⚠️  Writing unencrypted secrets for ${env}...`));
 
-  const sharedEncrypted = join(root, getEncryptedPath(config.sources.shared));
-  const envEncrypted = join(root, getEncryptedPath(config.sources[env]));
-  const localPath = join(root, config.sources.local);
+  const sharedEncrypted = join(store.root, getEncryptedPath(config.sources.shared));
+  const envEncrypted = join(store.root, getEncryptedPath(config.sources[env]));
+  const localPath = join(store.root, config.sources.local);
 
   const varSources: EnvVar[][] = [];
 
   if (ctx.fs.existsSync(sharedEncrypted)) {
-    const content = ctx.sops.decrypt(sharedEncrypted);
+    const content = ctx.sops.decrypt(sharedEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
     const vars = parseEnvContent(content);
     varSources.push(vars);
     ctx.logger.log(pc.dim(`  ${config.sources.shared}.encrypted: ${vars.length} vars`));
   }
 
   if (ctx.fs.existsSync(envEncrypted)) {
-    const content = ctx.sops.decrypt(envEncrypted);
+    const content = ctx.sops.decrypt(envEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
     const vars = parseEnvContent(content);
     varSources.push(vars);
     ctx.logger.log(pc.dim(`  ${config.sources[env]}.encrypted: ${vars.length} vars`));
@@ -123,7 +123,7 @@ export async function decryptCommand(ctx: HushContext, options: DecryptOptions):
   ctx.logger.log(pc.yellow(`\n⚠️  Writing to ${config.targets.length} targets:`));
 
   for (const target of config.targets) {
-    const targetDir = join(root, target.path);
+      const targetDir = join(store.root, target.path);
     const filtered = filterVarsForTarget(interpolated, target);
 
     if (filtered.length === 0) {

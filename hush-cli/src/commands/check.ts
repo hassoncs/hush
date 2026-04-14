@@ -86,7 +86,8 @@ function findPlaintextEnvFiles(ctx: HushContext, root: string): PlaintextFileRes
 }
 
 export async function check(ctx: HushContext, options: CheckOptions): Promise<CheckResult> {
-  const { root, requireSource, onlyChanged, allowPlaintext } = options;
+  const { store, requireSource, onlyChanged, allowPlaintext } = options;
+  const root = store.root;
 
   if (!ctx.sops.isSopsInstalled()) {
     return {
@@ -105,7 +106,7 @@ export async function check(ctx: HushContext, options: CheckOptions): Promise<Ch
 
   const config = ctx.config.loadConfig(root);
   const pairs = getSourceEncryptedPairs(config);
-  const result = checkPairs(ctx, root, pairs, requireSource, onlyChanged);
+  const result = checkPairs(ctx, root, store.keyIdentity, pairs, requireSource, onlyChanged);
   
   if (!allowPlaintext) {
     const plaintextFiles = findPlaintextEnvFiles(ctx, root);
@@ -121,6 +122,7 @@ export async function check(ctx: HushContext, options: CheckOptions): Promise<Ch
 function checkPairs(
   ctx: HushContext,
   root: string,
+  keyIdentity: string | undefined,
   pairs: SourceEncryptedPair[],
   requireSource: boolean,
   onlyChanged: boolean
@@ -173,7 +175,7 @@ function checkPairs(
     }
 
     try {
-      const decryptedContent = ctx.sops.decrypt(encryptedPath);
+      const decryptedContent = ctx.sops.decrypt(encryptedPath, { root, keyIdentity });
       const sourceContent = ctx.fs.readFileSync(sourcePath, 'utf-8') as string;
 
       const sourceVars = parseEnvContent(sourceContent);

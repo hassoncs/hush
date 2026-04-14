@@ -12,8 +12,8 @@ interface EncryptedFile {
 }
 
 export async function encryptCommand(ctx: HushContext, options: EncryptOptions): Promise<void> {
-  const { root } = options;
-  const config = ctx.config.loadConfig(root);
+  const { store } = options;
+  const config = ctx.config.loadConfig(store.root);
 
   ctx.logger.log(pc.blue('Encrypting secrets...\n'));
 
@@ -26,7 +26,7 @@ export async function encryptCommand(ctx: HushContext, options: EncryptOptions):
   const encryptedFiles: EncryptedFile[] = [];
 
   for (const { key, path } of sourceFiles) {
-    const sourcePath = join(root, path);
+      const sourcePath = join(store.root, path);
     const encryptedPath = sourcePath + '.encrypted';
 
     if (!ctx.fs.existsSync(sourcePath)) {
@@ -37,7 +37,7 @@ export async function encryptCommand(ctx: HushContext, options: EncryptOptions):
     const sourceContent = ctx.fs.readFileSync(sourcePath, 'utf-8') as string;
     const vars = parseEnvContent(sourceContent);
 
-    sopsEncrypt(sourcePath, encryptedPath);
+    sopsEncrypt(sourcePath, encryptedPath, { root: store.root, keyIdentity: store.keyIdentity });
     ctx.logger.log(pc.green(`  ${path}`) + pc.dim(` -> ${path}.encrypted (${vars.length} vars)`));
 
     encryptedFiles.push({
@@ -59,7 +59,7 @@ export async function encryptCommand(ctx: HushContext, options: EncryptOptions):
   let allVerified = true;
   for (const file of encryptedFiles) {
     try {
-      const decrypted = sopsDecrypt(file.encryptedPath);
+      const decrypted = sopsDecrypt(file.encryptedPath, { root: store.root, keyIdentity: store.keyIdentity });
       const decryptedVars = parseEnvContent(decrypted);
 
       if (decryptedVars.length === file.originalKeyCount) {
