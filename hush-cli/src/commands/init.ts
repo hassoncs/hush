@@ -2,26 +2,8 @@ import pc from 'picocolors';
 import { stringify as stringifyYaml } from 'yaml';
 import type { HushConfig, HushContext, InitOptions, Target } from '../types.js';
 import { DEFAULT_SOURCES } from '../types.js';
-
-function getProjectFromPackageJson(ctx: HushContext, root: string): string | null {
-  const pkgPath = ctx.path.join(root, 'package.json');
-  if (!ctx.fs.existsSync(pkgPath)) return null;
-
-  try {
-    const pkg = JSON.parse(ctx.fs.readFileSync(pkgPath, 'utf-8') as string);
-    if (typeof pkg.repository === 'string') {
-      const match = pkg.repository.match(/github\.com[/:]([\w-]+\/[\w-]+)/);
-      if (match) return match[1];
-    }
-    if (pkg.repository?.url) {
-      const match = pkg.repository.url.match(/github\.com[/:]([\w-]+\/[\w-]+)/);
-      if (match) return match[1];
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
+import { getProjectIdentifier } from '../project.js';
+import { GLOBAL_STORE_KEY_IDENTITY } from '../store.js';
 
 interface KeySetupResult {
   publicKey: string;
@@ -167,20 +149,28 @@ function findExistingEncryptedFiles(ctx: HushContext, root: string): string[] {
 }
 
 export async function initCommand(ctx: HushContext, options: InitOptions): Promise<void> {
-  const { root } = options;
+  const { store } = options;
+  const root = store.root;
 
-  const existingConfig = ctx.config.findProjectRoot(root);
-  if (existingConfig) {
+  if (!ctx.fs.existsSync(root)) {
+    ctx.fs.mkdirSync(root, { recursive: true });
+  }
+
+  const existingConfigPath = store.mode === 'global'
+    ? store.configPath
+    : ctx.config.findProjectRoot(root)?.configPath ?? null;
+
+  if (existingConfigPath) {
     const sopsPath = ctx.path.join(root, '.sops.yaml');
     if (ctx.fs.existsSync(sopsPath)) {
-      ctx.logger.error(pc.red(`Config already exists: ${existingConfig.configPath}`));
+      ctx.logger.error(pc.red(`Config already exists: ${existingConfigPath}`));
       ctx.process.exit(1);
     }
 
     ctx.logger.log(pc.yellow(`hush.yaml already exists. Completing setup (creating .sops.yaml)...\n`));
 
     const existingHushConfig = ctx.config.loadConfig(root);
-    const project = existingHushConfig.project ?? getProjectFromPackageJson(ctx, root);
+    const project = existingHushConfig.project ?? getProjectIdentifier(root) ?? null;
     const keyResult = await setupKey(ctx, root, project ?? null);
     if (keyResult) {
       createSopsConfig(ctx, root, keyResult.publicKey);
@@ -212,7 +202,9 @@ export async function initCommand(ctx: HushContext, options: InitOptions): Promi
     ctx.logger.log(pc.dim('Example: mv .env .hush && mv .env.development .hush.development\n'));
   }
 
-  const project = getProjectFromPackageJson(ctx, root);
+  const project = store.mode === 'global'
+    ? GLOBAL_STORE_KEY_IDENTITY
+    : getProjectIdentifier(root) ?? null;
 
   if (!project) {
     ctx.logger.log(pc.yellow('No project identifier found in package.json.'));
@@ -225,13 +217,15 @@ export async function initCommand(ctx: HushContext, options: InitOptions): Promi
     createSopsConfig(ctx, root, keyResult.publicKey);
   }
 
-  const targets = detectTargets(ctx, root);
+  const targets: Target[] = store.mode === 'global'
+    ? [{ name: 'root', path: '.', format: 'dotenv' }]
+    : detectTargets(ctx, root);
 
   const config: HushConfig = {
     version: 2,
     sources: DEFAULT_SOURCES,
     targets,
-    ...(project && { project }),
+    ...(store.mode === 'project' && project && { project }),
   };
 
   const yaml = stringifyYaml(config, { indent: 2 });
@@ -249,7 +243,11 @@ export async function initCommand(ctx: HushContext, options: InitOptions): Promi
 
   ctx.logger.log(pc.bold('\nNext steps:'));
 
-  if (existingEncryptedFiles.length > 0) {
+  if (store.mode === 'global') {
+    ctx.logger.log(pc.dim('  1. npx hush set --global <KEY>') + pc.dim('  # Add global secrets'));
+    ctx.logger.log(pc.dim('  2. npx hush inspect --global') + pc.dim('   # Verify global secrets'));
+    ctx.logger.log(pc.dim('  3. npx hush run --global -- <cmd>') + pc.dim('  # Run with global secrets only'));
+  } else if (existingEncryptedFiles.length > 0) {
     ctx.logger.log(pc.green('  1. npx hush migrate') + pc.dim('      # Convert v4 .env.encrypted to v5 .hush.encrypted'));
     ctx.logger.log(pc.dim('  2. npx hush inspect') + pc.dim('       # Verify your secrets'));
     ctx.logger.log(pc.dim('  3. npx hush run -- <cmd>') + pc.dim('  # Run with secrets in memory'));
@@ -262,7 +260,9 @@ export async function initCommand(ctx: HushContext, options: InitOptions): Promi
     ctx.logger.log(pc.dim('  2. npx hush run -- <cmd>') + pc.dim('  # Run with secrets in memory'));
   }
 
-  ctx.logger.log(pc.dim('\nGit setup:'));
-  ctx.logger.log(pc.dim('  git add hush.yaml .sops.yaml'));
-  ctx.logger.log(pc.dim('  git commit -m "chore: add Hush secrets management"'));
+  if (store.mode === 'project') {
+    ctx.logger.log(pc.dim('\nGit setup:'));
+    ctx.logger.log(pc.dim('  git add hush.yaml .sops.yaml'));
+    ctx.logger.log(pc.dim('  git commit -m "chore: add Hush secrets management"'));
+  }
 }

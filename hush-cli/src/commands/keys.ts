@@ -1,32 +1,27 @@
 import { join } from 'node:path';
 import pc from 'picocolors';
 import { stringify as yamlStringify } from 'yaml';
-import { HushContext } from '../types.js';
+import { HushContext, StoreContext } from '../types.js';
 import { opAvailable, opGetKey, opStoreKey, opListKeys } from '../lib/onepassword.js';
 import { ageAvailable, ageGenerate, agePublicFromPrivate, keyExists, keySave, keyLoad, keysList, keyPath } from '../lib/age.js';
+import { getProjectIdentifier } from '../project.js';
+import { GLOBAL_STORE_KEY_IDENTITY } from '../store.js';
 
 export interface KeysOptions {
-  root: string;
+  store: StoreContext;
   subcommand: string;
   vault?: string;
   force?: boolean;
 }
 
-function getProject(ctx: HushContext, root: string): string {
-  const config = ctx.config.loadConfig(root);
-  if (config.project) return config.project;
+function getProject(ctx: HushContext, store: StoreContext): string {
+  if (store.mode === 'global') {
+    return GLOBAL_STORE_KEY_IDENTITY;
+  }
 
-  const pkgPath = join(root, 'package.json');
-  if (ctx.fs.existsSync(pkgPath)) {
-    const pkg = JSON.parse(ctx.fs.readFileSync(pkgPath, 'utf-8') as string);
-    if (typeof pkg.repository === 'string') {
-      const match = pkg.repository.match(/github\.com[/:]([\w-]+\/[\w-]+)/);
-      if (match) return match[1];
-    }
-    if (pkg.repository?.url) {
-      const match = pkg.repository.url.match(/github\.com[/:]([\w-]+\/[\w-]+)/);
-      if (match) return match[1];
-    }
+  const project = getProjectIdentifier(store.root);
+  if (project) {
+    return project;
   }
 
   ctx.logger.error(pc.red('No project identifier found.'));
@@ -35,11 +30,12 @@ function getProject(ctx: HushContext, root: string): string {
 }
 
 export async function keysCommand(ctx: HushContext, options: KeysOptions): Promise<void> {
-  const { root, subcommand, vault, force } = options;
+  const { store, subcommand, vault, force } = options;
+  const root = store.root;
   
   switch (subcommand) {
     case 'setup': {
-      const project = getProject(ctx, root);
+      const project = getProject(ctx, store);
       ctx.logger.log(pc.blue(`Setting up keys for ${pc.cyan(project)}...`));
       
       if (keyExists(project)) {
@@ -67,7 +63,7 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
         ctx.process.exit(1);
       }
 
-      const project = getProject(ctx, root);
+      const project = getProject(ctx, store);
       
       if (keyExists(project) && !force) {
         ctx.logger.error(pc.yellow(`Key exists for ${project}. Use --force to overwrite.`));
@@ -106,7 +102,7 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
         ctx.process.exit(1);
       }
 
-      const project = getProject(ctx, root);
+      const project = getProject(ctx, store);
       const priv = opGetKey(project, vault);
 
       if (!priv) {
@@ -126,7 +122,7 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
         ctx.process.exit(1);
       }
 
-      const project = getProject(ctx, root);
+      const project = getProject(ctx, store);
       const key = keyLoad(project);
 
       if (!key) {
