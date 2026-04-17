@@ -6,6 +6,7 @@ import { opAvailable, opGetKey, opStoreKey, opListKeys } from '../lib/onepasswor
 import { ageAvailable, ageGenerate, agePublicFromPrivate, keyExists, keySave, keyLoad, keysList, keyPath } from '../lib/age.js';
 import { getProjectIdentifier } from '../project.js';
 import { GLOBAL_STORE_KEY_IDENTITY } from '../store.js';
+import { ensureGlobalStoreBootstrap } from '../global-store.js';
 
 export interface KeysOptions {
   store: StoreContext;
@@ -75,6 +76,11 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
       keySave(project, key);
       ctx.logger.log(pc.green(`Saved to ${keyPath(project)}`));
       ctx.logger.log(pc.dim(`Public: ${key.public}`));
+
+      if (store.mode === 'global') {
+        ensureGlobalStoreBootstrap(ctx, store, key.public);
+        ctx.logger.log(pc.green('Bootstrapped ~/.hush'));
+      }
       
       if (opAvailable()) {
         try {
@@ -85,8 +91,15 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
         }
       }
 
+      if (store.mode === 'global') {
+        break;
+      }
+
       const sopsPath = join(root, '.sops.yaml');
       if (!ctx.fs.existsSync(sopsPath)) {
+        if (!ctx.fs.existsSync(root)) {
+          ctx.fs.mkdirSync(root, { recursive: true });
+        }
         ctx.fs.writeFileSync(sopsPath, yamlStringify({ creation_rules: [{ encrypted_regex: '.*', age: key.public }] }));
         ctx.logger.log(pc.green('Created .sops.yaml'));
       } else {

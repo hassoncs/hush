@@ -79,6 +79,16 @@ npx hush edit              # Edit all secrets in $EDITOR
 npx hush inspect           # Verify changes
 \`\`\`
 
+**Global store flow (\`~/.hush\`):**
+
+\`\`\`bash
+npx hush keys generate --global   # Creates the global key and bootstraps ~/.hush
+npx hush set --global <KEY>       # Stores the secret in ~/.hush/.hush.encrypted
+npx hush inspect --global         # Verify global secrets
+\`\`\`
+
+When using \`--global\`, Hush binds encryption to \`~/.hush/.sops.yaml\` explicitly, even if you run the command from inside another repo that has its own \`.sops.yaml\`.
+
 ### Scenario 5: Run Application with Secrets
 
 \`\`\`bash

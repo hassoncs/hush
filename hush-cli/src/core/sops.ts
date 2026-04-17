@@ -11,6 +11,15 @@ interface SopsOptions {
   keyIdentity?: string;
 }
 
+function getSopsConfigFile(options?: SopsOptions): string | undefined {
+  if (!options?.root) {
+    return undefined;
+  }
+
+  const configPath = join(options.root, '.sops.yaml');
+  return fs.existsSync(configPath) ? configPath : undefined;
+}
+
 function getAgeKeyFile(options?: SopsOptions): string | undefined {
   if (process.env.SOPS_AGE_KEY_FILE) {
     return process.env.SOPS_AGE_KEY_FILE;
@@ -107,8 +116,10 @@ export function encrypt(inputPath: string, outputPath: string, options?: SopsOpt
   }
 
   try {
+    const configPath = getSopsConfigFile(options);
+    const configFlag = configPath ? ` --config "${configPath}"` : '';
     execSync(
-      `sops --input-type dotenv --output-type dotenv --encrypt "${inputPath}" > "${outputPath}"`,
+      `sops --input-type dotenv --output-type dotenv --encrypt${configFlag} "${inputPath}" > "${outputPath}"`,
       {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -178,9 +189,11 @@ export function setKey(filePath: string, key: string, value: string, options?: S
   
   try {
     fs.writeFileSync(tempFile, newContent, 'utf-8');
+    const configPath = getSopsConfigFile(options);
+    const configFlag = configPath ? ` --config "${configPath}"` : '';
     
     execSync(
-      `sops --input-type dotenv --output-type dotenv --encrypt "${tempFile}" > "${filePath}"`,
+      `sops --input-type dotenv --output-type dotenv --encrypt${configFlag} "${tempFile}" > "${filePath}"`,
       {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],

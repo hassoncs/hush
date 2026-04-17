@@ -118,6 +118,10 @@ hush set MY_OVERRIDE --local
 # Set in the explicit global store
 hush set --global OPENAI_API_KEY
 
+# Bootstrap the global store without a separate init step
+hush keys generate --global
+hush set --global OPENAI_API_KEY
+
 # Piped input (for scripts/automation)
 echo "my-secret" | hush set MY_KEY
 cat cert.pem | hush set CERTIFICATE
@@ -142,10 +146,13 @@ cat cert.pem | hush set CERTIFICATE
 ### How It Works
 
 1. Gets value from inline arg, pipe, GUI, or prompt
-2. Decrypts the target file
-3. Sets or updates the key
-4. Re-encrypts the file
-5. Confirms success with character count (no value shown)
+2. In global mode, auto-creates `~/.hush/hush.yaml` and `~/.hush/.sops.yaml` when the global key already exists
+3. Decrypts the target file
+4. Sets or updates the key
+5. Re-encrypts the file
+6. Confirms success with character count (no value shown)
+
+For global mode, Hush now binds encryption to `~/.hush/.sops.yaml` explicitly, so running `hush set --global` from inside another repo still uses the global recipient instead of a repo-local `.sops.yaml`.
 
 ### Example Output
 
@@ -209,6 +216,8 @@ hush init --global
 This command scans your monorepo for packages with `package.json` files and creates an initial configuration.
 
 When `--global` is used, Hush initializes `~/.hush` with a single root target and a dedicated global key identity.
+
+If you already ran `hush keys generate --global` or `hush keys setup --global`, `hush set --global KEY ...` can now bootstrap the missing global config files automatically.
 
 ### Example Output
 

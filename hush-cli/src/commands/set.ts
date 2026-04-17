@@ -3,6 +3,7 @@ import { platform } from 'node:os';
 import pc from 'picocolors';
 import { setKey } from '../core/sops.js';
 import type { HushContext, SetOptions } from '../types.js';
+import { ensureGlobalStoreBootstrap } from '../global-store.js';
 
 type FileKey = 'shared' | 'development' | 'production' | 'local';
 
@@ -222,6 +223,11 @@ async function promptForValue(ctx: HushContext, key: string, forceGui: boolean):
 
 export async function setCommand(ctx: HushContext, options: SetOptions): Promise<void> {
   const { store, file, key, value: inlineValue, gui } = options;
+
+  if (store.mode === 'global') {
+    ensureGlobalStoreBootstrap(ctx, store);
+  }
+
   const config = ctx.config.loadConfig(store.root);
 
   const fileKey: FileKey = file ?? 'shared';
@@ -236,9 +242,18 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     ctx.process.exit(1);
   }
 
-  if (!ctx.fs.existsSync(encryptedPath) && !ctx.fs.existsSync(join(store.root, '.sops.yaml'))) {
-    ctx.logger.error(pc.red('Hush is not initialized in this directory'));
-    ctx.logger.error(pc.dim('Run "hush init" first, then "hush encrypt"'));
+  const hasEncryptedFile = ctx.fs.existsSync(encryptedPath);
+  const hasSopsConfig = ctx.fs.existsSync(join(store.root, '.sops.yaml'));
+
+  if (!hasEncryptedFile && !hasSopsConfig) {
+    if (store.mode === 'global') {
+      ctx.logger.error(pc.red('Global Hush store is not initialized'));
+      ctx.logger.error(pc.dim('Run "hush keys generate --global" or "hush keys setup --global" first'));
+      ctx.logger.error(pc.dim('Global secrets live in ~/.hush'));
+    } else {
+      ctx.logger.error(pc.red('Hush is not initialized in this directory'));
+      ctx.logger.error(pc.dim('Run "hush init" first, then "hush encrypt"'));
+    }
     ctx.process.exit(1);
   }
 

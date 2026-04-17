@@ -220,6 +220,49 @@ describe('set command argument parsing', () => {
 
     expect(ctx.logger.log).toHaveBeenCalledWith(expect.stringContaining('Cancelled'));
   });
+
+  it('bootstraps the global store from the hush-global key before setting a secret', async () => {
+    const ctx = createMockContext();
+    const { setCommand } = await import('../src/commands/set.js');
+
+    const existingPaths = new Set<string>(['/keys/hush-global.txt']);
+    const existsSync = vi.fn((path: string) => existingPaths.has(path));
+
+    ctx.fs.existsSync = existsSync;
+    ctx.fs.mkdirSync = vi.fn((path: string) => {
+      existingPaths.add(path);
+      return path;
+    });
+    ctx.fs.writeFileSync = vi.fn((path: string) => {
+      existingPaths.add(path);
+    });
+    ctx.age.keyLoad = vi.fn().mockReturnValue({
+      private: 'AGE-SECRET-KEY-EXAMPLE',
+      public: 'age1globalpublickey',
+    });
+
+    await setCommand(ctx, {
+      store: createStore('global'),
+      key: 'OPENAI_API_KEY',
+      value: 'secret-value',
+    });
+
+    expect(ctx.fs.mkdirSync).toHaveBeenCalledWith('/Users/test/.hush', { recursive: true });
+    expect(ctx.fs.writeFileSync).toHaveBeenCalledWith(
+      '/Users/test/.hush/hush.yaml',
+      expect.stringContaining('sources:'),
+      'utf-8',
+    );
+    expect(ctx.fs.writeFileSync).toHaveBeenCalledWith(
+      '/Users/test/.hush/.sops.yaml',
+      expect.stringContaining('age1globalpublickey'),
+      'utf-8',
+    );
+    expect(setKeyMock).toHaveBeenCalledWith('/Users/test/.hush/.hush.encrypted', 'OPENAI_API_KEY', 'secret-value', {
+      root: '/Users/test/.hush',
+      keyIdentity: 'hush-global',
+    });
+  });
 });
 
 describe('CLI argument parsing for set command', () => {
