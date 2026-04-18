@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as nodeFs from 'node:fs';
 import { loadConfig, findConfigPath, findProjectRoot, validateConfig } from '../../src/config/loader.js';
 import type { HushConfig } from '../../src/types.js';
 
-const FIXTURES_DIR = join(__dirname, '../fixtures');
+const TESTS_DIR = fileURLToPath(new URL('..', import.meta.url));
+const FIXTURES_DIR = join(TESTS_DIR, 'fixtures');
 
 describe('findConfigPath', () => {
   it('finds hush.yaml in basic fixture', () => {
