@@ -74,6 +74,8 @@ npx hush inspect       # See what secrets exist
 
 \`\`\`bash
 npx hush set <KEY> <VALUE> # Add inline (key and value provided)
+npx hush set <KEY> <VALUE> --global # Add inline to ~/.hush
+npx hush set <KEY> <VALUE> --local  # Add inline to local overrides
 npx hush set <KEY>         # Add interactively (prompts for value)
 npx hush edit              # Edit all secrets in $EDITOR
 npx hush inspect           # Verify changes
@@ -83,7 +85,8 @@ npx hush inspect           # Verify changes
 
 \`\`\`bash
 npx hush keys generate --global   # Creates the global key and bootstraps ~/.hush
-npx hush set --global <KEY>       # Stores the secret in ~/.hush/.hush.encrypted
+npx hush set --global <KEY>       # Prompts and stores the secret in ~/.hush/.hush.encrypted
+npx hush set <KEY> <VALUE> --global # Stores an inline value in ~/.hush/.hush.encrypted
 npx hush inspect --global         # Verify global secrets
 \`\`\`
 

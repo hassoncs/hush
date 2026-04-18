@@ -107,6 +107,8 @@ Set a secret. Supports inline values, interactive prompts, or piped input.
 # Inline value (recommended for AI agents)
 hush set DATABASE_URL "postgres://user:pass@host/db"
 hush set STRIPE_KEY "sk_live_xxx" -e production
+hush set ELEVENLABS_API_KEY "$ELEVENLABS_API_KEY" --global
+hush set FEATURE_FLAG "enabled" --local
 
 # Interactive prompt (for users)
 hush set DATABASE_URL
@@ -142,6 +144,13 @@ cat cert.pem | hush set CERTIFICATE
 2. **Piped input**: `echo "value" | hush set KEY` - reads from stdin
 3. **GUI dialog**: Opens when `--gui` flag is used
 4. **Interactive prompt**: Terminal prompt with visible input
+
+Flags can appear before or after the optional inline value. These are equivalent:
+
+```bash
+hush set --global API_KEY "value"
+hush set API_KEY "value" --global
+```
 
 ### How It Works
 
