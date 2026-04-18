@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { HushContext, StoreContext } from '../src/types.js';
+import { parseArgs } from '../src/cli.js';
 
 const setKeyMock = vi.fn();
 const platformMock = vi.fn(() => 'darwin');
@@ -8,13 +9,9 @@ vi.mock('../src/core/sops.js', () => ({
   setKey: setKeyMock,
 }));
 
-vi.mock('node:os', async () => {
-  const actual = await vi.importActual<typeof import('node:os')>('node:os');
-  return {
-    ...actual,
-    platform: platformMock,
-  };
-});
+vi.mock('node:os', () => ({
+  platform: platformMock,
+}));
 
 function createMockStdin(overrides: Partial<NodeJS.ReadStream> = {}): NodeJS.ReadStream {
   return {
@@ -116,7 +113,6 @@ describe('set command argument parsing', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.resetModules();
     platformMock.mockReturnValue('darwin');
     mockProcessExit.mockImplementation((code: number) => {
       throw new Error(`Process exit: ${code}`);
@@ -167,6 +163,28 @@ describe('set command argument parsing', () => {
     );
     expect(execSync).toHaveBeenCalledWith(expect.stringContaining('with hidden answer'), expect.anything());
     expect(setKeyMock).toHaveBeenCalledWith('/root/.hush.encrypted', 'API_KEY', 'gui-secret', {
+      root: '/root',
+      keyIdentity: 'test/repo',
+    });
+  });
+
+  it('uses the inline value even when --gui is requested', async () => {
+    const ctx = createMockContext();
+    const execSync = vi.fn();
+
+    ctx.exec.execSync = execSync;
+
+    const { setCommand } = await import('../src/commands/set.js');
+
+    await setCommand(ctx, {
+      store: createStore(),
+      key: 'API_KEY',
+      value: 'inline-secret',
+      gui: true,
+    });
+
+    expect(execSync).not.toHaveBeenCalled();
+    expect(setKeyMock).toHaveBeenCalledWith('/root/.hush.encrypted', 'API_KEY', 'inline-secret', {
       root: '/root',
       keyIdentity: 'test/repo',
     });
@@ -266,8 +284,6 @@ describe('set command argument parsing', () => {
 });
 
 describe('CLI argument parsing for set command', () => {
-  const parseArgs = createParseArgs();
-
   it('parses hush set KEY VALUE correctly', () => {
     const result = parseArgs(['set', 'MY_KEY', 'my-value']);
     
@@ -318,6 +334,33 @@ describe('CLI argument parsing for set command', () => {
     expect(result.global).toBe(true);
   });
 
+  it('parses hush set KEY VALUE --global correctly', () => {
+    const result = parseArgs(['set', 'MY_KEY', 'my-value', '--global']);
+
+    expect(result.command).toBe('set');
+    expect(result.key).toBe('MY_KEY');
+    expect(result.value).toBe('my-value');
+    expect(result.global).toBe(true);
+  });
+
+  it('parses hush set KEY VALUE --local correctly', () => {
+    const result = parseArgs(['set', 'MY_KEY', 'my-value', '--local']);
+
+    expect(result.command).toBe('set');
+    expect(result.key).toBe('MY_KEY');
+    expect(result.value).toBe('my-value');
+    expect(result.local).toBe(true);
+  });
+
+  it('parses hush set KEY VALUE --gui correctly', () => {
+    const result = parseArgs(['set', 'MY_KEY', 'my-value', '--gui']);
+
+    expect(result.command).toBe('set');
+    expect(result.key).toBe('MY_KEY');
+    expect(result.value).toBe('my-value');
+    expect(result.gui).toBe(true);
+  });
+
   it('parses value with spaces', () => {
     const result = parseArgs(['set', 'MY_KEY', 'value with spaces']);
     
@@ -333,65 +376,3 @@ describe('CLI argument parsing for set command', () => {
     expect(result.value).toBe('postgres://localhost/db');
   });
 });
-
-function createParseArgs(): (args: string[]) => any {
-  return (args: string[]) => {
-    let command = '';
-    let env: 'development' | 'production' = 'development';
-    let envExplicit = false;
-    let root = process.cwd();
-    let local = false;
-    let global = false;
-    let gui = false;
-    let key: string | undefined;
-    let value: string | undefined;
-
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-
-      if (arg === '-e' || arg === '--env') {
-        const nextArg = args[++i];
-        if (nextArg === 'development' || nextArg === 'dev') env = 'development';
-        else if (nextArg === 'production' || nextArg === 'prod') env = 'production';
-        envExplicit = true;
-        continue;
-      }
-
-      if (arg === '-r' || arg === '--root') {
-        root = args[++i];
-        continue;
-      }
-
-      if (arg === '--local') {
-        local = true;
-        continue;
-      }
-
-      if (arg === '--global') {
-        global = true;
-        continue;
-      }
-
-      if (arg === '--gui') {
-        gui = true;
-        continue;
-      }
-
-      if (!command && !arg.startsWith('-')) {
-        command = arg;
-        continue;
-      }
-
-      if (command === 'set' && !arg.startsWith('-')) {
-        if (!key) {
-          key = arg;
-        } else if (!value) {
-          value = arg;
-        }
-        continue;
-      }
-    }
-
-    return { command, env, envExplicit, root, local, global, gui, key, value };
-  };
-}

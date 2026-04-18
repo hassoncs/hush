@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pc from 'picocolors';
 import type { Environment, StoreMode } from './types.js';
 import { defaultContext } from './context.js';
@@ -142,7 +144,7 @@ ${pc.bold('Examples:')}
 
 type FileKey = 'shared' | 'development' | 'production' | 'local';
 
-interface ParsedArgs {
+export interface ParsedArgs {
   command: string;
   subcommand?: string;
   env: Environment;
@@ -181,7 +183,7 @@ function parseFileKey(value: string): FileKey | null {
   return null;
 }
 
-function parseArgs(args: string[]): ParsedArgs {
+export function parseArgs(args: string[]): ParsedArgs {
   let command = '';
   let subcommand: string | undefined;
   let env: Environment = 'development';
@@ -395,7 +397,7 @@ function checkMigrationNeeded(root: string, command: string): void {
   }
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
   if (args.length === 0) {
@@ -533,4 +535,16 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+function isCliEntrypoint(): boolean {
+  const entryPath = process.argv[1];
+
+  if (!entryPath) {
+    return false;
+  }
+
+  return resolve(entryPath) === resolve(fileURLToPath(import.meta.url));
+}
+
+if (isCliEntrypoint()) {
+  await main();
+}
