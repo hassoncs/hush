@@ -92,6 +92,8 @@ npx hush inspect --global         # Verify global secrets
 
 When using \`--global\`, Hush binds encryption to \`~/.hush/.sops.yaml\` explicitly, even if you run the command from inside another repo that has its own \`.sops.yaml\`.
 
+That global recipient binding applies to both \`npx hush set --global ...\` and \`npx hush edit --global\`.
+
 ### Scenario 5: Run Application with Secrets
 
 \`\`\`bash

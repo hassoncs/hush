@@ -161,7 +161,7 @@ hush set API_KEY "value" --global
 5. Re-encrypts the file
 6. Confirms success with character count (no value shown)
 
-For global mode, Hush now binds encryption to `~/.hush/.sops.yaml` explicitly, so running `hush set --global` from inside another repo still uses the global recipient instead of a repo-local `.sops.yaml`.
+For global mode, Hush binds global writes to `~/.hush/.sops.yaml` explicitly, so running `hush set --global` from inside another repo still uses the global recipient instead of a repo-local `.sops.yaml`.
 
 ### Example Output
 
@@ -196,6 +196,9 @@ hush edit prod
 
 # Edit local overrides
 hush edit local
+
+# Edit the explicit global store
+hush edit --global
 ```
 
 ### How It Works
@@ -204,6 +207,8 @@ hush edit local
 2. Opens in `$EDITOR` (vim, nano, code --wait, etc.)
 3. Re-encrypts when you save and close
 4. Deletes the temporary file
+
+When `--global` is used, the edit flow also binds to `~/.hush/.sops.yaml`, even if the current working directory has its own `.sops.yaml`.
 
 <Aside type="caution">
 Make sure your `$EDITOR` environment variable is set. For VS Code, use `code --wait` so hush knows when you're done editing.
