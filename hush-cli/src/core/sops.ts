@@ -141,9 +141,12 @@ export function edit(filePath: string, options?: SopsOptions): void {
     throw new Error('SOPS is not installed. Install with: brew install sops');
   }
 
+  const configPath = getSopsConfigFile(options);
+  const configArgs = configPath ? ['--config', configPath] : [];
+
   const result = spawnSync(
     'sops',
-    ['--input-type', 'dotenv', '--output-type', 'dotenv', filePath],
+    [...configArgs, '--input-type', 'dotenv', '--output-type', 'dotenv', filePath],
     {
       stdio: 'inherit',
       env: getSopsEnv(options),
