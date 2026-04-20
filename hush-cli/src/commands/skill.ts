@@ -26,6 +26,7 @@ npx hush status
 
 This tells you:
 - Whether Hush is configured (\`hush.yaml\` exists)
+- **Note: Hush uses \`hush.yaml\` in the root directory. There is NO \`.hush\` directory.**
 - If SOPS/age are installed
 - If encryption keys are set up
 - **CRITICAL: If unencrypted .env files exist (security risk!)**
