@@ -1,0 +1,24 @@
+path: ENC[AES256_GCM,data:LLSVb7W53xBJlm3AJdQADa58wdIRYA==,iv:CvXPjjz89iIN0BMCXD8IgOgOFy8NwGmlrE+8+60BzhY=,tag:U9lSTi2NmAmYw3vDJEPZ8Q==,type:str]
+readers:
+    roles:
+        - ENC[AES256_GCM,data:dv0Y2Ds=,iv:8tAjCdqv1+hC/AoLNn/t/5h/4lkzYR02ZamGpbkKTiE=,tag:EyCp2psbFZJTX9Tl26cdYg==,type:str]
+        - ENC[AES256_GCM,data:0t5PgtI1,iv:RdLA8EGqZQU8c8bUWILucglyj6tTbBGMgAI/zFuIGHs=,tag:TPcHSgU2SuJrJHy92Qt0wg==,type:str]
+        - ENC[AES256_GCM,data:tq8=,iv:D/0A+4KVdC9vwBJ+oqq2wT/cujU3RyXsuT5+q1VvZXs=,tag:aNu3rSiWGUXyPcINJQS5Mw==,type:str]
+    identities: []
+sensitive: ENC[AES256_GCM,data:3gZg8w==,iv:jkr3k4FxwPiwKQnEQR0g3u+b/yBuD7Wmcf2tkRvEiLk=,tag:tfOWjSfX7ob+nG7SjJmYkw==,type:bool]
+entries: {}
+sops:
+    age:
+        - recipient: age1x3245fvs394tzt38eqkgpmln6r5zn0u89wcr6y604frqhn62aveqdap62f
+          enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSA3eEdpa2RIVU5Lbnc0R2xs
+            NzJoU090WnoyWWgxYWt2eU9KdVN6cXVwZEFBCjQ3QnIvbW5vNmN0Yml4SHlQa0Nz
+            NlVCU0FBSjUydm5aSCtEMmxCMDVpMnMKLS0tIHRYaVFHQ3MrUCtYd2FGUktZT1lt
+            TmFDYS9TU0hMa2p0YUhTWnNKR2ZWUkkKT8J1m7CcAmXU3FaFsAE7Kj2dz6DzNVkn
+            FgCIW/tFeYoyZ+vxgkktY9sjkEMG6Cm0Z2/UijHU8JlIOdGjVIAfdQ==
+            -----END AGE ENCRYPTED FILE-----
+    lastmodified: "2026-04-21T16:03:49Z"
+    mac: ENC[AES256_GCM,data:Ds6LvWCiMBgi4zoan1CtNqe/2cOImZN41i0h57MAl2prYJD19y4ARa+TBovbLp68H0IyNR8vvPhA6wH48LHAE+TlKHwl++0p5sx0kp28Q7lva6eZIKDsscV/BYmEvkN3+RChonp3Dzhd6E6tE9am3ZNdnu1oJ3Sk3pVXByPePOM=,iv:qE758MrRSLxMFRag029a6n+ZXxaRrGUgdwSwsQLxjxg=,tag:idfm+q9oA90UFkrV6+pzFA==,type:str]
+    encrypted_regex: .*
+    version: 3.11.0

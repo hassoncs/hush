@@ -2,6 +2,10 @@
   "name": "hush-monorepo",
   "version": "0.0.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hassoncs/hush.git"
+  },
   "workspaces": [
     "hush-cli",
     "docs"
