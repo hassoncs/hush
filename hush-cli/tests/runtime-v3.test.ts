@@ -15,6 +15,7 @@ import { decryptCommand } from '../src/commands/decrypt.js';
 import { editCommand } from '../src/commands/edit.js';
 import { hasCommand } from '../src/commands/has.js';
 import { listCommand } from '../src/commands/list.js';
+import { materializeCommand } from '../src/commands/materialize.js';
 import { pushCommand } from '../src/commands/push.js';
 import { runCommand } from '../src/commands/run.js';
 import { setCommand } from '../src/commands/set.js';
@@ -662,5 +663,222 @@ describe('task 8 v3 runtime and mutating commands', () => {
     const persistedTarget = join(root, '.hush-materialized', 'targets', 'runtime.env');
     expect(nodeFs.existsSync(persistedTarget)).toBe(true);
     expect(nodeFs.readFileSync(persistedTarget, 'utf-8')).toContain('API_KEY=test-secret');
+  });
+
+  it('materialize writes Apple-signing-style outputs with metadata-driven paths and JSON output', async () => {
+    const root = join(TEST_DIR, 'materialize-project');
+    const outputRoot = join(TEST_DIR, 'fitbot-signing');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        owner-local:
+          roles: [owner]
+      bundles:
+        fitbot-signing:
+          files:
+            - path: env/fitbot/signing
+            - path: artifacts/fitbot/signing
+      targets:
+        ios-signing:
+          bundle: fitbot-signing
+          format: json
+          materializeAs: metadata/signing.json
+      `,
+      {
+        'env/fitbot/signing': `
+          path: env/fitbot/signing
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries:
+            env/fitbot/signing/ASC_API_KEY_ID:
+              value: ABC123
+              sensitive: true
+            env/fitbot/signing/P12_PASSWORD:
+              value: top-secret-password
+              sensitive: true
+        `,
+        'artifacts/fitbot/signing': `
+          path: artifacts/fitbot/signing
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries:
+            artifacts/fitbot/signing/dist-cert:
+              type: binary
+              format: binary
+              encoding: base64
+              value: SGVsbG8=
+              sensitive: true
+              filename: dist-cert.p12
+              subpath: apple/fitbot/appstore
+            artifacts/fitbot/signing/profile:
+              type: file
+              format: yaml
+              value: "UUID: 123"
+              sensitive: true
+              materializeAs: apple/fitbot/appstore/app.mobileprovision
+        `,
+      },
+    );
+    const { ctx, logger, store } = createContext(root);
+    setIdentity(ctx, store, repository, 'owner-local');
+
+    await materializeCommand(ctx, {
+      store,
+      target: 'ios-signing',
+      bundle: undefined,
+      json: true,
+      outputRoot,
+      cleanup: false,
+    });
+
+    const payload = JSON.parse(String(logger.log.mock.calls.at(-1)?.[0] ?? '{}'));
+    expect(payload.target).toBe('ios-signing');
+    expect(payload.outputRoot).toBe(outputRoot);
+    expect(payload.targetArtifact.path).toBe(join(outputRoot, 'metadata', 'signing.json'));
+    expect(payload.artifacts.map((artifact: { path: string }) => artifact.path)).toEqual([
+      join(outputRoot, 'apple', 'fitbot', 'appstore', 'dist-cert.p12'),
+      join(outputRoot, 'apple', 'fitbot', 'appstore', 'app.mobileprovision'),
+    ]);
+    expect(JSON.stringify(payload)).not.toContain('top-secret-password');
+    expect(nodeFs.readFileSync(join(outputRoot, 'metadata', 'signing.json'), 'utf-8')).toContain('ABC123');
+  });
+
+  it('materialize cleanup removes persisted output roots', async () => {
+    const root = join(TEST_DIR, 'materialize-cleanup');
+    const outputRoot = join(TEST_DIR, 'cleanup-root');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        owner-local:
+          roles: [owner]
+      bundles:
+        project:
+          files:
+            - path: env/project/shared
+      targets:
+        runtime:
+          bundle: project
+          format: dotenv
+      `,
+      {
+        'env/project/shared': `
+          path: env/project/shared
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries:
+            env/project/shared/API_KEY:
+              value: test-secret
+              sensitive: true
+        `,
+      },
+    );
+    const { ctx, store } = createContext(root);
+    setIdentity(ctx, store, repository, 'owner-local');
+
+    await materializeCommand(ctx, {
+      store,
+      target: 'runtime',
+      bundle: undefined,
+      json: false,
+      outputRoot,
+      cleanup: false,
+    });
+    expect(nodeFs.existsSync(outputRoot)).toBe(true);
+
+    await materializeCommand(ctx, {
+      store,
+      target: undefined,
+      bundle: undefined,
+      json: false,
+      outputRoot,
+      cleanup: true,
+    });
+    expect(nodeFs.existsSync(outputRoot)).toBe(false);
+  });
+
+  it('materialize can run a child command and auto-clean the output root afterwards', async () => {
+    const root = join(TEST_DIR, 'materialize-child-command');
+    const outputRoot = join(TEST_DIR, 'child-command-output');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        owner-local:
+          roles: [owner]
+      bundles:
+        fitbot-signing:
+          files:
+            - path: env/fitbot/signing
+            - path: artifacts/fitbot/signing
+      targets:
+        ios-signing:
+          bundle: fitbot-signing
+          format: json
+      `,
+      {
+        'env/fitbot/signing': `
+          path: env/fitbot/signing
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries:
+            env/fitbot/signing/P12_PASSWORD:
+              value: top-secret-password
+              sensitive: true
+        `,
+        'artifacts/fitbot/signing': `
+          path: artifacts/fitbot/signing
+          readers:
+            roles: [owner]
+            identities: [owner-local]
+          sensitive: true
+          entries:
+            artifacts/fitbot/signing/dist-cert:
+              type: binary
+              format: binary
+              encoding: base64
+              value: SGVsbG8=
+              sensitive: true
+              materializeAs: apple/fitbot/appstore/dist-cert.p12
+        `,
+      },
+    );
+    const { ctx, store } = createContext(root);
+    setIdentity(ctx, store, repository, 'owner-local');
+
+    const spawnSync = vi.fn((_command: string, _args: string[], options?: { env?: NodeJS.ProcessEnv }) => {
+      const childOutputRoot = options?.env?.HUSH_MATERIALIZE_OUTPUT_ROOT;
+      const certPath = join(String(childOutputRoot), 'apple', 'fitbot', 'appstore', 'dist-cert.p12');
+      expect(childOutputRoot).toBe(outputRoot);
+      expect(options?.env?.P12_PASSWORD).toBe('top-secret-password');
+      expect(nodeFs.existsSync(certPath)).toBe(true);
+      return { status: 0, stdout: '', stderr: '' };
+    });
+    ctx.exec.spawnSync = spawnSync;
+
+    await materializeCommand(ctx, {
+      store,
+      target: 'ios-signing',
+      bundle: undefined,
+      json: false,
+      outputRoot,
+      cleanup: false,
+      command: ['bash', '-lc', 'true'],
+    });
+
+    expect(spawnSync).toHaveBeenCalled();
+    expect(nodeFs.existsSync(outputRoot)).toBe(false);
   });
 });

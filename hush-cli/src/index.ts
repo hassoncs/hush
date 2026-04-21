@@ -62,7 +62,8 @@ export type {
   InitOptions,
   BootstrapOptions,
   ConfigOptions,
-  ExportExampleOptions,
+   ExportExampleOptions,
+   MaterializeOptions,
   ListOptions,
   ResolveV3BundleOptions,
   ResolveV3Options,
@@ -143,6 +144,7 @@ export { loadLegacyV2Inventory } from './v3/legacy-v2.js';
 export { loadV3Repository } from './v3/repository.js';
 export { HushResolutionConflictError, resolveV3Bundle, resolveV3Target } from './v3/resolver.js';
 export {
+  shapeBundleArtifacts,
   shapeResolvedArtifacts,
   shapeTargetArtifacts,
   targetFormatToArtifactFormat,
@@ -177,3 +179,4 @@ export { inspectCommand } from './commands/inspect.js';
 export { hasCommand } from './commands/has.js';
 export { diffCommand } from './commands/diff.js';
 export { exportExampleCommand } from './commands/export-example.js';
+export { materializeCommand } from './commands/materialize.js';

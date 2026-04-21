@@ -25,6 +25,7 @@ import { resolveCommand } from './commands/resolve.js';
 import { traceCommand } from './commands/trace.js';
 import { diffCommand } from './commands/diff.js';
 import { exportExampleCommand } from './commands/export-example.js';
+import { materializeCommand } from './commands/materialize.js';
 import { templateCommand } from './commands/template.js';
 import { expansionsCommand } from './commands/expansions.js';
 import { migrateCommand } from './commands/migrate.js';
@@ -59,6 +60,7 @@ ${pc.bold('Commands:')}
   skill             Install Claude Code / OpenCode skill
   keys <cmd>        Manage SOPS age keys (setup, generate, pull, push, list)
   migrate           Migrate a legacy hush.yaml repo to v3
+  materialize       Write target or bundle artifacts to disk for CI/tooling
 
 ${pc.bold('Debugging Commands:')}
   resolve <target>  Show what variables a target receives (AI-safe)
@@ -90,6 +92,8 @@ ${pc.bold('Options:')}
   --bundle <name>   Resolve a specific bundle (diff/export-example only)
   --from <version>  Legacy repo version to migrate from (migrate only)
   --cleanup         Remove validated v2 leftovers after migration (migrate only)
+  --output-root <d> Destination root for materialized files (materialize only)
+  --to <dir>        Alias for --output-root (materialize only)
   -h, --help        Show this help message
   -v, --version     Show version number
 
@@ -135,6 +139,9 @@ ${pc.bold('Examples:')}
   hush diff --bundle project    Compare a bundle against HEAD
   hush export-example           Emit a safe example for the default target
   hush export-example --bundle project  Emit a safe example from a bundle
+  hush materialize -t runtime --json --to /tmp/hush-out
+  hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
+  hush materialize --bundle fitbot-signing --to /tmp/fitbot-signing
   hush skill                    Install Claude skill (interactive)
 `);
 }
@@ -166,6 +173,7 @@ export interface ParsedArgs {
   bundle?: string;
   from?: string;
   cleanup: boolean;
+  outputRoot?: string;
   file?: FileKey;
   key?: string;
   value?: string;
@@ -212,6 +220,7 @@ export function parseArgs(args: string[]): ParsedArgs {
   let bundle: string | undefined;
   let from: string | undefined;
   let cleanup = false;
+  let outputRoot: string | undefined;
   let file: FileKey | undefined;
   let key: string | undefined;
   let value: string | undefined;
@@ -246,7 +255,7 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
-    if (arg === '-r' || arg === '--root') {
+    if (arg === '-r' || arg === '--root' || arg === '--cwd') {
       root = args[++i];
       continue;
     }
@@ -346,6 +355,11 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--output-root' || arg === '--to') {
+      outputRoot = args[++i];
+      continue;
+    }
+
     if (arg === '-t' || arg === '--target') {
       target = args[++i];
       continue;
@@ -439,6 +453,7 @@ export function parseArgs(args: string[]): ParsedArgs {
     bundle,
     from,
     cleanup,
+    outputRoot,
     file,
     key,
     value,
@@ -479,7 +494,7 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, roles, identities, ref, bundle, from, cleanup, file, key, value, target, positionalArgs, cmdArgs } = parseArgs(args);
+  const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, roles, identities, ref, bundle, from, cleanup, outputRoot, file, key, value, target, positionalArgs, cmdArgs } = parseArgs(args);
   const storeMode: StoreMode = global && command !== 'skill' ? 'global' : 'project';
   const store = resolveStoreContext(root, storeMode);
 
@@ -609,6 +624,10 @@ export async function main(): Promise<void> {
 
       case 'migrate':
         await migrateCommand(defaultContext, { root, dryRun, from, cleanup });
+        break;
+
+      case 'materialize':
+        await materializeCommand(defaultContext, { store, target, bundle, json, outputRoot, cleanup, command: cmdArgs });
         break;
 
       default:

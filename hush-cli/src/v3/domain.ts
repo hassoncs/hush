@@ -52,6 +52,9 @@ export interface HushArtifactFileEntry {
   format: HushArtifactFormat;
   sensitive: boolean;
   value?: string;
+  filename?: string;
+  subpath?: string;
+  materializeAs?: string;
 }
 
 export interface HushArtifactBinaryEntry {
@@ -60,6 +63,9 @@ export interface HushArtifactBinaryEntry {
   sensitive: boolean;
   value?: string;
   encoding?: 'base64' | 'utf8';
+  filename?: string;
+  subpath?: string;
+  materializeAs?: string;
 }
 
 export type HushArtifactEntry = HushArtifactFileEntry | HushArtifactBinaryEntry;
@@ -111,6 +117,9 @@ export interface HushTargetDefinition {
   path?: HushLogicalPath;
   format: HushArtifactFormat;
   mode?: 'process' | 'file' | 'example';
+  filename?: string;
+  subpath?: string;
+  materializeAs?: string;
 }
 
 export interface HushManifestDocument {
@@ -178,10 +187,55 @@ function assertEntry(entry: HushFileEntry): HushFileEntry {
       throw new Error('Artifact entries require a format');
     }
 
-    return entry;
+    const normalized = normalizeMaterializationHints(entry);
+
+    return normalized;
   }
 
   return entry;
+}
+
+function normalizeMaterializationPath(path: string | undefined, label: string): string | undefined {
+  if (path === undefined) {
+    return undefined;
+  }
+
+  const trimmed = path.trim();
+  if (!trimmed) {
+    throw new Error(`${label} cannot be empty`);
+  }
+
+  if (trimmed.startsWith('/')) {
+    throw new Error(`${label} must be a relative path`);
+  }
+
+  const segments = trimmed.split('/').filter(Boolean);
+  if (segments.length === 0) {
+    throw new Error(`${label} cannot be empty`);
+  }
+
+  for (const segment of segments) {
+    if (segment === '.' || segment === '..') {
+      throw new Error(`${label} cannot contain "." or ".." segments`);
+    }
+  }
+
+  return segments.join('/');
+}
+
+type HushMaterializationHints = {
+  filename?: string;
+  subpath?: string;
+  materializeAs?: string;
+};
+
+function normalizeMaterializationHints<T extends HushMaterializationHints>(value: T): T {
+  return {
+    ...value,
+    filename: normalizeMaterializationPath(value.filename, 'Artifact filename'),
+    subpath: normalizeMaterializationPath(value.subpath, 'Artifact subpath'),
+    materializeAs: normalizeMaterializationPath(value.materializeAs, 'Artifact materializeAs'),
+  };
 }
 
 export function createIdentityRecord(identity: HushIdentityRecord): HushIdentityRecord {
@@ -292,11 +346,11 @@ export function createTargetDefinition(target: HushTargetDefinition): HushTarget
     throw new Error('Target format is required');
   }
 
-  return {
+  return normalizeMaterializationHints({
     ...target,
     bundle: target.bundle ? assertIdentityName(target.bundle, 'Bundle name') : target.bundle,
     path: target.path ? assertNamespacedPath(target.path) : target.path,
-  };
+  });
 }
 
 export function createManifestDocument(manifest: HushManifestDocument): HushManifestDocument {

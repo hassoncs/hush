@@ -8,6 +8,7 @@ import {
   createManifestDocument,
   createProjectSlug,
   loadV3Repository,
+  materializeV3Bundle,
   materializeV3Target,
   setActiveIdentity,
   withMaterializedTarget,
@@ -342,6 +343,90 @@ describe.sequential('v3 materialization runtime', () => {
     const envFile = materialization.artifacts.find((artifact) => artifact.logicalPath === 'artifacts/app/runtime/env-file');
     expect(envFile && 'content' in envFile ? envFile.content : '').toContain('API_URL=https://example.com');
 
+    materialization.cleanup();
+  });
+
+  it('materializes bundle artifacts and respects filename, subpath, and materializeAs metadata', () => {
+    const { ctx } = createContext();
+    const root = join(TEST_DIR, 'bundle-artifacts');
+    const outputRoot = join(TEST_DIR, 'bundle-output');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        signing:
+          files:
+            - path: env/app/shared
+            - path: artifacts/app/signing
+      `,
+      {
+        'env/app/shared': `
+          path: env/app/shared
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: true
+          entries:
+            env/apps/fitbot/signing/P12_PASSWORD:
+              value: super-secret
+              sensitive: true
+        `,
+        'artifacts/app/signing': `
+          path: artifacts/app/signing
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: true
+          entries:
+            artifacts/app/signing/certificate:
+              type: binary
+              format: binary
+              encoding: base64
+              value: SGVsbG8=
+              sensitive: true
+              filename: certificate.p12
+              subpath: apple/fitbot
+            artifacts/app/signing/profile:
+              type: file
+              format: yaml
+              value: "uuid: 123"
+              sensitive: true
+              materializeAs: apple/profiles/app.mobileprovision
+        `,
+      },
+    );
+    const store = createStore(root);
+
+    setIdentity(ctx, store, repository, 'developer-local');
+
+    const materialization = materializeV3Bundle(ctx, {
+      store,
+      repository,
+      bundleName: 'signing',
+      mode: 'persisted',
+      outputRoot,
+    });
+
+    expect(materialization.artifacts).toHaveLength(2);
+    expect(materialization.artifacts[0]).toMatchObject({
+      logicalPath: 'artifacts/app/signing/certificate',
+      suggestedName: 'certificate.p12',
+      relativePath: 'apple/fitbot/certificate.p12',
+    });
+    expect(materialization.artifacts[1]).toMatchObject({
+      logicalPath: 'artifacts/app/signing/profile',
+      suggestedName: 'app.mobileprovision',
+      relativePath: 'apple/profiles/app.mobileprovision',
+    });
+    expect(materialization.stagedArtifacts.map((artifact) => artifact.path)).toEqual([
+      join(outputRoot, 'apple', 'fitbot', 'certificate.p12'),
+      join(outputRoot, 'apple', 'profiles', 'app.mobileprovision'),
+    ]);
+    expect(nodeFs.readFileSync(join(outputRoot, 'apple', 'profiles', 'app.mobileprovision'), 'utf-8')).toContain('uuid: 123');
     materialization.cleanup();
   });
 

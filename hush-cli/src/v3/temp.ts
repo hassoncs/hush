@@ -63,23 +63,24 @@ export class HushTempController {
 
   writeArtifact(descriptor: HushArtifactDescriptor): HushStagedArtifact {
     const baseRoot = this.persist ? this.outputRoot ?? this.tempRoot : this.tempRoot;
-    const directory = join(baseRoot, ...descriptor.logicalPath.split('/').slice(0, -1));
-    const targetPath = join(directory, descriptor.suggestedName);
+    const directory = join(baseRoot, ...descriptor.relativePath.split('/').slice(0, -1));
+    const targetPath = join(baseRoot, descriptor.relativePath);
 
-    if (!this.persist) {
-      if (existsSync(this.tempRoot)) {
-        this.ctx.fs.chmodSync?.(this.tempRoot, PRIVATE_DIR_MODE);
-      }
+    if (existsSync(baseRoot)) {
+      this.ctx.fs.chmodSync?.(baseRoot, PRIVATE_DIR_MODE);
     }
 
     this.ctx.fs.mkdirSync(directory, { recursive: true, mode: PRIVATE_DIR_MODE });
+    if (existsSync(directory)) {
+      this.ctx.fs.chmodSync?.(directory, PRIVATE_DIR_MODE);
+    }
     this.ctx.fs.writeFileSync(
       targetPath,
       descriptor.kind === 'binary' ? descriptor.content : descriptor.content,
       descriptor.kind === 'binary' ? null : 'utf-8',
     );
 
-    if (!this.persist && existsSync(targetPath)) {
+    if (existsSync(targetPath)) {
       this.ctx.fs.chmodSync?.(targetPath, PRIVATE_FILE_MODE);
     }
 

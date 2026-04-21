@@ -1,5 +1,6 @@
-import { basename } from 'node:path';
+import { basename, join as joinPosix } from 'node:path/posix';
 import { Buffer } from 'node:buffer';
+import { createHash } from 'node:crypto';
 import { formatVars } from '../formats/index.js';
 import type { EnvVar, OutputFormat } from '../types.js';
 import type { HushArtifactEntry, HushArtifactFormat, HushLogicalPath, HushTargetDefinition } from './domain.js';
@@ -12,6 +13,8 @@ export interface HushArtifactBaseDescriptor {
   provenance: HushResolvedNode['provenance'];
   resolvedFrom: HushResolvedNode['resolvedFrom'];
   suggestedName: string;
+  relativePath: string;
+  sha256: string;
 }
 
 export interface HushArtifactFileDescriptor extends HushArtifactBaseDescriptor {
@@ -133,6 +136,35 @@ function ensureSuggestedName(baseName: string, format: HushArtifactFormat): stri
   return `${trimmed}${extension}`;
 }
 
+function sha256(content: Uint8Array | string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+type Hints = {
+  filename?: string;
+  subpath?: string;
+  materializeAs?: string;
+};
+
+function resolveArtifactPath(logicalPath: string, format: HushArtifactFormat, hints: Hints): { suggestedName: string; relativePath: string } {
+  if (hints.materializeAs) {
+    return {
+      suggestedName: basename(hints.materializeAs),
+      relativePath: hints.materializeAs,
+    };
+  }
+
+  const defaultName = ensureSuggestedName(basename(logicalPath), format);
+  const filename = hints.filename ? ensureSuggestedName(hints.filename, format) : defaultName;
+  const defaultSubpath = logicalPath.split('/').filter(Boolean).slice(0, -1).join('/');
+  const subpath = hints.subpath ?? defaultSubpath;
+
+  return {
+    suggestedName: filename,
+    relativePath: subpath ? joinPosix(subpath, filename) : filename,
+  };
+}
+
 function createTargetArtifact(
   targetName: string,
   target: HushTargetDefinition,
@@ -143,6 +175,9 @@ function createTargetArtifact(
     return null;
   }
 
+  const content = formatVars(envVars, target.format);
+  const { suggestedName, relativePath } = resolveArtifactPath(`targets/${targetName}`, target.format, target);
+
   return {
     kind: 'file',
     source: 'target',
@@ -152,8 +187,10 @@ function createTargetArtifact(
     sensitive: Object.values(resolution.values).some((node) => node.entry.sensitive),
     provenance: Object.values(resolution.values).flatMap((node) => node.provenance),
     resolvedFrom: Array.from(new Set(Object.values(resolution.values).flatMap((node) => node.resolvedFrom))).sort(),
-    suggestedName: ensureSuggestedName(targetName, target.format),
-    content: formatVars(envVars, target.format),
+    suggestedName,
+    relativePath,
+    sha256: sha256(content),
+    content,
   };
 }
 
@@ -163,11 +200,12 @@ function shapeArtifact(
   envVars: EnvVar[],
 ): HushArtifactDescriptor {
   const entry = node.entry as HushArtifactEntry;
-  const suggestedName = ensureSuggestedName(basename(path), entry.format);
+  const { suggestedName, relativePath } = resolveArtifactPath(path, entry.format, entry);
 
   if (entry.type === 'binary') {
     const encoding = entry.encoding ?? 'base64';
     const rawValue = entry.value ?? '';
+    const content = encoding === 'utf8' ? Buffer.from(rawValue, 'utf8') : Buffer.from(rawValue, 'base64');
 
     return {
       kind: 'binary',
@@ -177,8 +215,10 @@ function shapeArtifact(
       provenance: node.provenance,
       resolvedFrom: node.resolvedFrom,
       suggestedName,
+      relativePath,
       encoding,
-      content: encoding === 'utf8' ? Buffer.from(rawValue, 'utf8') : Buffer.from(rawValue, 'base64'),
+      sha256: sha256(content),
+      content,
     };
   }
 
@@ -196,6 +236,8 @@ function shapeArtifact(
     provenance: node.provenance,
     resolvedFrom: node.resolvedFrom,
     suggestedName,
+    relativePath,
+    sha256: sha256(content),
     content,
   };
 }
@@ -230,4 +272,19 @@ export function shapeResolvedArtifacts(
   resolution: HushTargetResolution,
 ): HushArtifactShapeResult {
   return shapeTargetArtifacts(targetName, target, resolution);
+}
+
+export function shapeBundleArtifacts(resolution: HushTargetResolution | { values: HushTargetResolution['values']; artifacts: HushTargetResolution['artifacts'] }): HushArtifactShapeResult {
+  const envVars = collectEnvVars(resolution.values);
+  const env = toEnvRecord(envVars);
+  const artifacts = Object.entries(resolution.artifacts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([path, node]) => shapeArtifact(path, node, envVars));
+
+  return {
+    envVars,
+    env,
+    targetArtifact: null,
+    artifacts,
+  };
 }

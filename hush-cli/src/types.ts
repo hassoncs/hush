@@ -63,6 +63,7 @@ export {
 } from './v3/identity.js';
 export { HushResolutionConflictError, resolveV3Bundle, resolveV3Target } from './v3/resolver.js';
 export {
+  shapeBundleArtifacts,
   shapeResolvedArtifacts,
   shapeTargetArtifacts,
   targetFormatToArtifactFormat,
@@ -345,6 +346,16 @@ export interface ExportExampleOptions {
   env: Environment;
   target?: string;
   bundle?: string;
+}
+
+export interface MaterializeOptions {
+  store: StoreContext;
+  target?: string;
+  bundle?: string;
+  json: boolean;
+  outputRoot?: string;
+  cleanup: boolean;
+  command?: string[];
 }
 
 export type StoreMode = 'project' | 'global';

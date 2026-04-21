@@ -1,6 +1,6 @@
 import { appendAuditEvent, type HushAuditCommandContext } from './audit.js';
 import type { HushArtifactDescriptor, HushArtifactShapeResult, HushTargetArtifactDescriptor } from './artifacts.js';
-import { shapeResolvedArtifacts } from './artifacts.js';
+import { shapeBundleArtifacts, shapeResolvedArtifacts } from './artifacts.js';
 import type { HushBundleName, HushTargetName } from './domain.js';
 import type { HushBundleResolution, HushTargetResolution } from './provenance.js';
 import type { HushImportRepositoryMap } from './imports.js';
@@ -70,19 +70,7 @@ function toLogicalPaths(resolution: HushBundleResolution): string[] {
 }
 
 function buildBundleShape(resolution: HushBundleResolution): HushArtifactShapeResult {
-  const envVars = Object.entries(resolution.values)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([path, node]) => ({
-      key: path.split('/').filter(Boolean).at(-1) ?? path,
-      value: typeof node.entry.value === 'string' ? node.entry.value : JSON.stringify(node.entry.value),
-    }));
-
-  return {
-    envVars,
-    env: Object.fromEntries(envVars.map((variable) => [variable.key, variable.value])),
-    targetArtifact: null,
-    artifacts: [],
-  };
+  return shapeBundleArtifacts(resolution);
 }
 
 function stageArtifacts(
