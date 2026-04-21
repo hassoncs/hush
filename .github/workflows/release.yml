@@ -68,7 +68,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-      
+
+      - name: Install sops and age
+        run: |
+          curl -LO https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64
+          sudo mv sops-v3.9.4.linux.amd64 /usr/local/bin/sops
+          sudo chmod +x /usr/local/bin/sops
+
+          curl -LO https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
+          tar -xzf age-v1.2.0-linux-amd64.tar.gz
+          sudo mv age/age /usr/local/bin/
+          sudo mv age/age-keygen /usr/local/bin/
+          sudo chmod +x /usr/local/bin/age /usr/local/bin/age-keygen
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
       
