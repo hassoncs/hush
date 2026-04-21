@@ -17,7 +17,7 @@ Hush keeps secrets **encrypted at rest**. The primary way to use secrets is `hus
 
 | Category | Commands | Description |
 |----------|----------|-------------|
-| **Primary (AI-Safe)** | `run`, `set`, `edit`, `inspect`, `has` | Safe for AI assistants—never expose secret values |
+| **Primary (AI-Safe)** | `run`, `materialize`, `set`, `edit`, `inspect`, `has` | Safe command surfaces that avoid printing secret values |
 | **Setup** | `bootstrap`, `config`, `init`, `migrate`, `encrypt`, `status`, `skill` | Repository setup and bounded migration, with `encrypt` kept only as a retired legacy bridge |
 | **Deployment** | `push`, `check` | CI/CD and cloud deployment |
 | **Debugging** | `resolve`, `trace`, `diff`, `export-example` | Debug safe output, provenance, and example generation |
@@ -93,6 +93,90 @@ hush run -- node scripts/migrate.js
 
 <Aside type="tip">
 Use `-t` to choose a specific v3 target when the repo declares more than one runtime target.
+</Aside>
+
+---
+
+## materialize
+
+Write a v3 target or bundle to explicit file paths for CI, native build tooling, or other file-based consumers.
+
+This command uses the existing v3 resolver/materializer, but unlike `hush run` it **persists** the resulting plaintext files under a chosen output root so later steps can import them into keychains, provisioning-profile directories, or other tools.
+
+```bash
+# Materialize a target to an explicit output root
+hush materialize -t ios-signing --json --to /tmp/fitbot-signing
+
+# Materialize for the lifetime of one command, then auto-clean
+hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
+
+# Materialize a bundle directly
+hush materialize --bundle fitbot-signing --to /tmp/fitbot-signing
+
+# Clean up a previously materialized output root
+hush materialize --cleanup --to /tmp/fitbot-signing
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-t, --target <name>` | Resolve a specific v3 target; otherwise Hush uses `runtime` or the only non-example target |
+| `--bundle <name>` | Materialize a bundle directly instead of selecting a target |
+| `--json` | Emit machine-readable JSON describing written paths, hashes, provenance, and cleanup hints |
+| `--output-root <dir>` / `--to <dir>` | Output root for persisted plaintext artifacts (default: `.hush-materialized/`) |
+| `--cleanup` | Remove the materialized output root instead of writing files |
+| `-- <command>` | Run a child command with the materialized files available, then auto-clean the output root when it exits |
+
+### Artifact path metadata
+
+Artifact entries can control where they land under the chosen output root:
+
+- `filename` — override the final filename
+- `subpath` — override the output directory under the root
+- `materializeAs` — override the full relative output path
+
+Targets can also declare the same metadata for the target artifact itself.
+
+### How It Works
+
+1. Loads the v3 repository and resolves the selected target or bundle
+2. Materializes file and binary artifacts using the shared runtime pipeline in persisted mode
+3. Writes files under the chosen output root with restrictive permissions
+4. If a child command is provided after `--`, runs that command with the resolved env plus `HUSH_MATERIALIZE_OUTPUT_ROOT` available and auto-cleans on exit
+5. Otherwise emits an audit event and returns only metadata/path information to stdout
+6. Leaves manual cleanup available via `hush materialize --cleanup` when you intentionally need a longer-lived output root
+
+### JSON output shape
+
+`--json` returns metadata only — never raw secret contents. The payload includes:
+
+- `target` / `bundle`
+- `outputRoot`
+- `targetArtifact.path` for the persisted target file, if any
+- `artifacts[].path`, `artifacts[].relativePath`, `artifacts[].sha256`
+- provenance and `resolvedFrom`
+
+This makes it suitable for CI pipelines that need to install signing files without logging private values.
+
+### Auto-cleaning command flow
+
+When you append a command after `--`, Hush treats the materialized files as ephemeral job-scoped state:
+
+```bash
+hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
+```
+
+In that mode Hush:
+
+1. writes the files under the chosen output root
+2. runs the child command
+3. deletes the materialized output root afterwards, even if the command fails
+
+Use this mode for signing, certificates, provisioning profiles, or other native-tooling flows that only need the files for one step.
+
+<Aside type="tip">
+Use `hush materialize -- <command>` as the default for maintained file-based workflows like Apple signing, certificates, provisioning profiles, or other binary artifacts. Keep using plain `hush materialize --json` when another tool needs path metadata, and keep using `hush run` whenever a process can consume values from memory only.
 </Aside>
 
 ---
@@ -800,6 +884,10 @@ Once installed, the skill teaches AI assistants to use `hush inspect` and `hush 
 
 <Aside type="danger">
 This command writes persisted plaintext artifacts to disk. Use `hush run` instead whenever possible.
+</Aside>
+
+<Aside type="tip">
+If you need a maintained file-based workflow, prefer `hush materialize` over `decrypt --force`. `materialize` supports explicit output roots, JSON metadata, and bundle-oriented artifact handling.
 </Aside>
 
 Write decrypted targets to `.hush-materialized/` as persisted plaintext artifacts. **Requires `--force` flag and interactive confirmation.**

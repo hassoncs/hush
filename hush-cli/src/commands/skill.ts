@@ -24,6 +24,8 @@ Use these commands instead:
 \`npx hush has <KEY>\` to check presence
 - \
 \`npx hush run -- <cmd>\` to use secrets at runtime
+- \
+\`npx hush materialize --target <name> --json --to <dir>\` to write file or binary artifacts for CI/native tooling
 
 ## Current repository model
 
@@ -84,6 +86,15 @@ npx hush run -- npm start
 npx hush run -t api -- wrangler dev
 \`\`\`
 
+### Materialize file and binary artifacts
+
+\`\`\`bash
+npx hush materialize -t ios-signing --json --to /tmp/fitbot-signing
+npx hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
+npx hush materialize --bundle fitbot-signing --to /tmp/fitbot-signing
+npx hush materialize --cleanup --to /tmp/fitbot-signing
+\`\`\`
+
 ### Review config safely
 
 \`\`\`bash
@@ -98,7 +109,7 @@ npx hush export-example
 - \`cat .env\`
 - \`cat .hush/**\`
 - \`hush list\`
-- \`hush decrypt --force\` unless the user explicitly needs disk output
+- \`hush decrypt --force\` unless the user explicitly needs the legacy bulk plaintext dump
 
 See [SETUP.md](SETUP.md), [REFERENCE.md](REFERENCE.md), and [examples/workflows.md](examples/workflows.md).
 `,
@@ -230,6 +241,21 @@ hush run -- npm start
 hush run -t api -- wrangler dev
 \`\`\`
 
+### hush materialize
+
+Write a v3 target or bundle to explicit file paths for CI, native build tooling, or other file-based consumers.
+
+\`\`\`bash
+hush materialize -t ios-signing --json --to /tmp/fitbot-signing
+hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
+hush materialize --bundle fitbot-signing --to /tmp/fitbot-signing
+hush materialize --cleanup --to /tmp/fitbot-signing
+\`\`\`
+
+Artifact entries may declare \`filename\`, \`subpath\`, or \`materializeAs\` to control their output path under the chosen root.
+
+Prefer the \`-- <command>\` form when the files should only exist for the lifetime of one CI/native step. Use this instead of \`hush decrypt --force\` when you need a maintained, CI-friendly file materialization workflow.
+
 ### hush inspect / hush has
 
 Safe read-only diagnostics.
@@ -293,6 +319,14 @@ npx hush config readers env/project/shared --identities owner-local,ci
 \`\`\`bash
 npx hush run -- npm start
 npx hush run -t api -- wrangler dev
+\`\`\`
+
+## Materialize a signing bundle
+
+\`\`\`bash
+npx hush materialize -t ios-signing --json --to /tmp/fitbot-signing
+npx hush materialize -t ios-signing --to /tmp/fitbot-signing -- bash scripts/ci/install-ios-signing.sh /tmp/fitbot-signing
+npx hush materialize --cleanup --to /tmp/fitbot-signing
 \`\`\`
 
 ## Review before commit
