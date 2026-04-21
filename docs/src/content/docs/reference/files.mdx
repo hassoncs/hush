@@ -1,52 +1,62 @@
 ---
 title: File Reference
-description: Complete reference for all files used by Hush.
+description: Complete reference for the current Hush v3 repository files.
 ---
 
 import { Aside, FileTree } from '@astrojs/starlight/components';
 
-This page documents all files that Hush creates, reads, and manages.
+This page documents the current Hush v3 file model.
 
 <Aside type="tip">
-With Hush's "encrypted at rest" model, secrets are **never written to disk** during normal use. The `hush run` command decrypts secrets to memory and injects them as environment variables.
+The canonical repository state lives under `.hush/`. Hush does not use `hush.yaml` as the current runtime authority.
 </Aside>
 
-## File Overview
+## File overview
 
 | File | Committed | Purpose |
 |------|-----------|---------|
-| `hush.yaml` | Yes | Configuration file |
-| `.sops.yaml` | Yes | SOPS encryption config |
-| `.hush.encrypted` | Yes | Encrypted shared secrets |
-| `.hush.development.encrypted` | Yes | Encrypted development secrets |
-| `.hush.production.encrypted` | Yes | Encrypted production secrets |
-| `.hush.local.encrypted` | **No** | Encrypted personal overrides (not committed) |
+| `.hush/manifest.encrypted` | Yes | Encrypted repository metadata |
+| `.hush/files/**.encrypted` | Yes | Encrypted secret documents and readers |
+| `.sops.yaml` | Yes | SOPS creation rules for the repo |
+| `~/.hush/state/projects/<slug>/active-identity.json` | No | Machine-local active identity state |
+| `~/.hush/state/projects/<slug>/user/local-overrides.encrypted` | No | Machine-local encrypted overrides |
 
-## Configuration Files
+## Canonical repository files
 
-### hush.yaml
+### `.hush/manifest.encrypted`
 
-The main configuration file. Defines sources and targets.
+This is the repository authority document for v3.
 
-```yaml
-sources:
-  shared: .hush
-  development: .hush.development
-  production: .hush.production
+It defines:
 
-targets:
-  - name: root
-    path: .
-    format: dotenv
+- identities
+- bundles
+- targets
+- imports
+- file index metadata
+
+**Location:** Repository root under `.hush/`  
+**Commit:** Yes  
+**Created by:** `hush bootstrap`, `hush migrate --from v2`
+
+### `.hush/files/**.encrypted`
+
+These encrypted YAML documents hold the actual secret entries and their file readers.
+
+Typical examples:
+
+```text
+.hush/files/env/project/shared.encrypted
+.hush/files/env/project/development.encrypted
+.hush/files/env/project/production.encrypted
 ```
 
-**Location:** Repository root  
-**Commit:** Yes  
-**Created by:** `hush init` or manually
+**Commit:** Yes for shared repo files  
+**Created by:** `hush bootstrap`, `hush set`, `hush edit`, `hush migrate --from v2`
 
-### .sops.yaml
+### `.sops.yaml`
 
-SOPS configuration file. Defines which keys can encrypt/decrypt.
+SOPS configuration for the repo public key set.
 
 ```yaml
 creation_rules:
@@ -55,194 +65,73 @@ creation_rules:
 ```
 
 **Location:** Repository root  
-**Commit:** Yes  
-**Created by:** Manually (SOPS requirement)
-
-## Source Files (For Initial Setup Only)
-
-These plaintext `.hush` files are only used during **initial setup** when you first encrypt your secrets. After running `hush encrypt`, they are automatically deleted.
-
-<Aside type="caution">
-**Never commit plaintext `.hush` files.** After initial encryption, use `hush edit` to modify secrets or `hush set <KEY>` to add new ones.
-</Aside>
-
-### .hush
-
-Shared variables used across all environments.
-
-```bash
-DATABASE_URL=postgres://user:pass@host/db
-STRIPE_SECRET_KEY=sk_xxx
-EXPO_PUBLIC_API_URL=${API_BASE}/v1
-```
-
-### .hush.development
-
-Development-specific overrides.
-
-```bash
-API_BASE=http://localhost:8787
-DEBUG=true
-```
-
-### .hush.production
-
-Production-specific overrides.
-
-```bash
-API_BASE=https://api.example.com
-DEBUG=false
-```
-
-### .hush.local
-
-Personal overrides for your machine only.
-
-```bash
-# Add a local override (encrypted)
-hush set MY_VAR --local
-
-# Edit all local overrides
-hush edit local
-```
-
-This creates `.hush.local.encrypted` which keeps your personal overrides encrypted too.
-
-<Aside type="tip">
-Use `hush set <KEY> --local` for personal development settings that shouldn't be shared with the team.
-</Aside>
-
-## Encrypted Files
-
-These are the SOPS-encrypted versions of your secrets. **Safe to commit** (except `.hush.local.encrypted`).
-
-### .hush.encrypted
-
-Encrypted shared secrets used across all environments.
-
 **Commit:** Yes
 
-### .hush.development.encrypted
+## Machine-local state
 
-Encrypted development-specific secrets.
+### Active identity state
 
-**Commit:** Yes
+```text
+~/.hush/state/projects/<project-slug>/active-identity.json
+```
 
-### .hush.production.encrypted
+Tracks the currently selected local identity for the project.
 
-Encrypted production-specific secrets.
+### Local overrides
 
-**Commit:** Yes
+```text
+~/.hush/state/projects/<project-slug>/user/local-overrides.encrypted
+```
 
-### .hush.local.encrypted
+Stores machine-local encrypted overrides that should not be committed.
 
-Encrypted personal overrides for your machine only.
-
-**Commit:** No (add to `.gitignore`)
-
----
-
-**Created by:** `hush encrypt`, `hush set`, `hush edit`  
-**Used by:** `hush run`, `hush inspect`, `hush has`, `hush edit`
-
-## Output Files (Generated by decrypt)
-
-<Aside type="note">
-Hush's "encrypted at rest" model means output files are **never written to disk** during normal operation. With `hush run`, secrets are decrypted to memory and injected as environment variables—they never touch the filesystem.
-</Aside>
-
-The following files should only exist if you've run `hush decrypt --force`:
-
-| File | Why It Might Exist |
-|------|----------------------|
-| `.env` / `.env.development` / `.env.production` | Created by `hush decrypt --force` for legacy tools |
-| `.dev.vars` | Created by `hush decrypt --force` for Wrangler |
-| `.env.*.json` / `.env.*.sh` / `.env.*.yaml` | Created by `hush decrypt --force` |
-
-If you see these files and didn't run `decrypt --force`, they may be from legacy tooling. Hush will warn about them in `hush check` and `hush status`.
-
-## Typical Project Structure
-
-With the "encrypted at rest" model, your project should look like this:
+## Typical project structure
 
 <FileTree>
-- .sops.yaml                      # SOPS config (committed)
-- hush.yaml                       # Hush config (committed)
-- .hush.encrypted                 # Encrypted shared (committed)
-- .hush.development.encrypted     # Encrypted dev (committed)
-- .hush.production.encrypted      # Encrypted prod (committed)
-- .hush.local.encrypted           # Personal overrides (NOT committed)
-- packages/
-  - app/
-    - package.json
-  - api/
-    - package.json
-    - wrangler.toml
+- .hush/
+  - manifest.encrypted
+  - files/
+    - env/
+      - project/
+        - shared.encrypted
+- .sops.yaml
+- package.json
 </FileTree>
 
-**Note:** No plaintext `.hush` or `.env` files! Secrets are decrypted to memory by `hush run`.
-
-## Recommended .gitignore
-
-Add these entries to your `.gitignore`:
+## Current commands that manage these files
 
 ```bash
-# Hush - Plaintext source files (deleted after encrypt)
-.hush
-.hush.development
-.hush.production
-.hush.local
-
-# Hush - Personal encrypted overrides (not shared)
-.hush.local.encrypted
-
-# Hush - Output files (generated by decrypt --force)
-.env
-.env.*
-.env.*.json
-.env.*.sh
-.env.*.yaml
-.dev.vars
-*/.env.*
-*/.dev.vars
-
-# Keep encrypted files (these ARE committed)
-!.hush.encrypted
-!.hush.development.encrypted
-!.hush.production.encrypted
+hush bootstrap
+hush config show
+hush config active-identity
+hush set DATABASE_URL
+hush run -- npm start
 ```
 
-## Age Key File
+## Legacy bridge
 
-SOPS uses age for encryption. Your private key is stored at:
+If you still have a legacy `hush.yaml` repository, do not treat it as the current model. Use:
 
+```bash
+hush migrate --from v2
+hush migrate --from v2 --cleanup
 ```
-~/.config/sops/age/key.txt
+
+## Recommended `.gitignore`
+
+```bash
+# Machine-local Hush state
+.hush/state/
+
+# Local editor/runtime leftovers
+.hush-materialized/
+
+# Keep canonical encrypted repository files
+!.hush/
+!.hush/manifest.encrypted
+!.hush/files/
 ```
 
-<Aside type="danger">
-**Never commit your age private key.** Store it securely and share it with team members through a secure channel.
+<Aside type="note">
+Legacy plaintext setup files and `hush.yaml` belong to the migration path only. The current repository model is `.hush/manifest.encrypted` plus `.hush/files/**.encrypted`.
 </Aside>
-
-### Key Format
-
-```
-# created: 2024-01-01T00:00:00Z
-# public key: age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-AGE-SECRET-KEY-1XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-```
-
-### Multiple Keys
-
-For team environments, each member has their own key. All public keys are listed in `.sops.yaml`:
-
-```yaml
-creation_rules:
-  - encrypted_regex: '.*'
-    age: >-
-      age1alice...,
-      age1bob...,
-      age1charlie...
-```
-
-Anyone with any of these private keys can decrypt the secrets.

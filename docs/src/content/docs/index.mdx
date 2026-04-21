@@ -26,100 +26,86 @@ import { Card, CardGrid, Code, Tabs, TabItem } from '@astrojs/starlight/componen
   <TabItem label="With AI Assistant">
     Install the Claude Code / OpenCode skill, then let AI handle the rest:
     <Code code="npx @chriscode/hush skill" lang="bash" />
-    Once installed, just ask your AI: *"Set up Hush for this project"*
+    Once installed, ask your AI: *"Bootstrap Hush for this project and show me the v3 config"*
   </TabItem>
   <TabItem label="Manual Setup">
     <Code code={`# Install Hush
 npm install -D @chriscode/hush
 
-# Initialize config
-npx hush init
+# Bootstrap the v3 repository
+npx hush bootstrap
 
-# Encrypt your secrets
-npx hush encrypt`} lang="bash" />
+# Inspect the repo state
+npx hush config show`} lang="bash" />
   </TabItem>
 </Tabs>
 
 ## Why Hush?
 
-Is Hush just a wrapper around [SOPS](https://github.com/getsops/sops) and [dotenv](https://github.com/motdotla/dotenv)?
-
-**Yes, and that's the point.**
-
-Hush is an **orchestration layer** that solves the "Human + AI" workflow problem that raw tools ignore:
+**Hush is an orchestration layer for the human + AI secrets workflow.**
 
 <CardGrid stagger>
-  <Card title="Orchestration" icon="random">
-    `sops exec` handles one file. Hush merges multiple sources (`shared` + `env` + `local`), interpolates variables (`${API_URL}`), and routes them to specific monorepo targets.
+  <Card title="Current v3 authority" icon="random">
+    Hush stores repository authority in `.hush/manifest.encrypted` and `.hush/files/**.encrypted`. There is no `hush.yaml` runtime authority in the current model.
   </Card>
-  <Card title="AI Safety" icon="approve-check">
-    Standard tools assume a human operator. Hush assumes an AI assistant. `hush set` and `hush inspect` allow AI agents to manage secrets **without ever seeing the plaintext values**.
+  <Card title="AI safety" icon="approve-check">
+    `hush set`, `hush inspect`, and `hush has` let AI assistants help manage secrets without seeing plaintext values.
   </Card>
-  <Card title="Cross-Platform" icon="laptop">
-    Works on macOS, Linux, and Windows. Handles shell differences and provides native GUI prompts for secret entry when running in non-interactive modes (like AI agent sessions).
+  <Card title="Encrypted at rest" icon="lock-closed">
+    `hush run -- &lt;command&gt;` decrypts only for the active process or materialized target, then cleans up.
   </Card>
-  <Card title="Encrypted at Rest" icon="lock-closed">
-    Secrets stay encrypted on disk. `hush run` decrypts to memory only. No plaintext `.env` files for AI to accidentally read.
+  <Card title="Migration bridge" icon="open-book">
+    If a repository still uses legacy v2 files, migrate once with `hush migrate --from v2` and optionally `--cleanup` after validation.
   </Card>
 </CardGrid>
 
-## Quick Example
+## Quick example
 
 ```bash
-# Initialize configuration
-npx hush init
+# Bootstrap the current v3 repository shell
+npx hush bootstrap
 
-# Encrypt your .env files  
-npx hush encrypt
+# Inspect manifest, files, identities, and targets
+npx hush config show
+npx hush config active-identity
 
-# Run with secrets (decrypts to memory only!)
-npx hush run -- npm start
-
-# Run with production secrets
-npx hush run -e production -- npm build
-
-# Add a secret interactively (AI-safe)
+# Add a secret safely
 npx hush set DATABASE_URL
 
-# Push to Cloudflare Workers
+# Run with secrets in memory
+npx hush run -- npm start
+
+# Push a wrangler target
 npx hush push
 ```
 
-## The Problem
+## Current repository model
 
-AI coding assistants are incredibly helpful, but they can accidentally expose your secrets:
-
-- Even with instructions to "not read .env files", LLMs find creative ways using `cat`, `grep`, or shell tricks
-- Traditional secrets management leaves plaintext files on disk—easy targets for accidental exposure
-- In monorepos, different packages need different subsets of environment variables
-
-## The Solution
-
-Hush keeps secrets **encrypted at rest**—there are no plaintext `.env` files to read:
-
-- **`hush run -- <command>`** decrypts secrets to memory and runs your command
-- **`hush set <KEY>`** lets AI help add secrets without seeing the values
-- Monorepo-aware routing sends `NEXT_PUBLIC_*` to frontend, server secrets to API
-
-```yaml
-# hush.yaml
-sources:
-  shared: .env
-  development: .env.development
-  production: .env.production
-
-targets:
-  - name: app
-    path: ./app
-    format: dotenv
-    include:
-      - EXPO_PUBLIC_*
-
-  - name: api
-    path: ./api
-    format: wrangler
-    exclude:
-      - EXPO_PUBLIC_*
+```text
+.hush/
+  manifest.encrypted
+  files/
+    env/project/shared.encrypted
+.sops.yaml
 ```
 
-One command. All packages. Correct secrets.
+- `.hush/manifest.encrypted` defines identities, bundles, targets, and imports
+- `.hush/files/**.encrypted` stores the actual secret entries plus readers
+- `hush bootstrap` creates the shell
+- `hush config` inspects and updates repository state
+- `hush migrate --from v2 [--cleanup]` is the only legacy bridge
+
+## The problem
+
+AI coding assistants are helpful, but plaintext secret files are easy to expose accidentally. Legacy `.env` workflows depend on telling AI what not to read. That is not a strong boundary.
+
+## The solution
+
+Hush keeps the canonical repository state encrypted under `.hush/` and gives AI-safe commands for the normal workflow:
+
+- `hush inspect`
+- `hush has <KEY>`
+- `hush set <KEY>`
+- `hush run -- <command>`
+
+That keeps the current repo model simple: encrypted documents at rest, secrets only decrypted for the active runtime path.

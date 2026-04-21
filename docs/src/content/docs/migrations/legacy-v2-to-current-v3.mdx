@@ -1,0 +1,99 @@
+---
+title: "Migration: legacy hush.yaml to current v3"
+description: Migrate a legacy hush.yaml repository into the current .hush v3 repository layout.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+# Migrating a legacy `hush.yaml` repo to current v3
+
+## Summary
+
+| | |
+|---|---|
+| **Who's affected** | Repositories that still use `hush.yaml` plus legacy encrypted source files |
+| **Estimated time** | 5-15 minutes |
+| **Migration style** | Big-bang per repository |
+
+<Aside type="caution">
+This migration is intentionally one-way inside a repository. Normal runtime commands do not keep a long-lived dual-support fallback once this flow exists.
+</Aside>
+
+## What changes
+
+The migration converts legacy repo authority into the current v3 layout:
+
+```text
+.hush/manifest.encrypted
+.hush/files/**.encrypted
+~/.hush/state/projects/<project-slug>/active-identity.json
+~/.hush/state/projects/<project-slug>/user/local-overrides.encrypted
+```
+
+It also keeps legacy files in place until cleanup succeeds, so you can inspect the result before removing transitional leftovers.
+
+## Standard flow
+
+<Steps>
+
+1. **Inventory the repo without mutating it**
+
+   ```bash
+   hush migrate --from v2 --dry-run
+   ```
+
+   This inventories:
+
+   - `hush.yaml`
+   - encrypted source files such as `.env.encrypted` or `.hush.encrypted`
+   - legacy targets and include/exclude filters
+   - repo references to `hush` commands in docs or scripts
+
+2. **Run the big-bang conversion**
+
+   ```bash
+   hush migrate --from v2
+   ```
+
+   This creates `.hush/manifest.encrypted`, v3 file documents, migrated target bundles and targets, plus machine-local migrated overrides.
+
+3. **Inspect the migrated repo**
+
+   ```bash
+   hush config show
+   hush inspect
+   ```
+
+4. **Remove validated leftovers**
+
+   ```bash
+   hush migrate --from v2 --cleanup
+   ```
+
+   Cleanup is rerun-safe. It removes transitional leftovers only after a successful validated migration state exists.
+
+</Steps>
+
+## What gets mapped
+
+- legacy shared, development, and production encrypted sources become v3 file documents under `env/project/*`
+- legacy local overrides become the machine-local encrypted override doc
+- legacy targets become v3 bundles plus targets
+- legacy include/exclude rules are preserved as migration metadata and reflected in the migrated target runtime surface
+
+## After migration
+
+Use the current v3 commands:
+
+```bash
+hush config show
+hush config active-identity
+hush set DATABASE_URL "postgres://db"
+hush run -- npm start
+```
+
+Do not keep teaching or scripting `hush.yaml` as the canonical repo model after migration.
+
+## Historical pages
+
+The other pages in this directory can still describe older shipped releases such as `v2 → v3`, `v3 → v4`, or `v4 → v5`. Treat them as historical context, not as the current repository model.

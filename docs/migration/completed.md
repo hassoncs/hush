@@ -24,3 +24,24 @@ Purpose: append one successful repository cutover per entry after the repository
 ## Entries
 
 Append the next completed cutover entry below this heading.
+
+## Repository: hush
+
+- Date: 2026-04-20
+- Migration commit or reference: n/a
+- Validation result summary: Final Wave repair validation passed with `bun run test`, `bun run build`, and `bun run type-check` in `hush-cli/`, plus `bun run build` in `docs/`.
+- Cleanup completed: no
+
+## Repository: hush
+
+- Date: 2026-04-20
+- Migration commit or reference: n/a
+- Validation result summary: Final Wave blocker repair validated owner-only mutation enforcement in `set`, `edit`, and `config readers`, plus updated repo-local docs, with `bun run test`, `bun run build`, and `bun run type-check` in `hush-cli/`, and `bun run build` in `docs/`.
+- Cleanup completed: no
+
+## Repository: hush
+
+- Date: 2026-04-20
+- Migration commit or reference: n/a
+- Validation result summary: Final verified branch state passed `bun run test`, `bun run build`, and `bun run type-check` in `hush-cli/`, `bun run build` in `docs/`, and the migration cleanup smoke flow succeeded on this branch.
+- Cleanup completed: yes

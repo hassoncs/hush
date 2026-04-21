@@ -3,355 +3,158 @@ title: AI-Native Workflow
 description: Use Hush safely with AI coding assistants like Cursor, GitHub Copilot, and Claude.
 ---
 
-import { Aside, Steps, Code, Card, CardGrid } from '@astrojs/starlight/components';
+import { Aside, Steps } from '@astrojs/starlight/components';
 
-Hush keeps secrets **encrypted at rest** and provides AI-safe commands that let AI assistants help you manage secrets without ever seeing the actual values.
+Hush keeps secrets encrypted at rest in the current v3 repository model and gives AI assistants safe commands for the normal workflow.
 
-<Aside type="tip" title="Quick Start">
-Copy this prompt into your AI assistant to set up Hush:
+<Aside type="tip" title="Quick start">
+Copy this prompt into your AI assistant:
 
+```text
+Set up Hush for this project using the current v3 repository model.
+Use `hush bootstrap`, `hush config`, `hush set`, and `hush run`.
+If the repo is still legacy v2, use `hush migrate --from v2` instead.
+Do not teach `hush.yaml`, `hush init`, or `hush encrypt` as the current setup.
 ```
-Set up Hush for AI-native secrets management. Install @chriscode/hush, 
-configure SOPS/age encryption, create hush.yaml, and help me encrypt 
-my .env files. Use hush run to execute commands with secrets - never 
-read .env files directly.
-```
-
-For more prompts, see the [AI Prompts](/guides/ai-prompts/) guide.
 </Aside>
 
-## The Problem (Solved)
+## Current security model
 
-Traditional secrets management relies on telling AI assistants "don't read `.env` files"—but LLMs find creative ways using `cat`, `grep`, or shell tricks. Instructions alone aren't reliable security.
+The canonical repository state lives here:
 
-## The Solution: Encrypted at Rest
-
-Hush keeps secrets **encrypted at rest**. All `.env` files contain only encrypted data, so AI assistants can freely read them with `cat` or `grep`—they'll only see encrypted gibberish, never actual secrets.
-
-```bash
-$ cat .env.encrypted
-DATABASE_URL=ENC[AES256_GCM,data:7xH2kL9...,type:str]
+```text
+.hush/manifest.encrypted
+.hush/files/**.encrypted
 ```
 
-When you need to actually use secrets:
+- `.hush/manifest.encrypted` stores repository metadata, identities, bundles, targets, and imports
+- `.hush/files/**.encrypted` stores the actual secret entries plus readers
+- `hush run -- <command>` decrypts only for the active process or materialized target
 
-- **`hush run -- <command>`** - Decrypts to memory, runs command with secrets as env vars
-- **`hush set <key>`** - AI invokes command, user enters value (AI never sees it)
-- **`hush inspect`** - Shows all variables with masked values (human-readable)
-- **`hush has <key>`** - Checks if a specific variable exists
+That gives AI assistants a safe interface without relying on "just don't read `.env` files" instructions.
 
-Security through encryption, not through instructions.
+## Commands for AI agents
 
-## Commands for AI Agents
+### hush bootstrap
 
-### hush run (Primary Command)
-
-**The main way to use secrets.** Decrypts to memory, runs your command with secrets as environment variables.
+Create the current v3 repository shell:
 
 ```bash
-# Development
-hush run -- npm run dev
-
-# Production
-hush run -e production -- npm run build
-
-# Filter for specific target
-hush run -t api -- wrangler dev
+hush bootstrap
 ```
 
-Secrets never touch the disk—they exist only in the child process's memory.
+### hush config
 
-### hush set (Add Secrets Safely)
+Inspect and update current repository state:
 
-AI invokes this command, user enters the value. **The AI never sees the secret.**
+```bash
+hush config show
+hush config active-identity
+hush config show files
+```
+
+### hush set
+
+Add or update a secret safely:
 
 ```bash
 hush set DATABASE_URL
-# User is prompted: Enter value for DATABASE_URL: ••••••••
-# Output: ✓ DATABASE_URL set in .env.encrypted (45 chars)
-```
-
-Options:
-```bash
-hush set API_KEY -e production  # Set in production secrets
-hush set DEBUG --local          # Set personal local override
+hush set API_KEY --gui
 ```
 
 ### hush inspect
 
-Shows all variables with masked values:
+Show configured secret names with masked values:
 
 ```bash
 hush inspect
 ```
 
-Output:
-
-```
-Secrets for development:
-
-  DATABASE_URL      = post****************... (45 chars)
-  STRIPE_SECRET_KEY = sk_t****************... (32 chars)
-  API_KEY           = (not set)
-
-Total: 3 variables
-
-Target distribution:
-
-  root (.) - 3 vars
-  app (./app/) - 1 vars
-    include: EXPO_PUBLIC_*
-  api (./api/) - 2 vars
-    exclude: EXPO_PUBLIC_*
-```
-
-The AI can see:
-- Which variables exist
-- Their approximate length
-- Which are set vs unset
-- Which targets receive which variables
-
-But it never sees the actual values.
-
 ### hush has
 
-Check if a specific variable is set:
+Check whether a key exists:
 
 ```bash
-# Verbose output
-hush has DATABASE_URL
-# Output: DATABASE_URL is set (45 chars)
-
-# Quiet mode (for scripting)
 hush has DATABASE_URL -q
-# Exit code: 0 (exists) or 1 (missing)
 ```
 
-Use in conditional logic:
+### hush run
+
+Run with secrets in memory:
 
 ```bash
-hush has STRIPE_SECRET_KEY -q && echo "Stripe is configured"
-hush has DATABASE_URL -q || echo "Missing DATABASE_URL"
+hush run -- npm run dev
+hush run -e production -- npm run build
 ```
 
-## AI Agent Instructions
+## Legacy bridge only
 
-If you're using AI coding assistants, add this to your project's AI instructions:
+If a repo still uses legacy v2 files, use the migration bridge once:
 
-```markdown
-## Secrets Management (Hush - Encrypted at Rest)
-
-This project uses Hush. All .env files are ENCRYPTED—you can freely 
-read them with cat/grep and you'll only see encrypted data.
-
-Primary commands:
-- `hush run -- <command>` - Run programs with secrets (decrypts to memory)
-- `hush set <KEY>` - Add a secret (invoke this, user enters value)
-- `hush inspect` - See variables in human-readable format (masked)
-- `hush has <KEY>` - Check if a variable exists
-- `cat .env.encrypted` - Safe to read! Shows encrypted content
+```bash
+hush migrate --from v2
+hush migrate --from v2 --cleanup
 ```
 
-## Common AI Workflows
+That is the supported path from `hush.yaml` repos to the current `.hush/` model.
 
-### "Help me set up the database"
+## Common AI workflows
+
+### "Set up Hush in this repo"
 
 <Steps>
-1. AI runs `hush inspect` to see current variables
-2. AI sees `DATABASE_URL = (not set)` 
-3. AI runs `hush set DATABASE_URL` and tells user to enter the value
-4. User enters the connection string (AI never sees it)
-5. AI runs `hush run -- npm run dev` to start with secrets
+1. Run `hush bootstrap`
+2. Run `hush config show`
+3. Run `hush set DATABASE_URL`
+4. Run `hush run -- npm start`
 </Steps>
 
-### "Check if Stripe is configured"
+### "Check whether a secret exists"
 
 ```bash
 hush has STRIPE_SECRET_KEY -q && echo "Ready" || echo "Missing"
 ```
 
-AI gets a clear yes/no without seeing the key.
-
-### "Start the development server"
+### "Show me the current config"
 
 ```bash
-hush run -- npm run dev
+hush config show
+hush config active-identity
 ```
 
-Secrets are decrypted to memory and passed to the process.
-
-### "Build for production"
+### "This repo is still legacy"
 
 ```bash
-hush run -e production -- npm run build
+hush migrate --from v2
 ```
 
-### "What environment variables does the API need?"
+## Project instructions for AI tools
 
-```bash
-hush inspect -e production
-```
-
-AI sees which variables exist for production and which targets receive them.
-
-## Example Conversation
-
-**Human:** Can you help configure the payment integration?
-
-**AI:** Let me check your current secrets configuration.
-
-```bash
-hush inspect
-```
-
-I can see you have:
-- `STRIPE_SECRET_KEY` - Set (32 chars)
-- `STRIPE_WEBHOOK_SECRET` - Not set
-- `STRIPE_PUBLISHABLE_KEY` - Not set
-
-You're missing the webhook secret and publishable key. Let me help you add them:
-
-```bash
-hush set STRIPE_WEBHOOK_SECRET
-```
-
-Enter your webhook secret from the Stripe dashboard when prompted.
-
-```bash
-hush set STRIPE_PUBLISHABLE_KEY
-```
-
-Enter your publishable key when prompted.
-
-Once both are set, you can start your server:
-
-```bash
-hush run -- npm run dev
-```
-
-<Aside type="tip">
-The AI helped configure Stripe without ever seeing the actual API keys. The user entered the values directly, and secrets stayed encrypted at rest.
-</Aside>
-
-## Cursor Integration
-
-For [Cursor](https://cursor.sh/), add to your `.cursorrules`:
+Use project instructions like this:
 
 ```markdown
-# Secrets (Hush - Encrypted at Rest)
-- All .env files are encrypted - safe to read with cat/grep
-- Use `hush run -- <command>` to run programs with secrets
-- Use `hush set <KEY>` to add secrets (invoke, user enters value)
-- Use `hush inspect` for human-readable masked output
-- Secrets never touch disk - only decrypted to memory
+# Secrets Management (Hush v3)
+
+Current model:
+- `.hush/manifest.encrypted`
+- `.hush/files/**.encrypted`
+
+Use these commands:
+- `hush bootstrap`
+- `hush config show`
+- `hush config active-identity`
+- `hush inspect`
+- `hush has <KEY>`
+- `hush set <KEY>`
+- `hush run -- <command>`
+
+Legacy bridge only:
+- `hush migrate --from v2`
+- `hush migrate --from v2 --cleanup`
+
+Do not teach or recreate `hush.yaml`, `hush init`, or `hush encrypt` as the current repository model.
 ```
 
-## Claude Integration
+## Why this matters
 
-For Claude's project knowledge:
-
-```markdown
-# Environment Variables (Hush - Encrypted at Rest)
-
-This project uses Hush. All .env files contain ENCRYPTED data only.
-
-Commands:
-- cat .env.encrypted         # Shows encrypted content (safe!)
-- grep KEY .env.encrypted    # Search encrypted files (safe!)
-- hush run -- npm start      # Run with secrets (memory only)
-- hush set DATABASE_URL      # Add secret (invoke, user enters)
-- hush inspect               # Human-readable masked output
-
-Secrets are never written to disk - they're decrypted to memory only.
-```
-
-## Claude Code / OpenCode Skill
-
-For [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [OpenCode](https://github.com/opencode-ai/opencode) users, Hush includes a ready-to-use **Agent Skill** that automatically teaches the AI to use Hush commands instead of reading `.env` files directly.
-
-### Installation
-
-The easiest way to install the skill is with the `hush skill` command:
-
-```bash
-npx hush skill           # Interactive: choose global or local
-npx hush skill --global  # Install to ~/.claude/skills/ (all projects)
-npx hush skill --local   # Install to ./.claude/skills/ (this project)
-```
-
-**Global vs Local:**
-- **Global** (`~/.claude/skills/`) - Works across all your projects. Recommended for personal use.
-- **Local** (`./.claude/skills/`) - Bundled with the project. Recommended for teams (commit to git).
-
-<Aside type="tip">
-For teams, use `--local` and commit the `.claude/` directory so everyone gets the skill automatically.
-</Aside>
-
-### How It Works
-
-Once installed, Claude Code automatically:
-
-1. **Detects** when you're working with secrets, environment variables, or `.env` files
-2. **Loads** the Hush skill instructions
-3. **Uses** `hush inspect` and `hush has` instead of reading files directly
-4. **Guides** you through adding or modifying secrets safely
-
-### What the Skill Teaches Claude
-
-- Never read `.env`, `.env.*`, `.env.local`, or `.dev.vars` files
-- Use `hush inspect` to see what variables exist (with masked values)
-- Use `hush has <KEY>` to check if specific secrets are configured
-- Use `hush set` to help users add or modify secrets
-- Guide users through `hush encrypt` after changes
-
-<Aside type="tip">
-The skill uses Claude Code's "allowed-tools" feature to restrict Claude to only Hush-related bash commands when the skill is active, providing an extra layer of protection.
-</Aside>
-
-### Skill Files
-
-The skill uses progressive disclosure - only loading detailed docs when needed:
-
-| File | Purpose |
-|------|---------|
-| `SKILL.md` | Core rules and daily commands (always loaded) |
-| `SETUP.md` | First-time setup instructions (loaded if Hush not configured) |
-| `REFERENCE.md` | Detailed command reference (loaded when needed) |
-| `examples/workflows.md` | Step-by-step workflow examples |
-
-<Aside type="note">
-For more copy-paste prompts for common tasks, see the [AI Prompts](/guides/ai-prompts/) guide.
-</Aside>
-
-## Security Model
-
-### Encrypted at Rest = True Security
-
-Unlike "don't read .env files" instructions, Hush provides **real security**:
-
-- All `.env` files contain only encrypted data
-- AI can freely `cat`, `grep`, `Read` any env file—they'll only see encrypted content
-- Secrets are only decrypted in memory when `hush run` executes
-
-### What AI Can See
-
-- **Encrypted files**: `cat .env.encrypted` shows `ENC[AES256_GCM,data:...]`
-- **`hush inspect`**: Variable names, masked values, character lengths
-- **First 4 characters**: Helps identify type (e.g., `sk_` for Stripe)
-
-### What AI Never Sees
-
-- Decrypted secret values (only exist in memory during `hush run`)
-- Complete connection strings
-- API keys or tokens in plaintext
-
-### Why This Matters
-
-Security through encryption beats security through instructions:
-- LLMs can't "trick their way" to reading secrets—they're encrypted
-- Even if AI conversations are logged, no secrets are exposed
-- Audit-friendly workflow
-
-<Aside type="note">
-The first 4 characters shown in `hush inspect` help identify the type of secret (e.g., `sk_` for Stripe keys, `ghp_` for GitHub tokens). This is intentional and mirrors what you'd see in dashboards.
-</Aside>
+Hush gives AI assistants a stable, encrypted repository surface and a small set of safe commands. The assistant can help inspect state and manage changes without switching the project back to the older v2 file model.

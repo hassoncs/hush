@@ -25,3 +25,19 @@ Purpose: append shared migration friction for Hush v3 cutovers. Use this file fo
 ## Entries
 
 Append the next feedback entry below this heading.
+
+## Repository: hush
+
+- Date: 2026-04-20
+- Agent or maintainer: Sisyphus-Junior
+- Classification: non-blocking
+- Issue: Final Wave follow-up found stale shipped docs still teaching legacy `hush.yaml` / `init` / `encrypt` / include-exclude targets, plus hardening gaps in `push.ts` shell secret piping and `core/sops.ts` plaintext temp staging.
+- Resolution status or next action: fixed in session; docs now teach the current `.hush/` v3 model, `push.ts` uses direct wrangler args plus stdin, and plaintext staging now uses a private restrictive temp directory with cleanup.
+
+## Repository: hush
+
+- Date: 2026-04-20
+- Agent or maintainer: Sisyphus-Junior
+- Classification: non-blocking
+- Issue: Final Wave blocker found mutation helpers and config metadata updates still allowed non-owner identities to write, and repo-local setup docs still described legacy `hush.yaml` / `init` / `encrypt` as the current architecture.
+- Resolution status or next action: fixed in session; `requireMutableIdentity()` now enforces owner role for v3 mutations, `config readers` uses the shared owner gate, denial tests cover `set` / `edit` / `config readers`, and repo-local docs now describe `.hush/` bootstrap/config/run as the live model.

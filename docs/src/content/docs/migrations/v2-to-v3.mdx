@@ -1,11 +1,13 @@
 ---
-title: "Migration: v2 to v3"
-description: Migrating from Hush v2 to v3 - decrypt now requires --force
+title: "Migration: v2 to v3 (historical)"
+description: Historical shipped note for the older v2 to v3 transition about decrypt behavior.
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
 
 # Migrating from Hush v2 to v3
+
+> Historical release note. This page documents an older shipped transition about `hush decrypt` behavior. It is not the current repository migration guide.
 
 ## Summary
 
@@ -20,7 +22,7 @@ If you were already using `hush run` exclusively, no changes are needed. Just up
 </Aside>
 
 <Aside type="note">
-This page is historical shipped migration guidance for the already released `v2` to `v3` transition about `hush decrypt` and `hush run` behavior. It is not the planning source for the future `HUSH_V3` architecture initiative. For future planning work, use the root-level repository docs `docs/HUSH_V3_SPEC.md` and `docs/HUSH_V3_MIGRATION_STRATEGY.md`.
+For the current repository migration story, use `hush migrate --from v2 [--cleanup]` and the current docs pages that describe the `.hush/` repository model. This page remains shipped-history context only.
 </Aside>
 
 ## What Changed
@@ -103,9 +105,9 @@ If you genuinely need plaintext files (Docker builds, legacy tooling), `hush dec
 
 </Steps>
 
-## Configuration Unchanged
+## Configuration Unchanged in that historical release
 
-Your `hush.yaml` configuration file works exactly the same in v3. No changes needed.
+In that older shipped release, your `hush.yaml` configuration file kept working unchanged.
 
 The `targets` configuration is still used for:
 - **`hush run -t <name>`** - Filter secrets for a specific target
@@ -127,6 +129,6 @@ If you run into issues migrating:
 2. Use `hush inspect` to see what secrets are available
 3. Use `hush run -- env | grep YOUR_VAR` to verify secrets are injected
 
-<Aside type="note">
-The targets configuration with `path` and `format` fields is still supported for `hush push` (Cloudflare Workers deployment). You don't need to remove these from your `hush.yaml`.
+<Aside type="caution">
+That statement applied only to the historical release documented here. The current v3 repository model is `.hush/manifest.encrypted` plus `.hush/files/**.encrypted`, and `hush.yaml` is now legacy migration input.
 </Aside>

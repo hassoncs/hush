@@ -1,417 +1,105 @@
 ---
 title: Monorepo Patterns
-description: Best practices for managing secrets across monorepo packages.
+description: Manage secrets across monorepo packages with the current Hush v3 repository model.
 ---
 
 import { Aside, FileTree } from '@astrojs/starlight/components';
 
-Hush is designed specifically for monorepos where different packages need different subsets of your environment variables.
+Hush v3 stores monorepo authority in encrypted repository documents instead of a plaintext routing file.
 
-## The Problem
+## Current monorepo model
 
-In a typical monorepo, you might have:
+```text
+.hush/manifest.encrypted
+.hush/files/**.encrypted
+```
+
+In a monorepo, the manifest records:
+
+- identities
+- bundles
+- targets
+- imports
+- file index metadata
+
+The encrypted files hold the secret entries and readers that back those targets.
+
+## Typical repository shape
 
 <FileTree>
+- apps/
+  - web/
+  - api/
 - packages/
-  - mobile/          # Expo app - needs EXPO_PUBLIC_* vars
-  - web/             # Next.js - needs NEXT_PUBLIC_* vars
-  - api/             # Cloudflare Worker - needs API keys
-  - shared/          # Shared library - might need some config
-- .env               # All your secrets in one place
+  - shared/
+- .hush/
+  - manifest.encrypted
+  - files/
+    - env/
+      - project/
+        - shared.encrypted
+- .sops.yaml
 </FileTree>
 
-Each package needs different variables:
-- **Mobile app**: Only client-safe `EXPO_PUBLIC_*` variables
-- **Web app**: Only client-safe `NEXT_PUBLIC_*` variables
-- **API**: Server secrets, but not client variables
-- **Root**: Everything, for scripts and local development
+## Recommended workflow
 
-Manually copying `.env` files is error-prone. Committing different subsets is a maintenance nightmare.
-
-## Two Approaches: Push vs Pull
-
-Hush supports two architectures for distributing secrets. They solve different problems—use the right tool for the job.
-
-| Approach | Best For | Example |
-|----------|----------|---------|
-| **Push** (include/exclude) | Pattern-based filtering, auto-flow | "All `NEXT_PUBLIC_*` → web app" |
-| **Pull** (subdirectory templates) | Transformation, renaming, defaults | "Rename `API_URL` → `EXPO_PUBLIC_API_URL`" |
-
-<Aside type="tip">
-**Decision rule:** If you need to **rename**, **transform**, or **add defaults** to variables, use pull. If you want new matching vars to **auto-flow** without updates, use push.
-</Aside>
-
-## Pull-Based Architecture
-
-Each package defines what it needs in its own `.env` file, referencing root secrets.
-
-### 1. Define Root Secrets
-
-Store canonical secrets in your root `.env` files. No framework prefixes needed.
+### 1. Bootstrap once
 
 ```bash
-# Root .env (encrypted)
-API_URL=https://api.example.com
-STRIPE_KEY=sk_test_xxx
-DATABASE_URL=postgres://...
+hush bootstrap
 ```
 
-### 2. Create Package Templates
-
-Create `.env` files in your packages that reference the root secrets. These files are **committed to git** because they are just templates/mappings, not secrets themselves.
-
-**packages/web/.env:**
-```bash
-# Pull from root and add Next.js prefix
-NEXT_PUBLIC_API_URL=${API_URL}
-NEXT_PUBLIC_STRIPE_KEY=${STRIPE_KEY}
-
-# Local default
-PORT=${PORT:-3000}
-```
-
-**packages/mobile/.env:**
-```bash
-# Pull from root and add Expo prefix
-EXPO_PUBLIC_API_URL=${API_URL}
-EXPO_PUBLIC_STRIPE_KEY=${STRIPE_KEY}
-```
-
-**packages/api/.env:**
-```bash
-# Pull server secrets
-DATABASE_URL=${DATABASE_URL}
-STRIPE_KEY=${STRIPE_KEY}
-
-# Local default
-PORT=${PORT:-8787}
-```
-
-### 3. Run
-
-When you run `hush run` inside a package, it automatically resolves these references:
+### 2. Inspect the current repo state
 
 ```bash
-cd packages/web
-hush run -- npm dev
+hush config show
+hush config show files
+hush config active-identity
 ```
 
-The web app receives `NEXT_PUBLIC_API_URL` with the decrypted value from the root secrets.
-
-## Push-Based Architecture
-
-Use `hush.yaml` targets with `include`/`exclude` patterns when you want automatic filtering without maintaining templates:
-
-```yaml
-sources:
-  shared: .env
-  development: .env.development
-  production: .env.production
-
-targets:
-  - name: root
-    path: .
-    format: dotenv
-
-  - name: mobile
-    path: ./packages/mobile
-    format: dotenv
-    include:
-      - EXPO_PUBLIC_*
-
-  - name: web
-    path: ./packages/web
-    format: dotenv
-    include:
-      - NEXT_PUBLIC_*
-```
-
-**When push works best:**
-- Adding `NEXT_PUBLIC_FOO` at root auto-flows to web—no template update needed
-- Centralized control: one file shows all routing rules
-- Simple filtering: "everything matching X goes to Y"
-
-**When push doesn't work:**
-- Cannot rename: `API_URL` stays `API_URL`, can't become `EXPO_PUBLIC_API_URL`
-- Cannot add defaults: no `${PORT:-3000}` syntax
-- Cannot compose: no `${HOST}:${PORT}` combinations
-
-## Combining Both Approaches
-
-You can use push for some targets and pull for others in the same project:
-
-```yaml
-# hush.yaml - push for simple targets
-targets:
-  - name: web
-    path: ./apps/web
-    include: [NEXT_PUBLIC_*]  # Auto-flow, no transformation needed
-```
+### 3. Add shared secrets
 
 ```bash
-# apps/mobile/.env - pull for targets needing transformation
-EXPO_PUBLIC_API_URL=${API_URL}         # Rename required
-EXPO_PUBLIC_STRIPE_KEY=${STRIPE_KEY}   # Rename required
-PORT=${PORT:-8081}                      # Default value
+hush set DATABASE_URL
+hush set STRIPE_SECRET_KEY
 ```
 
-## Common Patterns
-
-### Client vs Server Split
-
-The most common pattern - keep client-safe variables separate from server secrets:
-
-```yaml
-targets:
-  # Client apps get public variables only
-  - name: app
-    path: ./packages/app
-    format: dotenv
-    include:
-      - EXPO_PUBLIC_*
-      - NEXT_PUBLIC_*
-      - VITE_*
-
-  # Server gets everything except public variables
-  - name: api
-    path: ./packages/api
-    format: wrangler
-    exclude:
-      - EXPO_PUBLIC_*
-      - NEXT_PUBLIC_*
-      - VITE_*
-```
-
-### Multiple APIs
-
-When you have multiple backend services:
-
-```yaml
-targets:
-  - name: auth-api
-    path: ./packages/auth
-    format: wrangler
-    include:
-      - AUTH_*
-      - JWT_*
-      - DATABASE_*
-
-  - name: payments-api
-    path: ./packages/payments
-    format: wrangler
-    include:
-      - STRIPE_*
-      - DATABASE_*
-```
-
-### Shared Configuration
-
-Some variables need to be everywhere:
-
-```yaml
-targets:
-  # Every package gets APP_* variables
-  - name: mobile
-    path: ./packages/mobile
-    format: dotenv
-    include:
-      - APP_*
-      - EXPO_PUBLIC_*
-
-  - name: web
-    path: ./packages/web
-    format: dotenv
-    include:
-      - APP_*
-      - NEXT_PUBLIC_*
-
-  - name: api
-    path: ./packages/api
-    format: wrangler
-    include:
-      - APP_*
-      - API_*
-      - DATABASE_*
-```
-
-### Environment-Specific URLs
-
-Use interpolation for environment-specific base URLs:
+### 4. Run a specific target
 
 ```bash
-# .env (shared)
-EXPO_PUBLIC_API_URL=${API_BASE}/v1
-
-# .env.development
-API_BASE=http://localhost:8787
-
-# .env.production
-API_BASE=https://api.yourapp.com
-```
-
-This gives you:
-- Development: `EXPO_PUBLIC_API_URL=http://localhost:8787/v1`
-- Production: `EXPO_PUBLIC_API_URL=https://api.yourapp.com/v1`
-
-## Real-World Example
-
-Here's a complete example for a typical full-stack monorepo:
-
-<FileTree>
-- packages/
-  - mobile/         # Expo React Native app
-  - web/            # Next.js marketing site
-  - dashboard/      # Vite admin dashboard
-  - api/            # Cloudflare Worker API
-  - shared/         # Shared TypeScript library
-- .env
-- .env.development
-- .env.production
-- hush.yaml
-</FileTree>
-
-### Environment Files
-
-```bash
-# .env (shared secrets)
-DATABASE_URL=postgres://user:pass@host/db
-STRIPE_SECRET_KEY=sk_xxx
-STRIPE_WEBHOOK_SECRET=whsec_xxx
-SENDGRID_API_KEY=SG.xxx
-
-# API URLs (interpolated)
-EXPO_PUBLIC_API_URL=${API_BASE}/v1
-NEXT_PUBLIC_API_URL=${API_BASE}/v1
-VITE_API_URL=${API_BASE}/v1
-
-# App config
-APP_NAME=MyApp
-APP_VERSION=1.0.0
-```
-
-```bash
-# .env.development
-API_BASE=http://localhost:8787
-EXPO_PUBLIC_ENV=development
-NEXT_PUBLIC_ENV=development
-VITE_ENV=development
-DEBUG=true
-```
-
-```bash
-# .env.production
-API_BASE=https://api.myapp.com
-EXPO_PUBLIC_ENV=production
-NEXT_PUBLIC_ENV=production
-VITE_ENV=production
-DEBUG=false
-```
-
-### Configuration
-
-```yaml
-# hush.yaml
-sources:
-  shared: .env
-  development: .env.development
-  production: .env.production
-
-targets:
-  # Root for scripts
-  - name: root
-    path: .
-    format: dotenv
-
-  # Expo mobile app
-  - name: mobile
-    path: ./packages/mobile
-    format: dotenv
-    include:
-      - EXPO_PUBLIC_*
-      - APP_NAME
-      - APP_VERSION
-
-  # Next.js marketing site
-  - name: web
-    path: ./packages/web
-    format: dotenv
-    include:
-      - NEXT_PUBLIC_*
-      - APP_NAME
-
-  # Vite admin dashboard
-  - name: dashboard
-    path: ./packages/dashboard
-    format: dotenv
-    include:
-      - VITE_*
-      - APP_NAME
-
-  # Cloudflare Worker API
-  - name: api
-    path: ./packages/api
-    format: wrangler
-    exclude:
-      - EXPO_PUBLIC_*
-      - NEXT_PUBLIC_*
-      - VITE_*
-```
-
-## Workflow
-
-### Development
-
-```bash
-# Run from root with all secrets
-hush run -- npm run dev
-
-# Run mobile app with filtered secrets
-hush run -t mobile -- npm run start
-
-# Run API with its secrets only
 hush run -t api -- wrangler dev
+hush run -t runtime -- npm run dev
 ```
 
-### Deployment
+## How to think about targets in v3
+
+Targets are now part of the encrypted repository manifest. Use `hush config` to inspect them and the file documents they depend on.
+
+That means the current guidance for monorepos is:
+
+- bootstrap the `.hush/` repo
+- inspect targets and files with `hush config`
+- keep shared authority in encrypted file documents
+- run commands through `hush run`
+
+## Example review loop
 
 ```bash
-# Build with production secrets
-hush run -e production -- npm run build
-
-# Push secrets to Cloudflare Workers
-hush push
+hush config show
+hush config show files
+hush inspect
+hush run -- npm run dev
 ```
 
-### CI/CD
+## Legacy repositories
 
-In your GitHub Actions or CI pipeline:
+If a monorepo still uses legacy include/exclude target rules in `hush.yaml`, treat that as migration-only state.
 
-```yaml
-- name: Setup secrets
-  run: |
-    mkdir -p $HOME/.config/sops/age
-    echo "${{ secrets.AGE_SECRET_KEY }}" > $HOME/.config/sops/age/key.txt
-
-- name: Build
-  run: npx hush run -e production -- npm run build
-
-- name: Deploy API secrets
-  run: npx hush push
+```bash
+hush migrate --from v2
+hush migrate --from v2 --cleanup
 ```
 
-<Aside type="tip">
-Store your age private key as a CI secret. Hush handles everything else—secrets are decrypted to memory and never written to disk.
+<Aside type="note">
+Do not keep teaching `hush.yaml`, `hush init`, `hush encrypt`, or include/exclude targets as the canonical current monorepo model. The current model is the encrypted `.hush/` repository plus `hush config`.
 </Aside>
-
-## Verifying Your Setup
-
-Use `hush status` to verify your configuration:
-
-```bash
-hush status
-```
-
-This shows:
-- Which source files are configured
-- Encryption status of each file
-- Target distribution with their filters

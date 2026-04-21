@@ -1,469 +1,184 @@
 ---
 title: Configuration
-description: Complete guide to configuring Hush with hush.yaml.
+description: Configure a Hush v3 repository rooted at .hush.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-Hush is configured through a `hush.yaml` file in your repository root.
+Hush v3 stores repository authority under `.hush/`. There is no plaintext config tier for the repo structure.
 
-## Basic Structure
-
-```yaml
-# hush.yaml
-sources:
-  shared: .env
-  development: .env.development
-  production: .env.production
-
-targets:
-  - name: root
-    path: .
-    format: dotenv
-
-  - name: app
-    path: ./packages/app
-    format: dotenv
-    include:
-      - EXPO_PUBLIC_*
-
-  - name: api
-    path: ./packages/api
-    format: wrangler
-    exclude:
-      - EXPO_PUBLIC_*
-```
-
-## Sources
-
-The `sources` section defines your `.env` files and how they map to environments.
-
-```yaml
-sources:
-  shared: .env                    # Base variables for all environments
-  development: .env.development   # Development-specific overrides
-  production: .env.production     # Production-specific overrides
-```
-
-### Source Merging Order
-
-When decrypting, sources are merged in order with later values overriding earlier ones:
-
-1. **shared** - Base variables
-2. **environment** (development or production) - Environment overrides
-3. **.env.local** (unencrypted) - Personal overrides (not committed)
-
-### Example
+## Start with bootstrap
 
 ```bash
-# .env (shared)
-API_URL=https://api.example.com
-DEBUG=false
-
-# .env.development
-API_URL=http://localhost:8787
-DEBUG=true
-
-# Result for development:
-# API_URL=http://localhost:8787  (overridden)
-# DEBUG=true                      (overridden)
+hush bootstrap
 ```
 
-## Targets
+That creates the initial v3 layout:
 
-The `targets` section defines where secrets should be written and in what format.
+```text
+.hush/
+  manifest.encrypted
+  files/
+    env/project/shared.encrypted
+.sops.yaml
+```
 
-### Required Fields
+It also writes machine-local state at:
 
-| Field | Description |
-|-------|-------------|
-| `name` | Identifier for the target (used in output messages) |
-| `path` | Directory where the output file should be written |
-| `format` | Output format: `dotenv`, `wrangler`, `json`, `shell`, or `yaml` |
+```text
+~/.hush/state/projects/<project-slug>/active-identity.json
+```
 
-### Optional Fields
+## Repository structure
 
-| Field | Description |
-|-------|-------------|
-| `include` | Glob patterns for variables to include |
-| `exclude` | Glob patterns for variables to exclude |
-| `push_to` | Configuration for pushing secrets to Cloudflare Pages |
+### Manifest
 
-### Push Configuration
+`.hush/manifest.encrypted` holds the structural config for the repo.
 
-The `push_to` field enables pushing secrets to Cloudflare Pages:
+The first bootstrap pass creates:
+
+- identities: `owner-local`, `member-local`, `ci`
+- bundle shell: `project`
+- target shells: `runtime`, `example`
+
+Example shape:
 
 ```yaml
+version: 3
+identities:
+  owner-local:
+    roles: [owner]
+  member-local:
+    roles: [member]
+  ci:
+    roles: [ci]
+bundles:
+  project:
+    files:
+      - path: env/project/shared
 targets:
-  - name: app
-    path: ./app
+  runtime:
+    bundle: project
     format: dotenv
-    include:
-      - NEXT_PUBLIC_*
-    push_to:
-      type: cloudflare-pages
-      project: my-pages-project  # Your Cloudflare Pages project name
+    mode: process
+  example:
+    bundle: project
+    format: dotenv
+    mode: example
+```
+
+### Files
+
+Each file under `.hush/files/**.encrypted` is one ACL boundary.
+
+The bootstrap pass creates one shared file shell:
+
+```yaml
+path: env/project/shared
+readers:
+  roles: [owner, member, ci]
+  identities: []
+sensitive: true
+entries: {}
 ```
 
 <Aside type="note">
-For Cloudflare Workers, `push_to` is optional. Targets with `format: wrangler` automatically push to Workers.
+Files are the only ACL boundary in v3. Paths are for addressing, not authorization.
 </Aside>
 
-### Example
+## Inspect the structure
 
-```yaml
-targets:
-  - name: app
-    path: ./packages/app
-    format: dotenv
-    include:
-      - EXPO_PUBLIC_*
-      - NEXT_PUBLIC_*
-      - VITE_*
-```
-
-## Include/Exclude Patterns
-
-Use glob patterns to control which variables reach each target.
-
-### Include
-
-Only variables matching any `include` pattern are written:
-
-```yaml
-targets:
-  - name: client
-    path: ./client
-    format: dotenv
-    include:
-      - EXPO_PUBLIC_*    # Variables starting with EXPO_PUBLIC_
-      - NEXT_PUBLIC_*    # Variables starting with NEXT_PUBLIC_
-```
-
-### Exclude
-
-All variables except those matching `exclude` patterns are written:
-
-```yaml
-targets:
-  - name: server
-    path: ./server
-    format: wrangler
-    exclude:
-      - EXPO_PUBLIC_*    # Exclude client-only variables
-      - NEXT_PUBLIC_*
-```
-
-### Combined
-
-When both are specified, `include` is applied first, then `exclude`:
-
-```yaml
-targets:
-  - name: api
-    path: ./api
-    format: json
-    include:
-      - API_*           # Include all API_* variables
-    exclude:
-      - API_DEBUG_*     # Except debugging ones
-```
-
-<Aside type="tip">
-Use `include` when you want to explicitly list what a target receives.
-Use `exclude` when you want "everything except these."
-</Aside>
-
-## Output Formats
-
-### dotenv
-
-Standard `.env` file format:
+Use `hush config show` to inspect structural state.
 
 ```bash
-# .env.development
-DATABASE_URL=postgres://localhost/mydb
-API_KEY=sk_test_xxx
+hush config show
+hush config show identities
+hush config show files
+hush config show state
 ```
 
-Output file: `.env.development` or `.env.production`
+Available sections:
 
-### wrangler
+- `manifest`
+- `identities`
+- `bundles`
+- `targets`
+- `imports`
+- `files`
+- `state`
 
-Cloudflare Wrangler format for Workers development.
+## Active identity
 
-**Recommended:** Use `hush run` to keep secrets in memory:
+Hush v3 uses an explicit machine-local active identity pointer.
+
+Show the current identity:
 
 ```bash
-hush run -t api -- wrangler dev
+hush config active-identity
 ```
 
-Hush automatically sets `CLOUDFLARE_INCLUDE_PROCESS_ENV=true` for you, which tells Wrangler to read secrets from the environment.
-
-**Alternative:** If you must write to disk, `hush decrypt --force` creates `.dev.vars`:
+Switch identities:
 
 ```bash
-# .dev.vars
-DATABASE_URL=postgres://localhost/mydb
-API_KEY=sk_test_xxx
+hush config active-identity member-local
+hush config active-identity ci
 ```
 
-#### Troubleshooting: Wrangler not seeing env vars?
+Bootstrap sets the initial active identity to `owner-local`.
 
-Wrangler has a strict rule: **if a `.dev.vars` file exists (even empty!), it ignores `CLOUDFLARE_INCLUDE_PROCESS_ENV` entirely.**
+## File readers
 
-If your secrets aren't showing up:
+Update file-scoped readers with `hush config readers`.
 
-1. **Delete `.dev.vars`**: 
-   ```bash
-   rm .dev.vars
-   ```
+```bash
+hush config readers env/project/shared --roles owner,member,ci
+hush config readers env/project/shared --identities owner-local,member-local
+hush config readers env/project/shared --roles owner,ci --identities ci
+```
 
-2. **Use `hush run` instead of `hush decrypt`**:
-   ```bash
-   hush run -t api -- wrangler dev
-   ```
+Rules for the first pass:
 
-3. **Update Wrangler**: Older versions may not support `CLOUDFLARE_INCLUDE_PROCESS_ENV`:
-   ```bash
-   npm update wrangler
-   ```
+- `--roles` updates role-based readers
+- `--identities` updates explicit identity readers
+- Omitted flags keep the existing value
+- The file path must match a declared `.hush/files/**.encrypted` document
+
+## Deprecated init alias
+
+`hush init` is no longer the canonical setup flow.
+
+```bash
+hush init
+```
+
+It now prints a deprecation warning and delegates to `hush bootstrap`.
 
 <Aside type="caution">
-Hush warns you if it detects a `.dev.vars` file when running a Wrangler target. The fix is always: delete the file and use `hush run`.
+Use `hush bootstrap` in docs, scripts, onboarding steps, and AI instructions. Keep `hush init` only for compatibility during the transition.
 </Aside>
 
-### json
+## Legacy note
 
-JSON object format:
+Legacy `hush.yaml` repositories still exist for migration work, but the canonical setup path is now `.hush/` plus `hush config`.
 
-```json
-{
-  "DATABASE_URL": "postgres://localhost/mydb",
-  "API_KEY": "sk_test_xxx"
-}
-```
+## Migrate a legacy repo
 
-Output file: `.env.development.json` or `.env.production.json`
-
-### shell
-
-Sourceable shell exports:
+Use the big-bang migration flow when a repo still depends on `hush.yaml`.
 
 ```bash
-#!/bin/sh
-export DATABASE_URL="postgres://localhost/mydb"
-export API_KEY="sk_test_xxx"
+hush migrate --from v2 --dry-run
+hush migrate --from v2
+hush migrate --from v2 --cleanup
 ```
 
-Output file: `.env.development.sh` or `.env.production.sh`
+The flow is intentionally one-way inside a repository:
 
-## Variable Interpolation
+1. `--dry-run` inventories the legacy repo without mutating it
+2. `hush migrate --from v2` creates `.hush/` v3 state and machine-local migrated overrides
+3. `--cleanup` removes validated legacy leftovers such as `hush.yaml` and old encrypted source files
 
-Reference other variables using `${VAR}` syntax. Hush v4 supports powerful expansion features:
-
-### Basic Reference
-Reference variables defined in the same file or from the root secrets:
-
-```bash
-# .env
-HOST=localhost
-PORT=3000
-BASE_URL=http://${HOST}:${PORT}
-```
-
-### Default Values
-Provide a fallback if the variable is not set:
-
-```bash
-# Use PORT from secrets, or 3000 if missing
-PORT=${PORT:-3000}
-
-# Use API_URL, or fallback to localhost
-API_URL=${API_URL:-http://localhost:8080}
-```
-
-### System Environment Variables
-Explicitly read from the system environment (e.g., CI variables, machine info):
-
-```bash
-# Read CI variable from system environment
-IS_CI=${env:CI}
-
-# Read HOSTNAME from system
-MACHINE_NAME=${env:HOSTNAME}
-```
+For the full migration walkthrough, see the migration guide for legacy `hush.yaml` repositories.
 
 <Aside type="note">
-For security and reproducibility, Hush does not automatically include system environment variables. You must explicitly opt-in using `${env:VAR}`.
+Historical migration pages under `docs/src/content/docs/migrations/` stay as shipped-history context. They do not define the current v3 repository model.
 </Aside>
-
-### Self-Reference
-Useful for providing defaults to variables that might be overridden:
-
-```bash
-# If PORT is defined in root secrets, use it. Otherwise use 3000.
-PORT=${PORT:-3000}
-```
-
-## Push vs Pull: Choosing the Right Approach
-
-Hush v4 supports two architectures for distributing secrets in monorepos. Choose based on your use case.
-
-### Quick Decision Guide
-
-| Scenario | Use | Why |
-|----------|-----|-----|
-| "All `NEXT_PUBLIC_*` vars to web app" | **Push** | Pattern-based, zero maintenance |
-| "Rename `API_URL` → `EXPO_PUBLIC_API_URL`" | **Pull** | Transformation required |
-| "Add default `PORT=3000` if not set" | **Pull** | Default values |
-| "Combine vars: `${HOST}:${PORT}`" | **Pull** | Composition |
-| "New vars auto-flow to targets" | **Push** | No template updates needed |
-| "Subdirectory controls its own deps" | **Pull** | Explicit ownership |
-
-### Push Model (include/exclude in hush.yaml)
-
-**Best for:** Pattern-based filtering where new vars should auto-flow.
-
-```yaml
-targets:
-  - name: web
-    path: ./apps/web
-    format: dotenv
-    include:
-      - NEXT_PUBLIC_*  # All matching vars flow automatically
-```
-
-**Pros:**
-- Zero maintenance when adding new vars matching the pattern
-- Centralized control in `hush.yaml`
-- Great for "all client vars go here" scenarios
-
-**Cons:**
-- Cannot rename or transform vars
-- Cannot add defaults
-- Cannot combine vars
-
-### Pull Model (subdirectory .env templates)
-
-**Best for:** Transformation, renaming, defaults, or when subdirectories own their config.
-
-```bash
-# apps/mobile/.env (committed - just a template)
-EXPO_PUBLIC_API_URL=${API_URL}      # Rename
-EXPO_PUBLIC_DEBUG=${DEBUG:-false}    # Default value
-PORT=${PORT:-3000}                   # Self-reference with default
-```
-
-**Pros:**
-- Can rename vars (API_URL → EXPO_PUBLIC_API_URL)
-- Can provide defaults (`${VAR:-default}`)
-- Can compose vars (`${HOST}:${PORT}`)
-- Subdirectory explicitly declares what it needs
-
-**Cons:**
-- Must update template when adding new vars
-- More files to maintain
-
-<Aside type="tip">
-**For AI agents:** Use **push** when you see patterns like "route all NEXT_PUBLIC_* vars" or "exclude client vars from API". Use **pull** when you need to rename, transform, or add defaults to variables.
-</Aside>
-
-## Pull-Based Architecture (v4)
-
-In monorepos, you can define `.env` templates in your subdirectories that **pull** values from root secrets.
-
-**Root Secrets (.env):**
-```bash
-API_URL=https://api.example.com
-STRIPE_KEY=sk_test_xxx
-```
-
-**Subdirectory (.env):**
-```bash
-# Map root secrets to framework-specific prefixes
-NEXT_PUBLIC_API_URL=${API_URL}
-
-# Define local defaults
-PORT=${PORT:-3000}
-```
-
-When you run `hush run` in the subdirectory:
-1. Root secrets are decrypted
-2. Local `.env` template is loaded
-3. Variables in the local template are resolved against root secrets
-4. Result is injected into the command
-
-This avoids the "prefix soup" problem where you have to duplicate secrets like `NEXT_PUBLIC_API_URL`, `EXPO_PUBLIC_API_URL`, `VITE_API_URL`, etc. in your root `.env`.
-
-## SOPS Configuration
-
-Hush uses SOPS for encryption. Configure it in `.sops.yaml`:
-
-```yaml
-# .sops.yaml
-creation_rules:
-  - encrypted_regex: '.*'
-    age: age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
-
-### Multiple Keys
-
-For team environments, use multiple age keys:
-
-```yaml
-creation_rules:
-  - encrypted_regex: '.*'
-    age: >-
-      age1alice...,
-      age1bob...,
-      age1charlie...
-```
-
-Anyone with any of these keys can decrypt the secrets.
-
-## Complete Example
-
-```yaml
-# hush.yaml
-sources:
-  shared: .env
-  development: .env.development
-  production: .env.production
-
-targets:
-  # Root gets everything for scripts
-  - name: root
-    path: .
-    format: dotenv
-
-  # Expo app only gets public variables
-  - name: mobile
-    path: ./packages/mobile
-    format: dotenv
-    include:
-      - EXPO_PUBLIC_*
-
-  # Next.js web app gets its public variables
-  - name: web
-    path: ./packages/web
-    format: dotenv
-    include:
-      - NEXT_PUBLIC_*
-
-  # API gets everything except public variables
-  - name: api
-    path: ./packages/api
-    format: wrangler
-    exclude:
-      - EXPO_PUBLIC_*
-      - NEXT_PUBLIC_*
-
-  # Shared library gets specific variables as JSON
-  - name: shared
-    path: ./packages/shared
-    format: json
-    include:
-      - API_URL
-      - APP_NAME
-```

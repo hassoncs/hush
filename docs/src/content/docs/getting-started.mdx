@@ -1,65 +1,48 @@
 ---
 title: Getting Started
-description: Install Hush and encrypt your first secrets in under 5 minutes.
+description: Install Hush and bootstrap the current v3 repository model in a few minutes.
 ---
 
 import { Steps, Tabs, TabItem, Aside } from '@astrojs/starlight/components';
 
-Get up and running with Hush in just a few minutes.
+Get up and running with the current Hush v3 model in a few minutes.
 
 ## Prerequisites
 
 Hush requires **Node.js 18+** and delegates encryption to standard tools.
 
-1.  **[SOPS](https://github.com/getsops/sops)** - The standard for secret operations
-2.  **[age](https://github.com/FiloSottile/age)** - Modern, simple key management
-3.  **[direnv](https://direnv.net/)** - Automatic environment loading (for per-project keys)
+1. **[SOPS](https://github.com/getsops/sops)**
+2. **[age](https://github.com/FiloSottile/age)**
+3. **[direnv](https://direnv.net/)** for automatic key loading in project shells
 
 <Tabs>
   <TabItem label="macOS">
     ```bash
     brew install sops age direnv
-    
-    # Add direnv hook to your shell (add to ~/.zshrc or ~/.bashrc)
-    echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc   # for zsh
-    # or: echo 'eval "$(direnv hook bash)"' >> ~/.bashrc   # for bash
-    
-    # Reload your shell
-    source ~/.zshrc
     ```
   </TabItem>
   <TabItem label="Linux">
     ```bash
-    # SOPS
     curl -LO https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
     sudo mv sops-v3.8.1.linux.amd64 /usr/local/bin/sops
     sudo chmod +x /usr/local/bin/sops
 
-    # age
     curl -LO https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz
     tar xzf age-v1.1.1-linux-amd64.tar.gz
     sudo mv age/age /usr/local/bin/
-    
-    # direnv
+
     curl -sfL https://direnv.net/install.sh | bash
-    echo 'eval "$(direnv hook bash)"' >> ~/.bashrc
-    source ~/.bashrc
     ```
   </TabItem>
   <TabItem label="Windows">
     ```powershell
-    # Using scoop
     scoop install sops age direnv
-    
-    # Or using chocolatey
-    choco install sops age direnv
     ```
-    *Note: Hush fully supports Windows (PowerShell/CMD). For direnv on Windows, see [direnv.net](https://direnv.net/) for setup instructions.*
   </TabItem>
 </Tabs>
 
 <Aside type="note">
-**Why direnv?** Hush uses per-project encryption keys stored at `~/.config/sops/age/keys/{project}.txt`. SOPS needs the `SOPS_AGE_KEY_FILE` environment variable to find them. direnv automatically loads this when you `cd` into the project.
+Hush v3 stores the canonical repo state in `.hush/manifest.encrypted` and `.hush/files/**.encrypted`. Legacy `hush.yaml` repositories should use `hush migrate --from v2` instead of following a fresh setup flow.
 </Aside>
 
 ## Installation
@@ -86,142 +69,99 @@ Hush requires **Node.js 18+** and delegates encryption to standard tools.
 
 <Steps>
 
-1. **Generate an age key**
-
-   Create a key pair for encrypting your secrets:
+1. **Bootstrap the v3 repository**
 
    ```bash
-   mkdir -p ~/.config/sops/age
-   age-keygen -o ~/.config/sops/age/key.txt
+   npx hush bootstrap
    ```
 
-   This creates a private key at `~/.config/sops/age/key.txt`. The public key is printed to the console.
+   This creates the encrypted repository shell, the initial shared file document, and `.sops.yaml`.
 
-2. **Create `.sops.yaml`**
-
-   In your repository root, create a SOPS configuration file:
-
-   ```yaml
-   # .sops.yaml
-   creation_rules:
-     - encrypted_regex: '.*'
-       age: age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-   ```
-
-   Replace the `age:` value with your public key from step 1.
-
-3. **Initialize Hush**
-
-   Run the init command to create `hush.yaml`:
+2. **Inspect the bootstrapped state**
 
    ```bash
-   npx hush init
+   npx hush config show
+   npx hush config active-identity
    ```
 
-   This auto-detects packages in your monorepo and creates a configuration file.
+   Use `hush config` to inspect manifest state, active identity, file readers, and target definitions.
 
-4. **Create your source files**
+3. **Add your first secret safely**
 
    ```bash
-   # .hush (shared across environments)
-   DATABASE_URL=postgres://localhost/mydb
-   STRIPE_SECRET_KEY=sk_test_xxx
-   EXPO_PUBLIC_API_URL=${API_BASE}/v1
-
-   # .hush.development
-   API_BASE=http://localhost:8787
-
-   # .hush.production
-   API_BASE=https://api.example.com
+   npx hush set DATABASE_URL
+   npx hush set API_KEY --gui
    ```
 
-5. **Encrypt**
+   The value is written into the encrypted v3 file document. The assistant never needs to read a plaintext env file.
 
-   ```bash
-   npx hush encrypt
-   ```
-
-   This creates encrypted versions of your source files (`.hush.encrypted`, etc.) that are safe to commit.
-
-6. **Set up direnv for key loading**
-
-   Create a `.envrc` file in your project root:
-
-   ```bash
-   # .envrc
-   export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys/YOUR_PROJECT.txt"
-   ```
-
-   Replace `YOUR_PROJECT` with your project identifier (visible in `npx hush status` under "Local key").
-
-   Then allow direnv to load it:
-
-   ```bash
-   direnv allow
-   ```
-
-   <Aside type="tip">
-   For team projects, commit `.envrc` to git so everyone gets the correct key path automatically.
-   </Aside>
-
-7. **Run with secrets**
+4. **Run your app**
 
    ```bash
    npx hush run -- npm start
    ```
 
-   This decrypts secrets to memory and runs your command with them as environment variables. Secrets never touch the disk!
+   Hush resolves the selected v3 target, decrypts only for the child process, and cleans up.
+
+5. **Adjust configuration when needed**
+
+   ```bash
+   npx hush config show files
+   npx hush config readers env/project/shared --roles owner,ci
+   ```
+
+   `hush config` is the normal path for inspecting and updating the current repository model.
 
 </Steps>
 
-## Verify Your Setup
+## Current file layout
 
-Check that everything is configured correctly:
-
-```bash
-npx hush status
+```text
+.hush/
+  manifest.encrypted
+  files/
+    env/project/shared.encrypted
+.sops.yaml
 ```
 
-This shows your configuration, encrypted files, and target distribution.
+## Migrating an older repository
+
+If this repo still uses legacy v2 files, use the migration bridge instead of bootstrapping over it:
+
+```bash
+npx hush migrate --from v2
+npx hush migrate --from v2 --cleanup
+```
+
+## Verify your setup
+
+```bash
+npx hush config show
+npx hush inspect
+```
 
 ## Troubleshooting
 
 ### "no identity matched any of the recipients"
 
-This is the most common error. It means SOPS can't find your decryption key.
-
-**Most likely cause:** direnv isn't loaded.
+SOPS cannot find the matching age key.
 
 ```bash
-# 1. Check that direnv is allowed
-direnv allow
-
-# 2. Verify the environment variable is set
-echo $SOPS_AGE_KEY_FILE   # Should show the path to your key file
-
-# 3. Test decryption
-npx hush status
-npx hush inspect
+npx hush keys setup
+npx hush config show state
 ```
 
-If `SOPS_AGE_KEY_FILE` is empty, make sure you've:
-1. Installed direnv and added the hook to your shell
-2. Reloaded your shell (`source ~/.zshrc` or open a new terminal)
-3. Run `direnv allow` in the project directory
+### Team repository with existing keys
 
-### "age key not found"
+If the repository already exists, pull or verify the project key first:
 
-The key file doesn't exist. Either:
-- Run `npx hush keys setup` to pull from 1Password
-- Get the key from a team member and save it to the path shown in `npx hush status`
+```bash
+npx hush keys setup
+```
 
-## Next Steps
+## Next steps
 
-- Learn about [Configuration](/guides/configuration/) to customize your setup
-- Understand [Monorepo Patterns](/guides/monorepos/) for routing secrets
-- Explore [AI-Native Workflow](/guides/ai-native/) for working with AI assistants
-- See the full [Command Reference](/reference/commands/)
-
-<Aside type="tip">
-Add `.hush*.encrypted` files to git. With `hush run`, plaintext files are never created—secrets only exist in memory when your program runs.
-</Aside>
+- Read the [File Reference](/reference/files/)
+- Learn the [AI-Native Workflow](/guides/ai-native/)
+- See [AI Prompts](/guides/ai-prompts/)
+- Use the [legacy migration guide](/migrations/legacy-v2-to-current-v3/) only for old v2 repos

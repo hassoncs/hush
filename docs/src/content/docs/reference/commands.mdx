@@ -18,9 +18,9 @@ Hush keeps secrets **encrypted at rest**. The primary way to use secrets is `hus
 | Category | Commands | Description |
 |----------|----------|-------------|
 | **Primary (AI-Safe)** | `run`, `set`, `edit`, `inspect`, `has` | Safe for AI assistants—never expose secret values |
-| **Setup** | `init`, `encrypt`, `status`, `skill` | Configuration and encryption |
+| **Setup** | `bootstrap`, `config`, `init`, `migrate`, `encrypt`, `status`, `skill` | Repository setup and bounded migration, with `encrypt` kept only as a retired legacy bridge |
 | **Deployment** | `push`, `check` | CI/CD and cloud deployment |
-| **Debugging** | `resolve`, `trace` | Debug secret filtering and routing |
+| **Debugging** | `resolve`, `trace`, `diff`, `export-example` | Debug safe output, provenance, and example generation |
 
 ### Global Options
 
@@ -46,7 +46,7 @@ hush run -- npm start
 hush run -e production -- npm build
 hush run -e prod -- npm build
 
-# Run with secrets filtered for a specific target
+# Run with a specific v3 target
 hush run -t api -- wrangler dev
 hush run --target web -- npm start
 
@@ -59,18 +59,16 @@ hush run --global -- npm start
 | Option | Description |
 |--------|-------------|
 | `-e, --env <env>` | Environment: `development` or `production` |
-| `-t, --target <name>` | Filter secrets for a specific target from `hush.yaml` |
+| `-t, --target <name>` | Resolve a specific v3 target; otherwise Hush uses `runtime` or the only non-example target |
 | `-- <command>` | The command to run (everything after `--`) |
 
 ### How It Works
 
-1. Decrypts secrets to memory (never written to disk)
-2. Merges shared → environment → local secrets
-3. Resolves subdirectory templates (if present)
-4. Filters root secrets based on target config (if matched)
-5. Merges template vars + filtered root secrets (additive)
-6. Spawns the child process with secrets as environment variables
-7. Inherits stdin/stdout/stderr for full interactivity
+1. Loads the v3 repository from `.hush/`
+2. Resolves the selected target through the shared resolver/materializer
+3. Decrypts to memory only and emits audit events
+4. Spawns the child process with the resolved environment
+5. Cleans up any staged runtime state automatically on failure or signals
 
 When `--global` is used, Hush reads only from `~/.hush`. It does not merge project secrets.
 
@@ -94,7 +92,7 @@ hush run -- node scripts/migrate.js
 ```
 
 <Aside type="tip">
-Use `-t` (target) to filter secrets. For example, your frontend might only need `NEXT_PUBLIC_*` variables, while your API needs database credentials.
+Use `-t` to choose a specific v3 target when the repo declares more than one runtime target.
 </Aside>
 
 ---
@@ -114,7 +112,7 @@ hush set FEATURE_FLAG "enabled" --local
 hush set DATABASE_URL
 hush set API_KEY -e production
 
-# Set in local overrides (.hush.local.encrypted)
+# Set in machine-local overrides
 hush set MY_OVERRIDE --local
 
 # Set in the explicit global store
@@ -133,8 +131,8 @@ cat cert.pem | hush set CERTIFICATE
 
 | Option | Description |
 |--------|-------------|
-| `-e, --env <env>` | Target environment file (default: shared `.hush.encrypted`) |
-| `--local` | Set in `.hush.local.encrypted` (personal overrides, not committed) |
+| `-e, --env <env>` | Write to `env/project/development` or `env/project/production` instead of the shared v3 file |
+| `--local` | Write to the machine-local override document under `~/.hush/state/projects/<slug>/user/local-overrides.encrypted` |
 | `--gui` | Use a native GUI dialog for input instead of terminal or piped input |
 | `--global` | Set the secret in `~/.hush` instead of the current project store |
 
@@ -154,12 +152,11 @@ hush set API_KEY "value" --global
 
 ### How It Works
 
-1. Gets value from inline arg, pipe, GUI, or prompt
-2. In global mode, auto-creates `~/.hush/hush.yaml` and `~/.hush/.sops.yaml` when the global key already exists
-3. Decrypts the target file
-4. Sets or updates the key
-5. Re-encrypts the file
-6. Confirms success with character count (no value shown)
+1. Gets the value from inline arg, pipe, GUI, or prompt
+2. Loads the v3 repository and requires an active identity
+3. Updates the selected `.hush/files/**.encrypted` document, or the machine-local override doc
+4. Writes the YAML document back in place and emits a write audit event
+5. Confirms success with character count only
 
 For global mode, Hush binds global writes to `~/.hush/.sops.yaml` explicitly, so running `hush set --global` from inside another repo still uses the global recipient instead of a repo-local `.sops.yaml`.
 
@@ -167,11 +164,11 @@ For global mode, Hush binds global writes to `~/.hush/.sops.yaml` explicitly, so
 
 ```
 $ hush set DATABASE_URL "postgres://localhost/mydb"
-✓ DATABASE_URL set in .hush.encrypted (25 chars)
+✓ DATABASE_URL set (25 chars, encrypted-at-rest v3 doc)
 
 $ hush set API_KEY
 Enter value for API_KEY: sk_test_xxx
-✓ API_KEY set in .hush.encrypted (14 chars)
+✓ API_KEY set (14 chars, encrypted-at-rest v3 doc)
 ```
 
 <Aside type="tip">
@@ -182,7 +179,7 @@ AI agents can use inline values directly: `hush set KEY "value"`. For user-provi
 
 ## edit
 
-Edit secrets in your `$EDITOR`. Opens the decrypted file, and re-encrypts on save.
+Edit a v3 document through a decrypted temporary YAML file in your `$EDITOR`.
 
 ```bash
 # Edit shared secrets
@@ -203,10 +200,10 @@ hush edit --global
 
 ### How It Works
 
-1. Decrypts the target file to a temporary location
-2. Opens in `$EDITOR` (vim, nano, code --wait, etc.)
-3. Re-encrypts when you save and close
-4. Deletes the temporary file
+1. Resolves the target v3 document (`shared`, `development`, `production`, or machine-local `local`)
+2. Decrypts that document to a temporary YAML file
+3. Opens the temp file in `$EDITOR`, validates it on close, then re-encrypts it back to the `.encrypted` path
+4. Emits a write audit event
 
 When `--global` is used, the edit flow also binds to `~/.hush/.sops.yaml`, even if the current working directory has its own `.sops.yaml`.
 
@@ -216,72 +213,106 @@ Make sure your `$EDITOR` environment variable is set. For VS Code, use `code --w
 
 ---
 
+## bootstrap
+
+Bootstrap a v3 repository rooted at `.hush/`.
+
+```bash
+hush bootstrap
+
+# Bootstrap the explicit global store
+hush bootstrap --global
+```
+
+`hush bootstrap` is the canonical setup flow for Task 6. It creates the initial v3 repository layout, `.sops.yaml`, default identities, bundle and target shells, and the machine-local active identity pointer.
+
+### Created layout
+
+```text
+.hush/
+  manifest.encrypted
+  files/
+    env/project/shared.encrypted
+.sops.yaml
+~/.hush/state/projects/<project-slug>/active-identity.json
+```
+
+### Default identities and shells
+
+- Identities: `owner-local`, `member-local`, `ci`
+- Bundle shell: `project`
+- Target shells: `runtime`, `example`
+- Initial active identity: `owner-local`
+
+---
+
+## config
+
+Inspect or update v3 structural config without treating plaintext YAML as the source of truth.
+
+```bash
+hush config show
+hush config show identities
+hush config active-identity
+hush config active-identity member-local
+hush config readers env/project/shared --roles owner,member,ci
+hush config readers env/project/shared --identities owner-local,ci
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|-----------|-------------|
+| `show [section]` | Show v3 structure. Sections: `manifest`, `identities`, `bundles`, `targets`, `imports`, `files`, `state` |
+| `active-identity [name]` | Show the current active identity, or set it when a name is provided |
+| `readers <file-path> --roles <csv> --identities <csv>` | Update the file-scoped readers on one encrypted file |
+
+### Notes
+
+- `show` returns structural data only. It does not materialize secret values.
+- `active-identity` writes machine-local state under `~/.hush/state/projects/<project-slug>/active-identity.json`.
+- `readers` updates one ACL unit at a time, because files are the only ACL boundary in v3.
+
+---
+
 ## init
 
-Generate a `hush.yaml` configuration file with auto-detected targets.
+Deprecated alias for `hush bootstrap`.
 
 ```bash
 hush init
-
-# Initialize the explicit global store
-hush init --global
 ```
 
-This command scans your monorepo for packages with `package.json` files and creates an initial configuration.
-
-When `--global` is used, Hush initializes `~/.hush` with a single root target and a dedicated global key identity.
-
-If you already ran `hush keys generate --global` or `hush keys setup --global`, `hush set --global KEY ...` can now bootstrap the missing global config files automatically.
-
-### Example Output
-
-```yaml
-# hush.yaml (generated)
-sources:
-  shared: .hush
-  development: .hush.development
-  production: .hush.production
-
-targets:
-  - name: root
-    path: .
-    format: dotenv
-  - name: app
-    path: ./packages/app
-    format: dotenv
-  - name: api
-    path: ./packages/api
-    format: wrangler
-```
+This command still works for one transition cycle, but it only prints a deprecation warning and delegates to `hush bootstrap`. New setup flows should use `hush bootstrap` directly.
 
 ---
 
 ## encrypt
 
-Encrypt source `.hush` files to `.hush.encrypted` files.
+Retired legacy bridge. This command no longer performs general encryption work outside the migration path.
 
 ```bash
 hush encrypt
 ```
 
-### What Gets Encrypted
+### Current behavior
 
-Based on your `hush.yaml` sources configuration:
-- `.hush` → `.hush.encrypted`
-- `.hush.development` → `.hush.development.encrypted`
-- `.hush.production` → `.hush.production.encrypted`
+`hush encrypt` now fails fast and points you to `hush migrate --from v2`.
+The v3 CLI no longer preserves a standalone plaintext-to-encrypted runtime bridge outside migration.
 
-After encryption, the plaintext `.hush` files are automatically deleted.
+<Aside type="caution">
+For current repos, use `hush bootstrap`, `hush config`, `hush set`, and `hush migrate --from v2` instead. Migration is the only supported legacy bridge.
+</Aside>
 
 <Aside type="tip">
-Encrypted files are safe to commit to git. Add them to version control as your source of truth.
+If an old script still calls `hush encrypt`, replace it with `hush migrate --from v2` and then remove the legacy plaintext files with `hush migrate --from v2 --cleanup` after validation.
 </Aside>
 
 ---
 
 ## inspect
 
-List all variables with masked values. **Safe for AI agents**.
+Inspect readable v3 logical paths with redaction applied. **Safe for AI agents**.
 
 ```bash
 hush inspect
@@ -291,24 +322,27 @@ hush inspect -e production
 ### Example Output
 
 ```
-Secrets for development:
+Hush inspect
 
-  DATABASE_URL      = post****************... (45 chars)
-  STRIPE_SECRET_KEY = sk_t****************... (32 chars)
-  API_KEY           = (not set)
+Active identity: owner-local
+Readable files: 2
+Unreadable files: 1
 
-Total: 3 variables
+Readable entries:
+  env/app/shared (roles=owner,member identities=owner-local,member-local)
+    env/apps/web/env/NEXT_PUBLIC_API_URL
+      kind=value exposure=visible
+      https://api.example.com
+  env/app/secrets (roles=owner identities=owner-local)
+    env/apps/api/env/STRIPE_SECRET_KEY
+      kind=value exposure=sensitive
+      [redacted]
 
-Target distribution:
-
-  root (.) - 3 vars
-  app (./app/) - 1 vars
-    include: EXPO_PUBLIC_*
-  api (./api/) - 2 vars
-    exclude: EXPO_PUBLIC_*
+Unreadable files:
+  env/app/ci-only (roles=ci identities=ci)
 ```
 
-This lets AI agents reason about your configuration without seeing actual secrets.
+`inspect` reports the v3 file boundary directly. It does not summarize legacy source files or target filters.
 
 ---
 
@@ -349,7 +383,7 @@ DATABASE_URL not found
 
 ## push
 
-Push production secrets to Cloudflare (Workers and Pages).
+Push resolved v3 target output to Cloudflare Workers.
 
 ```bash
 # Push all configured targets
@@ -380,41 +414,27 @@ hush push -t app --dry-run --verbose
 | Target Type | Configuration | Wrangler Command |
 |-------------|---------------|------------------|
 | **Cloudflare Workers** | `format: wrangler` | `wrangler secret put` |
-| **Cloudflare Pages** | `push_to: { type: cloudflare-pages, project: ... }` | `wrangler pages secret bulk` |
 
 ### Configuration Examples
 
 **Cloudflare Workers (automatic with `format: wrangler`):**
 ```yaml
 targets:
-  - name: api
-    path: ./api
+  api:
+    bundle: api-runtime
     format: wrangler
 ```
 
-**Cloudflare Pages (requires `push_to`):**
-```yaml
-targets:
-  - name: app
-    path: ./app
-    format: dotenv
-    include:
-      - NEXT_PUBLIC_*
-    push_to:
-      type: cloudflare-pages
-      project: my-pages-project  # Your Pages project name
-```
+Legacy `push_to: cloudflare-pages` mappings are not part of the v3 runtime target model. Migrate those repos first, then rewrite the deployment flow explicitly.
 
 ### How It Works
 
-1. Decrypts production secrets from encrypted files
-2. Resolves subdirectory templates (if present)
-3. Filters variables per target using `include`/`exclude` patterns
-4. For Workers: Uploads each secret using `wrangler secret put`
-5. For Pages: Uploads all secrets at once using `wrangler pages secret bulk`
+1. Loads the v3 repository and resolves a wrangler-formatted target through the shared materializer
+2. Emits the same audit-safe materialization flow used by `hush run`
+3. Pushes each resolved environment variable with `wrangler secret put`
 
 <Aside type="note">
-Requires the `wrangler` CLI to be installed and authenticated. For Pages, the project name must be specified in the `push_to` configuration.
+Requires the `wrangler` CLI to be installed and authenticated. Task 8's v3 push path currently supports wrangler targets only.
 </Aside>
 
 <Aside type="tip">
@@ -425,7 +445,7 @@ Use `hush push -t <target> --dry-run --verbose` to preview exactly what secrets 
 
 ## status
 
-Show configuration and file status. **This is the first command to run when troubleshooting.**
+Show repository and machine-local v3 state. **This is the first command to run when troubleshooting.**
 
 ```bash
 hush status
@@ -437,44 +457,42 @@ hush status --global
 ### Example Output
 
 ```
-Hush Status
+Hush status
 
-Store:
-  project (/path/to/repo)
+Repository: v3
+Root: /path/to/repo
+Store: project (/path/to/repo)
+Manifest: /path/to/repo/.hush/manifest.encrypted
+Files root: /path/to/repo/.hush/files
+Active identity: owner-local
 
-Config:
-  hush.yaml
-  Project: myorg/myrepo
+Repository state:
+  kind: v3
+  manifest files: 1
+  encrypted files: 3
+  identities: 3
+  bundles: 2
+  targets: 2
+  imports: 0
 
-Prerequisites:
-  SOPS installed
-  age key configured
-
-Key Status:
-  Local key: ~/.config/sops/age/keys/myorg-myrepo.txt
-  1Password backup: synced
-
-Source Files:
-  .hush.encrypted
-  .hush.development.encrypted
-  .hush.production.encrypted
-  .hush.local (optional, not found)
-
-Targets:
-  root ./ dotenv -> .env.development
-  app ./packages/app dotenv -> .env.development
-  api ./packages/api wrangler -> .dev.vars
+Machine-local state:
+  project slug: myorg-myrepo-1234abcd
+  state root: ~/.hush/state/projects/myorg-myrepo-1234abcd
+  active identity path: ~/.hush/state/projects/.../active-identity.json (present)
+  audit log path: ~/.hush/state/projects/.../audit.jsonl (present)
 ```
 
-### Troubleshooting with Status
+If the repo still uses `hush.yaml`, `status` reports that migration is required before relying on normal v3 command flows.
+
+### Troubleshooting with status
 
 | You See | Meaning | Fix |
 |---------|---------|-----|
-| `SOPS not installed` | Missing prerequisite | `brew install sops` |
-| `age not installed` | Missing prerequisite | `brew install age` |
-| `age key not found` | No local key | `npx hush keys setup` |
-| `age key configured` but commands fail | direnv not loaded | `direnv allow` |
-| `1Password backup: not found` | Key not in 1Password | `npx hush keys push` |
+| `Repository: missing` | No v3 repo at this root | `hush bootstrap` |
+| `Repository: legacy-v2` | Repo still uses `hush.yaml` authority | migrate or bootstrap into v3 |
+| `Active identity: (not set)` | Machine-local identity pointer is missing | `hush config active-identity <name>` |
+| `active identity path ... (missing)` | State file has not been created yet | set the active identity |
+| `audit log path ... (missing)` | No diagnostic command has written audit yet | run a read/write command or check state permissions |
 
 <Aside type="tip">
 If `hush status` shows "age key configured" but `hush inspect` fails with "no identity matched", your direnv isn't loaded. Run `direnv allow` in the project directory.
@@ -484,7 +502,7 @@ If `hush status` shows "age key configured" but `hush inspect` fails with "no id
 
 ## check
 
-Verify encrypted files are in sync with source files. Useful for pre-commit hooks.
+Validate the v3 repository and flag leftover plaintext or legacy artifacts. Useful for pre-commit hooks.
 
 ```bash
 # Basic check
@@ -496,8 +514,8 @@ hush check --warn
 # JSON output for CI
 hush check --json
 
-# Only check git-modified files
-hush check --only-changed
+# JSON output for CI
+hush check --json
 ```
 
 ### Options
@@ -507,17 +525,15 @@ hush check --only-changed
 | `--warn` | Warn on drift but exit 0 |
 | `--json` | Output machine-readable JSON |
 | `--quiet` | Suppress output |
-| `--only-changed` | Only check files modified in git |
-| `--require-source` | Fail if source file is missing |
+| `--allow-plaintext` | Ignore leftover plaintext or legacy artifacts (not recommended) |
 
 ### Exit Codes
 
 | Code | Meaning |
 |------|---------|
-| `0` | All in sync |
-| `1` | Drift detected (run `hush encrypt`) |
-| `2` | Config error |
-| `3` | Runtime error (sops missing, decrypt failed) |
+| `0` | Repository is valid |
+| `3` | Repository validation failed |
+| `4` | Leftover plaintext or legacy artifacts were found |
 
 ### Pre-commit Hook
 
@@ -526,20 +542,20 @@ hush check --only-changed
 npx hush check || exit 1
 ```
 
-Bypass with: `HUSH_SKIP_CHECK=1 git commit -m "message"`
+`check` validates `.hush/manifest.encrypted`, every `.hush/files/**.encrypted` document, and scans for leftovers such as `hush.yaml`, `.env*`, legacy `.hush*.encrypted`, or `.hush-materialized/`.
 
 ---
 
 ## resolve
 
-Show what variables a specific target will receive, with filtering details. **Essential for debugging why a variable is missing from a target.**
+Resolve a v3 target and show file provenance. **Use this to see what a target actually depends on.**
 
 ```bash
-# Check what variables api-workers receives
-hush resolve api-workers
+# Resolve a target
+hush resolve runtime
 
-# Check with production environment
-hush resolve api-workers -e production
+# The env flag is accepted for CLI compatibility, but v3 resolution is driven by bundles and files
+hush resolve runtime -e production
 ```
 
 ### Options
@@ -551,50 +567,43 @@ hush resolve api-workers -e production
 ### Example Output
 
 ```
-Target: api-workers
-Path: ./api/
-Format: wrangler (.dev.vars)
-Environment: development
+Hush resolve
 
-✅ ROOT SECRETS (Matched Filters) (11):
-  SUPABASE_URL               (source: .env.development)
-  STRIPE_SECRET_KEY          (source: .env)
-  R2_ACCESS_KEY_ID           (source: .env)
-  ...
+Target: app-dev
+Bundle: app
+Format: dotenv
+Active identity: developer-local
+Resolved files: 2
+Resolved logical paths: 2
 
-🚫 EXCLUDED VARIABLES (8):
-  EXPO_PUBLIC_API_URL        (matches: EXPO_PUBLIC_*)
-  FASTLANE_APPLE_ID          (matches: FASTLANE_*)
-  ASC_KEY_ID                 (matches: ASC_*)
-  ...
+Files:
+  env/app/shared
+  env/app/secrets
 
-📄 TEMPLATE EXPANSIONS (api/.hush):
-  DATABASE_URL               ← ${DATABASE_URL}
-  PORT                       ← ${PORT:-8787}
+Values:
+  env/apps/api/env/STRIPE_SECRET_KEY
+      file=env/app/secrets namespace=env
+  env/apps/web/env/NEXT_PUBLIC_API_URL
+      file=env/app/shared namespace=env
 
-📦 FINAL INJECTION (13 total):
-  DATABASE_URL               (template overrides root)
-  PORT                       (template)
-  SUPABASE_URL               (root)
-  ...
+Artifacts:
+  (none)
 ```
 
-<Aside type="tip">
-When a variable is missing, check the 🚫 EXCLUDED section to see which pattern filtered it out. This immediately tells you whether to adjust your `include`/`exclude` patterns.
-</Aside>
+If resolution fails because the active identity cannot read a required file, `resolve` prints the denied file paths and their readers.
 
 ---
 
 ## trace
 
-Trace a specific variable through all sources and targets. **Use this to understand why a variable appears in some places but not others.**
+Trace a logical path or leaf key through repository files and targets. **Use this to understand where a value lives and why a target can or cannot see it.**
 
 ```bash
-# Trace a variable
+# Trace a leaf key
 hush trace DATABASE_URL
 
-# Trace with production environment
-hush trace STRIPE_SECRET_KEY -e production
+# Trace a full logical path
+hush trace env/apps/api/env/DATABASE_URL
 ```
 
 ### Options
@@ -606,24 +615,150 @@ hush trace STRIPE_SECRET_KEY -e production
 ### Example Output
 
 ```
-Tracing variable: SUPABASE_URL
+Hush trace
 
-Source Status:
-  .env             : ❌ Not found
-  .env.development : ✅ Present
-  .env.production  : ✅ Present
-  .env.local       : (file not found)
+Selector: STRIPE_SECRET_KEY
+Active identity: teammate-local
+Matched logical paths: 1
 
-Target Disposition (Environment: development):
-  [root]        : ✅ Included
-  [app]         : 🚫 Not included (not in include: EXPO_PUBLIC_*)
-  [api]         : ✅ Included
-  [api-workers] : ✅ Included
-  [landing]     : 🚫 Not included (not in include: EXPO_PUBLIC_SUPABASE_*)
+Repository files:
+  env/app/secrets (unreadable; roles=owner identities=developer-local)
+    env/apps/api/env/STRIPE_SECRET_KEY
+
+Targets:
+  app-dev (acl denied)
+    env/app/secrets (roles=owner identities=developer-local)
 ```
 
-<Aside type="tip">
-This shows the complete picture: which source files have the variable, and which targets will receive it (or exclude it, and why).
+`trace` uses the same v3 resolver as runtime commands, so ACL failures and interpolation provenance match real resolution behavior.
+
+---
+
+## diff
+
+Compare the current v3 target or bundle against `HEAD` by default, or another git ref with `--ref`. **Use this when you need a safe review surface with provenance and redaction preserved.**
+
+```bash
+# Compare the default runtime target against HEAD
+hush diff
+
+# Compare against another git ref
+hush diff --ref HEAD~1
+
+# Compare a specific target or bundle
+hush diff --target runtime
+hush diff --bundle project
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-t, --target <name>` | Compare a specific target; otherwise Hush uses `runtime` or the only non-example target |
+| `--bundle <name>` | Compare a bundle instead of a target |
+| `--ref <git-ref>` | Git ref to compare against (default: `HEAD`) |
+
+### Example Output
+
+```
+Hush diff
+
+Reference: HEAD
+Selection: target runtime
+Active identity: owner-local
+
+File changes:
+  ~ env/project/shared
+    ref     roles=owner,member identities=owner-local,member-local
+    current roles=owner identities=owner-local
+
+Resolved changes:
+  ~ env/project/shared/API_TOKEN (value)
+    ref     [redacted]
+      file=env/project/shared namespace=env
+    current [redacted]
+      file=env/project/shared namespace=env
+```
+
+`diff` compares both sides through the shared v3 resolver, so file ACL failures, interpolation provenance, and imported provenance are judged the same way real command resolution works.
+
+---
+
+## export-example
+
+Emit a deterministic, redacted example from a target or bundle. **Use this for docs, onboarding, and scaffolding without materializing protected values.**
+
+```bash
+# Safe example for the default target
+hush export-example
+
+# Choose a specific target or bundle
+hush export-example --target runtime
+hush export-example --bundle project
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-t, --target <name>` | Export a specific target; otherwise Hush uses `runtime` or the only non-example target |
+| `--bundle <name>` | Export a bundle summary instead of a target |
+
+### Example Output
+
+```
+Hush export-example
+
+Selection: target runtime
+Format: dotenv
+Active identity: owner-local
+Protected values omitted: 1
+
+Target example:
+  PUBLIC_URL=https://example.com
+
+Artifacts:
+  artifacts/project/runtime/env-file (file:dotenv)
+    # [redacted sensitive artifact]
+```
+
+`export-example` never emits raw `sensitive: true` values. Protected scalars are omitted from the example surface, and protected file or binary artifacts become deterministic placeholder content.
+
+---
+
+## migrate
+
+Convert a legacy `hush.yaml` repository to the v3 `.hush/` layout with a single bounded migration flow.
+
+```bash
+# Inventory only
+hush migrate --from v2 --dry-run
+
+# Convert and validate
+hush migrate --from v2
+
+# Remove validated leftovers
+hush migrate --from v2 --cleanup
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--from v2` | Required legacy source version selector for the big-bang migration flow |
+| `--dry-run` | Inventory the legacy repo without mutating it |
+| `--cleanup` | Remove validated legacy leftovers after a successful migration |
+
+### How It Works
+
+1. Inventories the legacy `hush.yaml` repo, encrypted source files, targets, and repo references
+2. Creates `.hush/manifest.encrypted` and v3 file documents
+3. Migrates local overrides into machine-local state
+4. Validates the converted repo through the shared v3 materialization pipeline
+5. Leaves legacy files in place until `--cleanup` removes them
+
+<Aside type="caution">
+This migration is intentionally one-way inside a repository. Normal runtime commands do not keep a dual-support fallback once the migration flow exists.
 </Aside>
 
 ---
@@ -664,10 +799,10 @@ Once installed, the skill teaches AI assistants to use `hush inspect` and `hush 
 ## decrypt --force (Last Resort)
 
 <Aside type="danger">
-This command writes plaintext secrets to disk. Use `hush run` instead whenever possible.
+This command writes persisted plaintext artifacts to disk. Use `hush run` instead whenever possible.
 </Aside>
 
-Write decrypted secrets to disk as plaintext files. **Requires `--force` flag and interactive confirmation.**
+Write decrypted targets to `.hush-materialized/` as persisted plaintext artifacts. **Requires `--force` flag and interactive confirmation.**
 
 ```bash
 hush decrypt --force
@@ -676,29 +811,29 @@ hush decrypt --force -e production
 
 ### Why This Exists
 
-Some edge cases genuinely require plaintext files on disk:
-- Docker builds that can't use `hush run`
-- Legacy tooling that reads `.env` files directly
-- CI systems without TTY support for `hush run`
+Some edge cases genuinely require persisted plaintext artifacts:
+- Docker or packaging workflows that cannot inherit process env directly
+- Legacy tooling that can only read files on disk
+- Temporary break-glass debugging of target output
 
 ### Safety Features
 
 1. **Requires `--force` flag** - Won't run without explicit opt-in
-2. **Interactive confirmation** - Must type "yes" to proceed
-3. **Blocks non-TTY** - Cannot be run by AI agents or in scripts
+2. **Interactive confirmation** - Must type `yes` to proceed
+3. **Writes under `.hush-materialized/`** - Plaintext is isolated to one explicit directory
+4. **Shared materialization audit** - Uses the same audited runtime flow as `hush run`
 
 ### How It Works
 
-1. Decrypts encrypted source files
-2. Merges shared → environment → local overrides
-3. Interpolates variable references (`${VAR}`)
-4. Filters variables per target using `include`/`exclude` patterns
-5. **Writes plaintext files** to each target path
+1. Loads the v3 repository and selects all non-example targets
+2. Materializes each target through the shared runtime pipeline in persisted mode
+3. Writes target artifacts under `.hush-materialized/targets/` and related artifact paths
+4. Leaves the files on disk until you delete them explicitly
 
 <Aside type="tip">
-After using `decrypt --force`, delete the plaintext files when done:
+After using `decrypt --force`, delete the persisted output directory when done:
 ```bash
-rm .env.development .env.production .dev.vars
+rm -rf .hush-materialized
 ```
 Or better yet, switch to `hush run -- <command>` for future use.
 </Aside>
