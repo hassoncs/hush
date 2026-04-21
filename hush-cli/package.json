@@ -1,6 +1,6 @@
 {
   "name": "@chriscode/hush",
-  "version": "5.1.1",
+  "version": "6.0.0-next.0",
   "description": "SOPS-based secrets management for monorepos. Encrypt once, decrypt everywhere.",
   "type": "module",
   "bin": {
