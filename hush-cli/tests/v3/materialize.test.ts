@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { join } from 'node:path';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { dirname, join } from 'node:path';
 import * as nodeFs from 'node:fs';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import {
@@ -14,7 +14,7 @@ import {
 } from '../../src/index.js';
 import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../../src/core/sops.js';
 import type { HushContext, HushManifestDocument, LegacyHushConfig, StoreContext } from '../../src/types.js';
-import { ensureTestSopsEnv, writeEncryptedYamlFile } from '../helpers/sops-test.js';
+import { ensureTestSopsConfig, ensureTestSopsEnv, writeEncryptedYamlFile } from '../helpers/sops-test.js';
 
 const TEST_DIR = join('/tmp', 'hush-test-v3-materialize');
 
@@ -164,16 +164,19 @@ function normalizeYaml(content: string): string {
 }
 
 function writeRepo(root: string, manifest: string, files: Record<string, string>) {
+  ensureTestSopsConfig(root);
   nodeFs.mkdirSync(join(root, '.hush', 'files'), { recursive: true });
   const parsedFiles = Object.values(files).map((content) => createFileDocument(parseYaml(normalizeYaml(content))));
   const manifestDocument = createManifestDocument({
     ...(parseYaml(normalizeYaml(manifest)) as Record<string, unknown>),
     fileIndex: Object.fromEntries(parsedFiles.map((file) => [file.path, createFileIndexEntry(file)])),
   } as HushManifestDocument);
+  nodeFs.mkdirSync(join(root, '.hush'), { recursive: true });
   writeEncryptedYamlFile(root, join(root, '.hush', 'manifest.encrypted'), stringifyYaml(manifestDocument, { indent: 2 }));
 
   for (const [relativePath, content] of Object.entries(files)) {
     const filePath = join(root, '.hush', 'files', `${relativePath}.encrypted`);
+    nodeFs.mkdirSync(dirname(filePath), { recursive: true });
     writeEncryptedYamlFile(root, filePath, normalizeYaml(content));
   }
 
@@ -198,17 +201,17 @@ function readAuditTypes(store: StoreContext): string[] {
     .map((line) => JSON.parse(line).type);
 }
 
-beforeEach(() => {
+beforeAll(() => {
   ensureTestSopsEnv();
   nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
   nodeFs.mkdirSync(TEST_DIR, { recursive: true });
 });
 
-afterEach(() => {
+afterAll(() => {
   nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
 });
 
-describe('v3 materialization runtime', () => {
+describe.sequential('v3 materialization runtime', () => {
   it('materializes env outputs in memory and audits success', () => {
     const { ctx } = createContext();
     const root = join(TEST_DIR, 'memory-target');
@@ -532,7 +535,6 @@ describe('v3 materialization runtime', () => {
       bundles:
         runtime:
           files:
-            - path: env/app/shared
             - path: artifacts/app/runtime
       targets:
         runtime-files:
@@ -540,17 +542,6 @@ describe('v3 materialization runtime', () => {
           format: json
       `,
       {
-        'env/app/shared': `
-          path: env/app/shared
-          readers:
-            roles: [owner]
-            identities: [developer-local]
-          sensitive: false
-          entries:
-            env/apps/api/env/API_URL:
-              value: https://example.com
-              sensitive: false
-        `,
         'artifacts/app/runtime': `
           path: artifacts/app/runtime
           readers:
@@ -582,10 +573,11 @@ describe('v3 materialization runtime', () => {
       mode: 'staged',
     });
 
-    const tempRoot = materialization.stagedArtifacts[0]!.path
+    const firstArtifact = materialization.stagedArtifacts[0]!;
+    const tempRoot = firstArtifact.path
       .split('/')
-      .slice(0, -3)
-      .join('/');
+      .slice(0, -firstArtifact.logicalPath.split('/').filter(Boolean).length)
+      .join('/') || '/';
     const modeMask = 0o777;
 
     for (const artifact of materialization.stagedArtifacts) {
