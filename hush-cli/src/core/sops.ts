@@ -1,4 +1,5 @@
 import { execSync, spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { fs } from '../lib/fs.js';
 import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
@@ -10,6 +11,8 @@ interface SopsOptions {
   root?: string;
   keyIdentity?: string;
 }
+
+type SopsFileFormat = 'dotenv' | 'yaml';
 
 function getSopsConfigFile(options?: SopsOptions): string | undefined {
   if (!options?.root) {
@@ -70,7 +73,7 @@ export function isAgeKeyConfigured(): boolean {
   return getAgeKeyFile() !== undefined;
 }
 
-export function decrypt(filePath: string, options?: SopsOptions): string {
+function decryptWithFormat(filePath: string, format: SopsFileFormat, options?: SopsOptions): string {
   if (!fs.existsSync(filePath)) {
     throw new Error(`Encrypted file not found: ${filePath}`);
   }
@@ -81,7 +84,7 @@ export function decrypt(filePath: string, options?: SopsOptions): string {
 
   try {
     const result = execSync(
-      `sops --input-type dotenv --output-type dotenv --decrypt "${filePath}"`,
+      `sops --input-type ${format} --output-type ${format} --decrypt "${filePath}"`,
       {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -106,7 +109,15 @@ export function decrypt(filePath: string, options?: SopsOptions): string {
   }
 }
 
-export function encrypt(inputPath: string, outputPath: string, options?: SopsOptions): void {
+export function decrypt(filePath: string, options?: SopsOptions): string {
+  return decryptWithFormat(filePath, 'dotenv', options);
+}
+
+export function decryptYaml(filePath: string, options?: SopsOptions): string {
+  return decryptWithFormat(filePath, 'yaml', options);
+}
+
+function encryptWithFormat(inputPath: string, outputPath: string, format: SopsFileFormat, options?: SopsOptions): void {
   if (!fs.existsSync(inputPath)) {
     throw new Error(`Input file not found: ${inputPath}`);
   }
@@ -119,7 +130,7 @@ export function encrypt(inputPath: string, outputPath: string, options?: SopsOpt
     const configPath = getSopsConfigFile(options);
     const configFlag = configPath ? ` --config "${configPath}"` : '';
     execSync(
-      `sops --input-type dotenv --output-type dotenv --encrypt${configFlag} "${inputPath}" > "${outputPath}"`,
+      `sops --input-type ${format} --output-type ${format} --encrypt${configFlag} "${inputPath}" > "${outputPath}"`,
       {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -130,6 +141,38 @@ export function encrypt(inputPath: string, outputPath: string, options?: SopsOpt
     const err = error as { stderr?: string; message?: string };
     throw new Error(`SOPS encryption failed: ${err.stderr || err.message}`);
   }
+}
+
+export function encrypt(inputPath: string, outputPath: string, options?: SopsOptions): void {
+  encryptWithFormat(inputPath, outputPath, 'dotenv', options);
+}
+
+export function encryptYaml(inputPath: string, outputPath: string, options?: SopsOptions): void {
+  encryptWithFormat(inputPath, outputPath, 'yaml', options);
+}
+
+export function withPrivatePlaintextTempFile<T>(format: SopsFileFormat, content: string, action: (tempFilePath: string) => T): T {
+  const extension = format === 'yaml' ? 'yaml' : 'env';
+  const tempDir = mkdtempSync(join(tmpdir(), 'hush-sops-'));
+  const tempFile = join(tempDir, `staged.${extension}`);
+
+  try {
+    chmodSync(tempDir, 0o700);
+    writeFileSync(tempFile, content, { encoding: 'utf-8', mode: 0o600 });
+    return action(tempFile);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function writeEncryptedContent(content: string, outputPath: string, format: SopsFileFormat, options?: SopsOptions): void {
+  withPrivatePlaintextTempFile(format, content, (tempFile) => {
+    encryptWithFormat(tempFile, outputPath, format, options);
+  });
+}
+
+export function encryptYamlContent(content: string, outputPath: string, options?: SopsOptions): void {
+  writeEncryptedContent(content, outputPath, 'yaml', options);
 }
 
 export function edit(filePath: string, options?: SopsOptions): void {
@@ -188,13 +231,10 @@ export function setKey(filePath: string, key: string, value: string, options?: S
 
   const newContent = updatedLines.join('\n') + '\n';
 
-  const tempFile = join(tmpdir(), `hush-temp-${Date.now()}.env`);
-  
-  try {
-    fs.writeFileSync(tempFile, newContent, 'utf-8');
+  withPrivatePlaintextTempFile('dotenv', newContent, (tempFile) => {
     const configPath = getSopsConfigFile(options);
     const configFlag = configPath ? ` --config "${configPath}"` : '';
-    
+
     execSync(
       `sops --input-type dotenv --output-type dotenv --encrypt${configFlag} "${tempFile}" > "${filePath}"`,
       {
@@ -203,9 +243,5 @@ export function setKey(filePath: string, key: string, value: string, options?: S
         env: getSopsEnv(options),
       }
     );
-  } finally {
-    if (fs.existsSync(tempFile)) {
-      fs.unlinkSync(tempFile);
-    }
-  }
+  });
 }

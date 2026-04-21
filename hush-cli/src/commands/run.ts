@@ -1,169 +1,72 @@
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import pc from 'picocolors';
-import { filterVarsForTarget } from '../core/filter.js';
-import { interpolateVars, getUnresolvedVars } from '../core/interpolate.js';
-import { mergeVars } from '../core/merge.js';
-import { parseEnvContent } from '../core/parse.js';
-import { loadLocalTemplates, resolveTemplateVars } from '../core/template.js';
-import type { RunOptions, EnvVar, HushConfig, Environment, HushContext, StoreContext } from '../types.js';
+import { withMaterializedTarget } from '../index.js';
+import { requireV3Repository, selectRuntimeTarget } from './v3-command-helpers.js';
+import type { HushContext, RunOptions } from '../types.js';
 
-function getEncryptedPath(sourcePath: string): string {
-  return sourcePath + '.encrypted';
-}
-
-function getDecryptedSecrets(ctx: HushContext, store: StoreContext, env: Environment, config: HushConfig): EnvVar[] {
-  const projectRoot = store.root;
-  const sharedEncrypted = join(projectRoot, getEncryptedPath(config.sources.shared));
-  const envEncrypted = join(projectRoot, getEncryptedPath(config.sources[env]));
-  const localEncrypted = join(projectRoot, getEncryptedPath(config.sources.local));
-
-  const varSources: EnvVar[][] = [];
-
-  if (ctx.fs.existsSync(sharedEncrypted)) {
-    const content = ctx.sops.decrypt(sharedEncrypted, { root: projectRoot, keyIdentity: store.keyIdentity });
-    varSources.push(parseEnvContent(content));
+function warnWranglerConflict(ctx: HushContext, cwd: string): void {
+  const devVarsPath = join(cwd, '.dev.vars');
+  if (!ctx.fs.existsSync(devVarsPath)) {
+    return;
   }
 
-  if (ctx.fs.existsSync(envEncrypted)) {
-    const content = ctx.sops.decrypt(envEncrypted, { root: projectRoot, keyIdentity: store.keyIdentity });
-    varSources.push(parseEnvContent(content));
-  }
-
-  if (ctx.fs.existsSync(localEncrypted)) {
-    const content = ctx.sops.decrypt(localEncrypted, { root: projectRoot, keyIdentity: store.keyIdentity });
-    varSources.push(parseEnvContent(content));
-  }
-
-  if (varSources.length === 0) {
-    return [];
-  }
-
-  const merged = mergeVars(...varSources);
-  return interpolateVars(merged);
-}
-
-function getRootSecretsAsRecord(vars: EnvVar[]): Record<string, string> {
-  const record: Record<string, string> = {};
-  for (const { key, value } of vars) {
-    record[key] = value;
-  }
-  return record;
+  ctx.logger.warn('\n⚠️  Wrangler Conflict Detected');
+  ctx.logger.warn(`   Found .dev.vars in ${cwd}`);
+  ctx.logger.warn('   Wrangler may ignore injected environment values while this file exists.');
+  ctx.logger.warn(pc.bold(`   Fix: rm ${devVarsPath}\n`));
 }
 
 export async function runCommand(ctx: HushContext, options: RunOptions): Promise<void> {
-  const { store, cwd, env, target, command } = options;
-  
+  const { store, cwd, target, command } = options;
+
   if (!command || command.length === 0) {
     ctx.logger.error('Usage: hush run -- <command>');
     ctx.logger.error(pc.dim('Example: hush run -- npm start'));
-    ctx.logger.error(pc.dim('         hush run -e production -- npm run build'));
-    ctx.logger.error(pc.dim('         hush run --target api -- wrangler dev'));
+    ctx.logger.error(pc.dim('         hush run -t runtime -- npm start'));
     ctx.process.exit(1);
   }
 
-  const contextDir = cwd;
-  const projectRoot = store.root;
+  let exitStatus: number;
 
-  if (store.mode === 'project' && !store.configPath) {
-    ctx.logger.error('No hush.yaml found in current directory or any parent directory.');
-    ctx.logger.error(pc.dim('Run: npx hush init'));
-    ctx.process.exit(1);
-  }
+  try {
+    const repository = requireV3Repository(store, 'run');
+    const { targetName, target: selectedTarget } = selectRuntimeTarget(repository, target);
 
-  const config = ctx.config.loadConfig(projectRoot);
-  
-  const rootSecrets = getDecryptedSecrets(ctx, store, env, config);
+    exitStatus = withMaterializedTarget(ctx, {
+      store,
+      repository,
+      targetName,
+      command: { name: 'run', args: [targetName, '--', ...command] },
+      mode: 'memory',
+    }, (materialization) => {
+      const childEnv: NodeJS.ProcessEnv = {
+        ...ctx.process.env,
+        ...materialization.env,
+      };
 
-  if (rootSecrets.length === 0) {
-    ctx.logger.warn(pc.yellow('No encrypted files found. Running command without secrets.'));
-    ctx.logger.warn(pc.dim('  To encrypt secrets, run: npx hush encrypt'));
-  }
-
-  const rootSecretsRecord = getRootSecretsAsRecord(rootSecrets);
-
-  const localTemplate = store.mode === 'global'
-    ? { hasTemplate: false, vars: [] }
-    : loadLocalTemplates(contextDir, env, ctx.fs);
-
-  // 1. Resolve Template Vars
-  let templateVars: EnvVar[] = [];
-  if (localTemplate.hasTemplate) {
-    templateVars = resolveTemplateVars(
-      localTemplate.vars,
-      rootSecretsRecord,
-      { processEnv: ctx.process.env as Record<string, string> }
-    );
-  }
-
-  // 2. Resolve Target Vars
-  let targetVars: EnvVar[] = [];
-  
-  // Find target config: either explicit by name, or implicit by directory matching
-  const targetConfig = target 
-    ? config.targets.find(t => t.name === target)
-    : config.targets.find(t => resolve(projectRoot, t.path) === resolve(contextDir));
-
-  if (target && !targetConfig) {
-    ctx.logger.error(`Target "${target}" not found in hush.yaml`);
-    ctx.logger.error(pc.dim(`Available targets: ${config.targets.map(t => t.name).join(', ')}`));
-    ctx.process.exit(1);
-  }
-
-  if (targetConfig) {
-    targetVars = filterVarsForTarget(rootSecrets, targetConfig);
-
-    if (targetConfig.format === 'wrangler') {
-      targetVars.push({ key: 'CLOUDFLARE_INCLUDE_PROCESS_ENV', value: 'true' });
-
-      const devVarsPath = join(targetConfig.path, '.dev.vars');
-      const absDevVarsPath = join(projectRoot, devVarsPath);
-      
-      if (ctx.fs.existsSync(absDevVarsPath)) {
-        ctx.logger.warn('\n⚠️  Wrangler Conflict Detected');
-        ctx.logger.warn(`   Found .dev.vars in ${targetConfig.path}`);
-        ctx.logger.warn('   Wrangler will IGNORE Hush secrets while this file exists.');
-        ctx.logger.warn(pc.bold(`   Fix: rm ${devVarsPath}\n`));
+      if (selectedTarget.format === 'wrangler') {
+        childEnv.CLOUDFLARE_INCLUDE_PROCESS_ENV = 'true';
+        warnWranglerConflict(ctx, cwd);
       }
-    }
-  } else if (!localTemplate.hasTemplate && !target) {
-    // If no template and no target matched (and not running explicit target), fallback to all secrets
-    // This maintains backward compatibility for running in root or non-target dirs without templates
-    targetVars = rootSecrets;
-  }
 
-  // 3. Merge (Template overrides Target)
-  let vars: EnvVar[];
-  if (localTemplate.hasTemplate) {
-    // Merge target vars with template vars. 
-    // Template vars take precedence over target vars.
-    // This allows "additive" behavior: get target vars + template vars.
-    vars = mergeVars(targetVars, templateVars);
-  } else {
-    vars = targetVars;
-  }
+      const [cmd, ...args] = command;
+      const result = ctx.exec.spawnSync(cmd, args, {
+        stdio: 'inherit',
+        env: childEnv,
+        cwd,
+      });
 
-  const unresolved = getUnresolvedVars(vars);
-  if (unresolved.length > 0) {
-    ctx.logger.warn(`Warning: ${unresolved.length} vars have unresolved references: ${unresolved.join(', ')}`);
-  }
+      if (result.error) {
+        throw new Error(`Failed to execute: ${result.error.message}`);
+      }
 
-  const childEnv: NodeJS.ProcessEnv = {
-    ...Object.fromEntries(vars.map(v => [v.key, v.value])),
-    ...ctx.process.env,
-  };
-
-  const [cmd, ...args] = command;
-  
-  const result = ctx.exec.spawnSync(cmd, args, {
-    stdio: 'inherit',
-    env: childEnv,
-    cwd: contextDir,
-  });
-
-  if (result.error) {
-    ctx.logger.error(`Failed to execute: ${result.error.message}`);
+      return result.status ?? 1;
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.logger.error(pc.red(message));
     ctx.process.exit(1);
   }
 
-  ctx.process.exit(result.status ?? 1);
+  ctx.process.exit(exitStatus);
 }

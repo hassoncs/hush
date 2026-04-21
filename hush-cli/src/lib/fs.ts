@@ -5,6 +5,7 @@ import {
   mkdirSync as nodeMkdirSync, 
   readdirSync as nodeReaddirSync, 
   unlinkSync as nodeUnlinkSync, 
+  rmSync as nodeRmSync,
   statSync as nodeStatSync, 
   fstatSync as nodeFstatSync,
   renameSync as nodeRenameSync,
@@ -42,6 +43,10 @@ export const fs = {
 
   unlinkSync: (path: PathLike): void => {
     nodeUnlinkSync(path);
+  },
+
+  rmSync: (path: PathLike, options?: { recursive?: boolean; force?: boolean }): void => {
+    nodeRmSync(path, options);
   },
 
   statSync: (path: PathLike) => {

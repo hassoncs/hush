@@ -1,0 +1,227 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { join } from 'node:path';
+import * as nodeFs from 'node:fs';
+import { inspectCommand } from '../src/commands/inspect.js';
+import { resolveCommand } from '../src/commands/resolve.js';
+import { statusCommand } from '../src/commands/status.js';
+import { traceCommand } from '../src/commands/trace.js';
+import { createProjectSlug, loadV3Repository, setActiveIdentity } from '../src/index.js';
+import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../src/core/sops.js';
+import type { HushContext, LegacyHushConfig, StoreContext } from '../src/types.js';
+import { ensureEncryptedFixtureRepo, ensureTestSopsEnv } from './helpers/sops-test.js';
+
+const TEST_DIR = join('/tmp', 'hush-test-diagnostics-v3');
+const FIXTURES_DIR = join(process.cwd(), 'tests', 'fixtures', 'v3');
+
+function stripAnsi(value: string): string {
+  return value.replace(new RegExp(String.raw`\u001B\[[0-9;]*m`, 'g'), '');
+}
+
+function createStore(root: string): StoreContext {
+  const projectSlug = createProjectSlug(root);
+  const stateRoot = join(TEST_DIR, '.machine-state');
+  const projectStateRoot = join(stateRoot, 'projects', projectSlug);
+
+  return {
+    mode: 'project',
+    root,
+    configPath: null,
+    keyIdentity: root,
+    displayLabel: root,
+    projectSlug,
+    stateRoot,
+    projectStateRoot,
+    activeIdentityPath: join(projectStateRoot, 'active-identity.json'),
+    auditLogPath: join(projectStateRoot, 'audit.jsonl'),
+  };
+}
+
+function createContext(root: string) {
+  ensureTestSopsEnv();
+
+  const logger = {
+    log: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+  };
+
+const defaultConfig: LegacyHushConfig = {
+    sources: {
+      shared: '.hush',
+      development: '.hush.development',
+      production: '.hush.production',
+      local: '.hush.local',
+    },
+    targets: [{ name: 'root', path: '.', format: 'dotenv' }],
+  };
+
+  const ctx: HushContext = {
+    fs: {
+      existsSync: nodeFs.existsSync,
+      readFileSync: nodeFs.readFileSync,
+      writeFileSync: nodeFs.writeFileSync,
+      mkdirSync: nodeFs.mkdirSync,
+      readdirSync: nodeFs.readdirSync as HushContext['fs']['readdirSync'],
+      unlinkSync: nodeFs.unlinkSync,
+      rmSync: nodeFs.rmSync,
+      statSync: nodeFs.statSync,
+      renameSync: nodeFs.renameSync,
+    },
+    path: {
+      join,
+    },
+    exec: {
+      spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
+      execSync: vi.fn(() => ''),
+    },
+    logger,
+    process: {
+      cwd: () => root,
+      exit: (code: number) => {
+        throw new Error(`Process exit: ${code}`);
+      },
+      env: {},
+      stdin: process.stdin,
+      stdout: process.stdout,
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    },
+    config: {
+      loadConfig: vi.fn(() => defaultConfig),
+      findProjectRoot: vi.fn(() => null),
+    },
+    age: {
+      ageAvailable: vi.fn(() => true),
+      ageGenerate: vi.fn(() => ({ private: 'private', public: 'public' })),
+      keyExists: vi.fn(() => false),
+      keySave: vi.fn(),
+      keyPath: vi.fn(() => ''),
+      keyLoad: vi.fn(() => null),
+      agePublicFromPrivate: vi.fn(() => 'public'),
+    },
+    onepassword: {
+      opInstalled: vi.fn(() => false),
+      opAvailable: vi.fn(() => false),
+      opGetKey: vi.fn(() => null),
+      opStoreKey: vi.fn(),
+    },
+    sops: {
+      decrypt: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decrypt(filePath, options)),
+      decryptYaml: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decryptYaml(filePath, options)),
+      encrypt: vi.fn((inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encrypt(inputPath, outputPath, options)),
+      encryptYaml: vi.fn((inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encryptYaml(inputPath, outputPath, options)),
+      encryptYamlContent: vi.fn((content: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encryptYamlContent(content, outputPath, options)),
+      edit: vi.fn(),
+      isSopsInstalled: vi.fn(() => isSopsInstalled()),
+    },
+  };
+
+  return { ctx, logger, store: createStore(root) };
+}
+
+function getLogOutput(logger: { log: ReturnType<typeof vi.fn> }): string {
+  return stripAnsi(logger.log.mock.calls.map(([message]) => String(message)).join('\n'));
+}
+
+function getErrorOutput(logger: { error: ReturnType<typeof vi.fn> }): string {
+  return stripAnsi(logger.error.mock.calls.map(([message]) => String(message)).join('\n'));
+}
+
+function setIdentity(ctx: HushContext, store: StoreContext, fixtureRoot: string, identity: string): void {
+  ensureEncryptedFixtureRepo(fixtureRoot);
+  const repository = loadV3Repository(fixtureRoot, { keyIdentity: fixtureRoot });
+  setActiveIdentity(ctx, {
+    store,
+    identity,
+    identities: repository.manifest.identities,
+    command: { name: 'config', args: ['active-identity', identity] },
+  });
+}
+
+describe('task 7 v3 diagnostic commands', () => {
+  beforeEach(() => {
+    ensureTestSopsEnv();
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
+    nodeFs.mkdirSync(TEST_DIR, { recursive: true });
+    for (const fixtureName of ['single-user-repo', 'owner-member-acl-split']) {
+      ensureEncryptedFixtureRepo(join(FIXTURES_DIR, fixtureName));
+    }
+  });
+
+  afterEach(() => {
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
+  });
+
+  it('status reports v3 repository counts and machine-local state', async () => {
+    const fixtureRoot = join(FIXTURES_DIR, 'single-user-repo');
+    const { ctx, logger, store } = createContext(fixtureRoot);
+    setIdentity(ctx, store, fixtureRoot, 'developer-local');
+
+    await statusCommand(ctx, { store });
+
+    const output = getLogOutput(logger);
+    expect(output).toContain('Repository: v3');
+    expect(output).toContain('Active identity: developer-local');
+    expect(output).toContain('encrypted files: 1');
+    expect(output).toContain('active identity path:');
+    expect(output).toContain('audit log path:');
+  });
+
+  it('inspect shows logical paths with sensitive redaction', async () => {
+    const fixtureRoot = join(FIXTURES_DIR, 'single-user-repo');
+    const { ctx, logger, store } = createContext(fixtureRoot);
+    setIdentity(ctx, store, fixtureRoot, 'developer-local');
+
+    await inspectCommand(ctx, { store, env: 'development' });
+
+    const output = getLogOutput(logger);
+    expect(output).toContain('Readable entries:');
+    expect(output).toContain('env/apps/web/env/NEXT_PUBLIC_API_URL');
+    expect(output).toContain('https://api.example.com');
+    expect(output).toContain('env/apps/api/env/DATABASE_URL');
+    expect(output).toContain('[redacted]');
+    expect(output).not.toContain('postgres://single-user-db');
+  });
+
+  it('resolve shows v3 provenance for a target', async () => {
+    const fixtureRoot = join(FIXTURES_DIR, 'owner-member-acl-split');
+    const { ctx, logger, store } = createContext(fixtureRoot);
+    setIdentity(ctx, store, fixtureRoot, 'developer-local');
+
+    await resolveCommand(ctx, { store, env: 'development', target: 'app-dev' });
+
+    const output = getLogOutput(logger);
+    expect(output).toContain('Target: app-dev');
+    expect(output).toContain('Bundle: app');
+    expect(output).toContain('file=env/app/shared namespace=env');
+    expect(output).toContain('file=env/app/secrets namespace=env');
+  });
+
+  it('resolve reports file-level acl denial reasons', async () => {
+    const fixtureRoot = join(FIXTURES_DIR, 'owner-member-acl-split');
+    const { ctx, logger, store } = createContext(fixtureRoot);
+    setIdentity(ctx, store, fixtureRoot, 'teammate-local');
+
+    await expect(resolveCommand(ctx, { store, env: 'development', target: 'app-dev' })).rejects.toThrow('Process exit: 1');
+
+    const output = getErrorOutput(logger);
+    expect(output).toContain('requires unreadable file');
+    expect(output).toContain('Unreadable files:');
+    expect(output).toContain('env/app/secrets');
+    expect(output).toContain('roles=owner identities=developer-local');
+  });
+
+  it('trace reports matching files and acl-denied targets', async () => {
+    const fixtureRoot = join(FIXTURES_DIR, 'owner-member-acl-split');
+    const { ctx, logger, store } = createContext(fixtureRoot);
+    setIdentity(ctx, store, fixtureRoot, 'teammate-local');
+
+    await traceCommand(ctx, { store, env: 'development', key: 'STRIPE_SECRET_KEY' });
+
+    const output = getLogOutput(logger);
+    expect(output).toContain('Selector: STRIPE_SECRET_KEY');
+    expect(output).toContain('env/app/secrets (unreadable; roles=owner identities=developer-local)');
+    expect(output).toContain('app-dev (acl denied)');
+  });
+});

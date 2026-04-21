@@ -1,0 +1,29 @@
+path: ENC[AES256_GCM,data:sBlvScEbQjDL+BfVkLs=,iv:249KPRlXX20D1CN44wo9SxTrtnoE5pLIFjt9JJx0wUk=,tag:tj99JzqKEaVCTPRh6OPLqQ==,type:str]
+readers:
+    roles:
+        - ENC[AES256_GCM,data:OOuFkHA=,iv:Ak4ZWQiOSYmRZpZTjpgko4WRTj0N/jmTqv/O07fnZIU=,tag:brRWUngKSAXUa+OpFcbm7A==,type:str]
+    identities:
+        - ENC[AES256_GCM,data:gXghca6K29zFg4I5Ew6u,iv:WuxJq+ZJrgzq946pgHreDaUyXd7UTm/B+sbb7v5gz7Y=,tag:nn3BvM3GoPcVBW+ktEGmlA==,type:str]
+sensitive: ENC[AES256_GCM,data:FD6Nh60=,iv:8Amfo969bzISSEexMM95xIipqq+6WkwCauHmZ+Y6p6I=,tag:BlKnXkMWltf09ez7XgIsoA==,type:bool]
+entries:
+    env/apps/web/env/NEXT_PUBLIC_API_URL:
+        value: ENC[AES256_GCM,data:ouLLSh/WO6PVqRJA5j/9Fdd7i7dGa6w=,iv:LVHRqoe/S5hBzTYg39J3PPTg79oP7h/bzYlxf/RPxYY=,tag:d9f3Y+ayngRVa8qwXQB1hw==,type:str]
+        sensitive: ENC[AES256_GCM,data:TMdP0lM=,iv:fEZ/GLB1swxujGu/sSjOm85NpTO+ZMg2PHRIRfaJAPk=,tag:pWPWzOTfjDKA3ukDTd70MQ==,type:bool]
+    env/apps/api/env/DATABASE_URL:
+        value: ENC[AES256_GCM,data:rES4Z13mzakuogO9gxck1N/0e6D+bdw/WQ==,iv:7bDdiVYkSSZ7c/QuMiKNEqmZR+/goa296QnWry3QAE4=,tag:SVHDsPzCb5KylxV6dv0o8A==,type:str]
+        sensitive: ENC[AES256_GCM,data:9MdInQ==,iv:XnN4yoh+5YOdhzmlwZCmJlFF8JTUx/h6Va4+1G9bs8Y=,tag:IoV29PTPFBKgPqhTW3vKug==,type:bool]
+sops:
+    age:
+        - recipient: age1k6085c7hu6xgwtp2w35kf224peecjjagvswzhgtgmh76gaxcppnq9rlkqx
+          enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBZVVBKWjRkVkZlRURPV1ZU
+            a3hvL3ZDNTNPUytUNW1pUkJFT2hpajRRWmxZCkQvbVdpWU9SV1VxQTJ5NnMwY1kr
+            WFFWQlBtcmZYeGdCWHg3RWtvbXNIWGMKLS0tIFY5Yk4xdzI0dGRFSURsZWd5eWd1
+            WnYrNG1qaUhzMDBFbDA2KzFlTklLWkkKP5btI43KTvRZMoz3qewkqgC+gOnFsgE9
+            fJszFOWHQUQtMlaghf0yiGuouCXg9EKXUGk3/yxzFmOF58RPKrIFQQ==
+            -----END AGE ENCRYPTED FILE-----
+    lastmodified: "2026-04-21T02:45:23Z"
+    mac: ENC[AES256_GCM,data:EzN5W6R326/OQ2bRkyIlWeHBGvLBeZfMN/r3P3Q7SZ8vjz1SDGMuGsWl1rGpYph/hUlx8mKkA9jB+2zgQCIGs52AgNCxeGyFW7JwzBuAXV7LnGAo0T7N2pEsXmIjuA/991HXoEWPF6qK5eAG/0NUekV076gfI1jM3PrcvXm3DNI=,iv:Y3MzzkBqON0P647G8xY4CiNeMX8fsxYP9142V4Id0Vc=,tag:QPKk3QFUPGpi8FKDuaMXaA==,type:str]
+    encrypted_regex: .*
+    version: 3.11.0

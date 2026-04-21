@@ -3,19 +3,49 @@ import { join, resolve } from 'node:path';
 import type { StoreContext, StoreMode } from './types.js';
 import { findConfigPath, findProjectRoot } from './config/loader.js';
 import { getProjectIdentifier } from './project.js';
+import { loadV3Repository } from './v3/repository.js';
+import { getProjectStatePaths } from './v3/state.js';
 
 export const GLOBAL_STORE_ROOT = join(homedir(), '.hush');
 export const GLOBAL_STORE_KEY_IDENTITY = 'hush-global';
+export const GLOBAL_STORE_STATE_ROOT = join(GLOBAL_STORE_ROOT, 'state');
+
+function resolveProjectKeyIdentity(projectRoot: string, repositoryKind: 'legacy-v2' | 'v3' | undefined): string | undefined {
+  if (repositoryKind === 'v3') {
+    try {
+      const repository = loadV3Repository(projectRoot);
+      const projectIdentity = repository.manifest.metadata?.project;
+      if (typeof projectIdentity === 'string' && projectIdentity.trim().length > 0) {
+        return projectIdentity;
+      }
+    } catch {
+      // Fall back to package.json inference when the v3 repo cannot be decrypted yet.
+    }
+  }
+
+  return getProjectIdentifier(projectRoot);
+}
 
 export function resolveStoreContext(startDir: string, mode: StoreMode): StoreContext {
   if (mode === 'global') {
     const root = GLOBAL_STORE_ROOT;
-    return {
+    const store: StoreContext = {
       mode,
       root,
       configPath: findConfigPath(root),
       keyIdentity: GLOBAL_STORE_KEY_IDENTITY,
       displayLabel: '~/.hush',
+    };
+
+    const statePaths = getProjectStatePaths(store);
+
+    return {
+      ...store,
+      projectSlug: statePaths.projectSlug,
+      stateRoot: statePaths.stateRoot,
+      projectStateRoot: statePaths.projectRoot,
+      activeIdentityPath: statePaths.activeIdentityPath,
+      auditLogPath: statePaths.auditLogPath,
     };
   }
 
@@ -23,11 +53,22 @@ export function resolveStoreContext(startDir: string, mode: StoreMode): StoreCon
   const projectInfo = findProjectRoot(resolvedStart);
   const root = projectInfo?.projectRoot ?? resolvedStart;
 
-  return {
+  const store: StoreContext = {
     mode,
     root,
     configPath: projectInfo?.configPath ?? findConfigPath(root),
-    keyIdentity: getProjectIdentifier(root),
+    keyIdentity: resolveProjectKeyIdentity(root, projectInfo?.repositoryKind),
     displayLabel: projectInfo?.configPath ? root : resolvedStart,
+  };
+
+  const statePaths = getProjectStatePaths(store);
+
+  return {
+    ...store,
+    projectSlug: statePaths.projectSlug,
+    stateRoot: statePaths.stateRoot,
+    projectStateRoot: statePaths.projectRoot,
+    activeIdentityPath: statePaths.activeIdentityPath,
+    auditLogPath: statePaths.auditLogPath,
   };
 }

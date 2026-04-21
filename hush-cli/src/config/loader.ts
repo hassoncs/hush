@@ -1,8 +1,14 @@
 import { fs } from '../lib/fs.js';
 import { join, dirname, resolve } from 'node:path';
-import { parse as parseYaml } from 'yaml';
-import type { HushConfig } from '../types.js';
-import { DEFAULT_SOURCES, CURRENT_SCHEMA_VERSION } from '../types.js';
+import type {
+  HushProjectDiscoveryResult,
+  HushProjectRuntimeAuthority,
+  LegacyHushConfig,
+} from '../types.js';
+import { CURRENT_SCHEMA_VERSION } from '../types.js';
+import { loadLegacyV2Inventory } from '../v3/legacy-v2.js';
+import { getV3ManifestPath } from '../v3/paths.js';
+import { loadV3Repository } from '../v3/repository.js';
 
 const CONFIG_FILENAMES = ['hush.yaml', 'hush.yml'];
 
@@ -16,13 +22,29 @@ export function findConfigPath(root: string): string | null {
   return null;
 }
 
-export function findProjectRoot(startDir: string): { configPath: string; projectRoot: string } | null {
+export function isV3RepositoryRoot(root: string): boolean {
+  return fs.existsSync(getV3ManifestPath(root));
+}
+
+export function findProjectRoot(startDir: string): HushProjectDiscoveryResult | null {
   let currentDir = resolve(startDir);
   
   while (true) {
+    if (isV3RepositoryRoot(currentDir)) {
+      return {
+        repositoryKind: 'v3',
+        configPath: findConfigPath(currentDir),
+        projectRoot: currentDir,
+      };
+    }
+
     const configPath = findConfigPath(currentDir);
     if (configPath) {
-      return { configPath, projectRoot: currentDir };
+      return {
+        repositoryKind: 'legacy-v2',
+        configPath,
+        projectRoot: currentDir,
+      };
     }
     
     const parentDir = dirname(currentDir);
@@ -33,29 +55,42 @@ export function findProjectRoot(startDir: string): { configPath: string; project
   }
 }
 
-export function loadConfig(root: string): HushConfig {
+function getNoConfigGuidance(root: string): string {
+  return [
+    `No Hush repository found at ${root}.`,
+    'Bootstrap a v3 repository with "hush bootstrap".',
+    'If you are still on legacy config, initialize hush.yaml explicitly with "hush init".',
+  ].join(' ');
+}
+
+export function loadProjectRuntimeAuthority(root: string, options?: { keyIdentity?: string }): HushProjectRuntimeAuthority {
+  if (isV3RepositoryRoot(root)) {
+    return loadV3Repository(root, options);
+  }
+
   const configPath = findConfigPath(root);
 
   if (!configPath) {
-    return {
-      sources: DEFAULT_SOURCES,
-      targets: [{ name: 'root', path: '.', format: 'dotenv' }],
-    };
+    throw new Error(getNoConfigGuidance(root));
   }
 
-  const content = fs.readFileSync(configPath, 'utf-8') as string;
-  const parsed = parseYaml(content) as Partial<HushConfig> & { schema_version?: number };
-
-  return {
-    // Support both 'version' and 'schema_version' (prefer schema_version)
-    version: parsed.schema_version ?? parsed.version,
-    project: parsed.project,
-    sources: { ...DEFAULT_SOURCES, ...parsed.sources },
-    targets: parsed.targets ?? [{ name: 'root', path: '.', format: 'dotenv' }],
-  };
+  return loadLegacyV2Inventory(root, configPath);
 }
 
-export function checkSchemaVersion(config: HushConfig): { needsMigration: boolean; from: number; to: number } {
+export function loadConfig(root: string): LegacyHushConfig {
+  const authority = loadProjectRuntimeAuthority(root);
+
+  if (authority.kind === 'v3') {
+    throw new Error(
+      `This project uses Hush v3 encrypted repository storage at ${authority.manifestPath}. `
+      + 'Legacy hush.yaml runtime loading is disabled; use the v3 repository loader instead.',
+    );
+  }
+
+  return authority.config;
+}
+
+export function checkSchemaVersion(config: LegacyHushConfig): { needsMigration: boolean; from: number; to: number } {
   const configVersion = config.version ?? 1;
   return {
     needsMigration: configVersion < CURRENT_SCHEMA_VERSION,
@@ -64,7 +99,7 @@ export function checkSchemaVersion(config: HushConfig): { needsMigration: boolea
   };
 }
 
-export function validateConfig(config: HushConfig): string[] {
+export function validateConfig(config: LegacyHushConfig): string[] {
   const errors: string[] = [];
   const validFormats = ['dotenv', 'wrangler', 'json', 'shell', 'yaml'];
   const validPushTypes = ['cloudflare-workers', 'cloudflare-pages'];

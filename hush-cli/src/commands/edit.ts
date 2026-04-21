@@ -1,29 +1,58 @@
- import { join } from 'node:path';
- import pc from 'picocolors';
- import { edit as sopsEdit } from '../core/sops.js';
- import type { EditOptions, HushContext } from '../types.js';
+import pc from 'picocolors';
+import { appendAuditEvent } from '../index.js';
+import type { EditOptions, HushContext } from '../types.js';
+import {
+  ensureEditableFileDocument,
+  openEncryptedDocumentEditor,
+  readCurrentIdentity,
+  requireMutableIdentity,
+  requireV3Repository,
+} from './v3-command-helpers.js';
 
 type FileKey = 'shared' | 'development' | 'production' | 'local';
 
 export async function editCommand(ctx: HushContext, options: EditOptions): Promise<void> {
-  const { store, file } = options;
-  const config = ctx.config.loadConfig(store.root);
+  const fileKey: FileKey = options.file ?? 'shared';
+  const repository = requireV3Repository(options.store, 'edit');
+  const activeIdentity = requireMutableIdentity(ctx, options.store, repository, {
+    name: 'edit',
+    args: [fileKey],
+  });
+  const editable = ensureEditableFileDocument(ctx, options.store, repository, fileKey);
 
-  const fileKey: FileKey = file ?? 'shared';
-  const sourcePath = config.sources[fileKey];
-  const encryptedPath = join(store.root, sourcePath + '.encrypted');
+  try {
+    ctx.logger.log(pc.blue(`Editing ${editable.filePath}...`));
+    ctx.logger.log(pc.dim('This decrypts the v3 document to a temp YAML file, then re-encrypts it after validation.'));
 
-  if (!ctx.fs.existsSync(encryptedPath)) {
-    ctx.logger.error(pc.red(`Encrypted file not found: ${sourcePath}.encrypted`));
-    ctx.logger.error(pc.dim('Run "hush encrypt" first to create encrypted files'));
-    ctx.process.exit(1);
+    openEncryptedDocumentEditor(
+      ctx,
+      options.store,
+      editable.systemPath,
+      editable.scope === 'repository' ? repository : undefined,
+    );
+
+    appendAuditEvent(ctx, options.store, {
+      type: 'write',
+      activeIdentity,
+      success: true,
+      command: { name: 'edit', args: [fileKey] },
+      files: [editable.filePath],
+      details: {
+        scope: editable.scope,
+      },
+    });
+
+    ctx.logger.log(pc.green('\nEdit complete'));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    appendAuditEvent(ctx, options.store, {
+      type: 'write',
+      activeIdentity: readCurrentIdentity(ctx, options.store),
+      success: false,
+      command: { name: 'edit', args: [fileKey] },
+      files: [editable.filePath],
+      reason: message,
+    });
+    throw error;
   }
-
-  ctx.logger.log(pc.blue(`Editing ${sourcePath}.encrypted...`));
-  ctx.logger.log(pc.dim('Changes will be encrypted on save'));
-
-  sopsEdit(encryptedPath, { root: store.root, keyIdentity: store.keyIdentity });
-
-  ctx.logger.log(pc.green('\nEdit complete'));
-  ctx.logger.log(pc.dim('Run "hush run -- <command>" to use updated secrets'));
 }

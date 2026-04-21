@@ -1,0 +1,233 @@
+import { basename } from 'node:path';
+import { Buffer } from 'node:buffer';
+import { formatVars } from '../formats/index.js';
+import type { EnvVar, OutputFormat } from '../types.js';
+import type { HushArtifactEntry, HushArtifactFormat, HushLogicalPath, HushTargetDefinition } from './domain.js';
+import type { HushResolvedNode, HushTargetResolution } from './provenance.js';
+
+export interface HushArtifactBaseDescriptor {
+  logicalPath: HushLogicalPath;
+  format: HushArtifactFormat;
+  sensitive: boolean;
+  provenance: HushResolvedNode['provenance'];
+  resolvedFrom: HushResolvedNode['resolvedFrom'];
+  suggestedName: string;
+}
+
+export interface HushArtifactFileDescriptor extends HushArtifactBaseDescriptor {
+  kind: 'file';
+  content: string;
+}
+
+export interface HushArtifactBinaryDescriptor extends HushArtifactBaseDescriptor {
+  kind: 'binary';
+  content: Uint8Array;
+  encoding: 'base64' | 'utf8';
+}
+
+export type HushArtifactDescriptor = HushArtifactFileDescriptor | HushArtifactBinaryDescriptor;
+
+export interface HushTargetArtifactDescriptor extends HushArtifactFileDescriptor {
+  source: 'target';
+  target: string;
+}
+
+export interface HushArtifactShapeResult {
+  envVars: EnvVar[];
+  env: Record<string, string>;
+  targetArtifact: HushTargetArtifactDescriptor | null;
+  artifacts: HushArtifactDescriptor[];
+}
+
+function isOutputFormat(format: HushArtifactFormat): format is OutputFormat {
+  return format === 'dotenv' || format === 'wrangler' || format === 'json' || format === 'shell' || format === 'yaml';
+}
+
+function toEnvVarValue(value: HushResolvedNode['entry']['value']): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value === null) {
+    return '';
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  return JSON.stringify(value);
+}
+
+function logicalPathToEnvKey(path: string): string {
+  const segments = path.split('/').filter(Boolean);
+  const key = segments.at(-1);
+
+  if (!key) {
+    throw new Error(`Cannot derive environment key from logical path "${path}"`);
+  }
+
+  return key;
+}
+
+function collectEnvVars(values: HushTargetResolution['values']): EnvVar[] {
+  const pairs = Object.entries(values)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([path, node]) => {
+      const key = logicalPathToEnvKey(path);
+      return {
+        key,
+        path,
+        value: toEnvVarValue(node.entry.value),
+      };
+    });
+
+  const collisions = new Map<string, string[]>();
+
+  for (const pair of pairs) {
+    const existing = collisions.get(pair.key) ?? [];
+    existing.push(pair.path);
+    collisions.set(pair.key, existing);
+  }
+
+  const duplicate = Array.from(collisions.entries()).find(([, paths]) => paths.length > 1);
+
+  if (duplicate) {
+    throw new Error(
+      `Multiple logical paths resolve to environment key "${duplicate[0]}": ${duplicate[1].sort().join(', ')}`,
+    );
+  }
+
+  return pairs.map(({ key, value }) => ({ key, value }));
+}
+
+function toEnvRecord(envVars: readonly EnvVar[]): Record<string, string> {
+  return Object.fromEntries(envVars.map((variable) => [variable.key, variable.value]));
+}
+
+function formatToExtension(format: HushArtifactFormat): string {
+  switch (format) {
+    case 'dotenv':
+      return '.env';
+    case 'wrangler':
+      return '.dev.vars';
+    case 'json':
+      return '.json';
+    case 'shell':
+      return '.sh';
+    case 'yaml':
+      return '.yaml';
+    default:
+      return '';
+  }
+}
+
+function ensureSuggestedName(baseName: string, format: HushArtifactFormat): string {
+  const trimmed = baseName.trim() || 'artifact';
+  const extension = formatToExtension(format);
+
+  if (!extension || trimmed.endsWith(extension)) {
+    return trimmed;
+  }
+
+  return `${trimmed}${extension}`;
+}
+
+function createTargetArtifact(
+  targetName: string,
+  target: HushTargetDefinition,
+  resolution: HushTargetResolution,
+  envVars: EnvVar[],
+): HushTargetArtifactDescriptor | null {
+  if (!isOutputFormat(target.format)) {
+    return null;
+  }
+
+  return {
+    kind: 'file',
+    source: 'target',
+    target: targetName,
+    logicalPath: `targets/${targetName}`,
+    format: target.format,
+    sensitive: Object.values(resolution.values).some((node) => node.entry.sensitive),
+    provenance: Object.values(resolution.values).flatMap((node) => node.provenance),
+    resolvedFrom: Array.from(new Set(Object.values(resolution.values).flatMap((node) => node.resolvedFrom))).sort(),
+    suggestedName: ensureSuggestedName(targetName, target.format),
+    content: formatVars(envVars, target.format),
+  };
+}
+
+function shapeArtifact(
+  path: string,
+  node: HushResolvedNode,
+  envVars: EnvVar[],
+): HushArtifactDescriptor {
+  const entry = node.entry as HushArtifactEntry;
+  const suggestedName = ensureSuggestedName(basename(path), entry.format);
+
+  if (entry.type === 'binary') {
+    const encoding = entry.encoding ?? 'base64';
+    const rawValue = entry.value ?? '';
+
+    return {
+      kind: 'binary',
+      logicalPath: path,
+      format: entry.format,
+      sensitive: entry.sensitive,
+      provenance: node.provenance,
+      resolvedFrom: node.resolvedFrom,
+      suggestedName,
+      encoding,
+      content: encoding === 'utf8' ? Buffer.from(rawValue, 'utf8') : Buffer.from(rawValue, 'base64'),
+    };
+  }
+
+  const content = entry.value !== undefined
+    ? entry.value
+    : isOutputFormat(entry.format)
+      ? formatVars(envVars, entry.format)
+      : '';
+
+  return {
+    kind: 'file',
+    logicalPath: path,
+    format: entry.format,
+    sensitive: entry.sensitive,
+    provenance: node.provenance,
+    resolvedFrom: node.resolvedFrom,
+    suggestedName,
+    content,
+  };
+}
+
+export function targetFormatToArtifactFormat(format: HushTargetDefinition['format']): HushArtifactFormat {
+  return format;
+}
+
+export function shapeTargetArtifacts(
+  targetName: string,
+  target: HushTargetDefinition,
+  resolution: HushTargetResolution,
+): HushArtifactShapeResult {
+  const envVars = collectEnvVars(resolution.values);
+  const env = toEnvRecord(envVars);
+  const targetArtifact = createTargetArtifact(targetName, target, resolution, envVars);
+  const artifacts = Object.entries(resolution.artifacts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([path, node]) => shapeArtifact(path, node, envVars));
+
+  return {
+    envVars,
+    env,
+    targetArtifact,
+    artifacts,
+  };
+}
+
+export function shapeResolvedArtifacts(
+  targetName: string,
+  target: HushTargetDefinition,
+  resolution: HushTargetResolution,
+): HushArtifactShapeResult {
+  return shapeTargetArtifacts(targetName, target, resolution);
+}

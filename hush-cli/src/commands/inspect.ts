@@ -1,71 +1,111 @@
-import { fs } from '../lib/fs.js';
-import { join } from 'node:path';
 import pc from 'picocolors';
-
-import { filterVarsForTarget, describeFilter } from '../core/filter.js';
-import { interpolateVars } from '../core/interpolate.js';
-import { maskVars, formatMaskedVar } from '../core/mask.js';
-import { mergeVars } from '../core/merge.js';
-import { parseEnvContent } from '../core/parse.js';
-
-import type { EnvVar, Environment, HushContext, StoreContext } from '../types.js';
+import { appendAuditEvent } from '../v3/audit.js';
+import { requireActiveIdentity } from '../v3/identity.js';
+import { loadV3Repository } from '../v3/repository.js';
+import { isIdentityAllowed, type HushFileDocument, type HushFileEntry, type HushFileIndexEntry } from '../v3/domain.js';
+import type { HushContext, StoreContext } from '../types.js';
 
 export interface InspectOptions {
   store: StoreContext;
-  env: Environment;
+  env: 'development' | 'production';
+}
+
+function canReadFile(file: HushFileIndexEntry, identity: string, roles: readonly string[]): boolean {
+  return roles.some((role) => isIdentityAllowed(file.readers, identity, role as never));
+}
+
+function isSensitive(file: HushFileDocument, entry: HushFileEntry): boolean {
+  return file.sensitive || entry.sensitive;
+}
+
+function formatVisibleValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value === null) {
+    return 'null';
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  return JSON.stringify(value);
+}
+
+function formatInspectValue(file: HushFileDocument, entry: HushFileEntry): string {
+  if (isSensitive(file, entry)) {
+    return pc.yellow('[redacted]');
+  }
+
+  if ('type' in entry) {
+    return entry.value ? formatVisibleValue(entry.value) : '(empty artifact)';
+  }
+
+  return formatVisibleValue(entry.value);
+}
+
+function formatReaders(file: Pick<HushFileIndexEntry, 'readers'>): string {
+  return `roles=${file.readers.roles.join(',') || '-'} identities=${file.readers.identities.join(',') || '-'}`;
 }
 
 export async function inspectCommand(ctx: HushContext, options: InspectOptions): Promise<void> {
-  const { store, env } = options;
-  const config = ctx.config.loadConfig(store.root);
+  const repository = loadV3Repository(options.store.root, { keyIdentity: options.store.keyIdentity });
+  const identity = requireActiveIdentity(ctx, options.store, repository.manifest.identities, {
+    name: 'inspect',
+    args: [],
+  });
+  const roles = repository.manifest.identities[identity]?.roles ?? [];
+  const readableFileIndexes = Object.values(repository.filesByPath).filter((file) => canReadFile(file, identity, roles));
+  const unreadableFiles = Object.values(repository.filesByPath).filter((file) => !canReadFile(file, identity, roles));
+  const readableFiles = readableFileIndexes.map((file) => repository.loadFile(file.path));
+  const lines: string[] = [];
+  const logicalPaths: string[] = [];
 
-  const sharedEncrypted = join(store.root, config.sources.shared + '.encrypted');
-  const envEncrypted = join(store.root, config.sources[env] + '.encrypted');
+  lines.push(pc.blue('Hush inspect\n'));
+  lines.push(`Active identity: ${pc.green(identity)}`);
+  lines.push(`Readable files: ${pc.cyan(String(readableFiles.length))}`);
+  lines.push(`Unreadable files: ${pc.cyan(String(unreadableFiles.length))}`);
 
-  const varSources: EnvVar[][] = [];
+  if (readableFiles.length === 0) {
+    lines.push('');
+    lines.push(pc.yellow('No readable files for the active identity.'));
+  } else {
+    lines.push('');
+    lines.push('Readable entries:');
 
-  if (fs.existsSync(sharedEncrypted)) {
-    const content = ctx.sops.decrypt(sharedEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
-    varSources.push(parseEnvContent(content));
-  }
+    for (const file of readableFiles.sort((left, right) => left.path.localeCompare(right.path))) {
+      lines.push(`  ${pc.cyan(file.path)} ${pc.dim(`(${formatReaders(file)})`)}`);
 
-  if (fs.existsSync(envEncrypted)) {
-    const content = ctx.sops.decrypt(envEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
-    varSources.push(parseEnvContent(content));
-  }
-
-  if (varSources.length === 0) {
-    console.error(pc.red('No encrypted files found'));
-    console.error(pc.dim(`Expected: ${sharedEncrypted}`));
-    process.exit(1);
-  }
-
-  const merged = mergeVars(...varSources);
-  const interpolated = interpolateVars(merged);
-  const masked = maskVars(interpolated);
-
-  const maxKeyLen = Math.max(...masked.map(v => v.key.length));
-
-  ctx.logger.log(pc.blue(`\nSecrets for ${env}:\n`));
-
-  for (const v of masked) {
-    const line = formatMaskedVar(v, maxKeyLen);
-    ctx.logger.log(`  ${v.isSet ? pc.green(v.key.padEnd(maxKeyLen)) : pc.yellow(v.key.padEnd(maxKeyLen))} = ${v.isSet ? pc.dim(v.masked + ` (${v.length} chars)`) : pc.yellow('(not set)')}`);
-  }
-
-  ctx.logger.log(pc.dim(`\nTotal: ${masked.length} variables\n`));
-
-  ctx.logger.log(pc.blue('Target distribution:\n'));
-
-  for (const target of config.targets) {
-    const filtered = filterVarsForTarget(interpolated, target);
-    const filter = describeFilter(target);
-    
-    ctx.logger.log(`  ${pc.cyan(target.name)} ${pc.dim(`(${target.path}/)`)} - ${filtered.length} vars`);
-    if (filter !== 'all vars') {
-      ctx.logger.log(`    ${pc.dim(filter)}`);
+      for (const logicalPath of Object.keys(file.entries).sort()) {
+        const entry = file.entries[logicalPath]!;
+        logicalPaths.push(logicalPath);
+        const typeLabel = 'type' in entry ? `${entry.type}:${entry.format}` : 'value';
+        const sensitiveLabel = isSensitive(file, entry) ? 'sensitive' : 'visible';
+        lines.push(`    ${logicalPath}`);
+        lines.push(`      ${pc.dim(`kind=${typeLabel} exposure=${sensitiveLabel}`)}`);
+        lines.push(`      ${formatInspectValue(file, entry)}`);
+      }
     }
   }
 
-  ctx.logger.log('');
+  if (unreadableFiles.length > 0) {
+    lines.push('');
+    lines.push('Unreadable files:');
+    for (const file of unreadableFiles.sort((left, right) => left.path.localeCompare(right.path))) {
+      lines.push(`  ${pc.yellow(file.path)} ${pc.dim(`(${formatReaders(file)})`)}`);
+    }
+  }
+
+  appendAuditEvent(ctx, options.store, {
+    type: 'read_attempt',
+    activeIdentity: identity,
+    success: true,
+    command: { name: 'inspect', args: [] },
+    files: readableFiles.map((file) => file.path),
+    logicalPaths: logicalPaths.sort(),
+  });
+
+  ctx.logger.log(lines.join('\n'));
 }

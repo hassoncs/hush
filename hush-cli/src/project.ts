@@ -1,13 +1,7 @@
 import { join } from 'node:path';
 import { fs } from './lib/fs.js';
-import { loadConfig } from './config/loader.js';
 
 export function getProjectIdentifier(root: string): string | undefined {
-  const config = loadConfig(root);
-  if (config.project) {
-    return config.project;
-  }
-
   const pkgPath = join(root, 'package.json');
   if (!fs.existsSync(pkgPath)) {
     return undefined;

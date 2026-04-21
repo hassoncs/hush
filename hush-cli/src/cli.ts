@@ -13,6 +13,8 @@ import { runCommand } from './commands/run.js';
 import { statusCommand } from './commands/status.js';
 import { pushCommand } from './commands/push.js';
 import { initCommand } from './commands/init.js';
+import { bootstrapCommand } from './commands/bootstrap.js';
+import { configCommand } from './commands/config.js';
 import { listCommand } from './commands/list.js';
 import { inspectCommand } from './commands/inspect.js';
 import { hasCommand } from './commands/has.js';
@@ -21,10 +23,12 @@ import { skillCommand } from './commands/skill.js';
 import { keysCommand } from './commands/keys.js';
 import { resolveCommand } from './commands/resolve.js';
 import { traceCommand } from './commands/trace.js';
+import { diffCommand } from './commands/diff.js';
+import { exportExampleCommand } from './commands/export-example.js';
 import { templateCommand } from './commands/template.js';
 import { expansionsCommand } from './commands/expansions.js';
 import { migrateCommand } from './commands/migrate.js';
-import { findConfigPath, loadConfig, checkSchemaVersion } from './config/loader.js';
+import { findProjectRoot } from './config/loader.js';
 import { resolveStoreContext } from './store.js';
 import { checkForUpdate } from './utils/version-check.js';
 
@@ -33,14 +37,16 @@ const { version: VERSION } = require('../package.json');
 
 function printHelp(): void {
   console.log(`
-${pc.bold('hush')} - SOPS-based secrets management for monorepos
+${pc.bold('hush')} - AI-native encrypted config for projects and teams
 
 ${pc.bold('Usage:')}
   hush <command> [options]
 
 ${pc.bold('Commands:')}
-  init              Initialize hush.yaml config
-  encrypt           Encrypt source .hush files
+  bootstrap         Bootstrap a v3 .hush repository
+  config            Inspect or update v3 repository config
+  init              Deprecated alias for bootstrap
+  encrypt           Retired legacy helper; use hush migrate --from v2
   run -- <cmd>      Run command with secrets in memory (AI-safe)
   set <KEY> [VALUE] Set a single secret (AI-safe, prompts if no value)
   edit [file]       Edit all secrets in $EDITOR
@@ -52,13 +58,15 @@ ${pc.bold('Commands:')}
   status            Show configuration and status
   skill             Install Claude Code / OpenCode skill
   keys <cmd>        Manage SOPS age keys (setup, generate, pull, push, list)
-  migrate           Migrate from v4 (.env.encrypted) to v5 (.hush.encrypted)
+  migrate           Migrate a legacy hush.yaml repo to v3
 
 ${pc.bold('Debugging Commands:')}
   resolve <target>  Show what variables a target receives (AI-safe)
   trace <key>       Trace a variable through sources and targets (AI-safe)
-  template          Show resolved template for current directory (AI-safe)
-  expansions        Show expansion graph across all subdirectories (AI-safe)
+  diff              Compare current v3 state against HEAD or --ref (AI-safe)
+  export-example    Emit a redacted target or bundle example (AI-safe)
+  template          Retired legacy helper; use hush migrate --from v2
+  expansions        Retired legacy helper; use hush migrate --from v2
 
 ${pc.bold('Advanced Commands:')}
   decrypt --force   Write secrets to disk (requires confirmation, last resort)
@@ -66,9 +74,9 @@ ${pc.bold('Advanced Commands:')}
 ${pc.bold('Options:')}
   -e, --env <env>   Environment: development or production (default: development)
   -r, --root <dir>  Start directory for project mode, execution directory for run (default: current directory)
-  -t, --target <t>  Target name from hush.yaml (run/resolve/push)
+  -t, --target <t>  Target name from the v3 repository (run/resolve/push)
   -q, --quiet       Suppress output (has/check commands)
-  --dry-run         Preview changes without applying (push only)
+  --dry-run         Preview changes without applying
   --verbose         Show detailed output (push --dry-run only)
   --warn            Warn but exit 0 on drift (check only)
   --json            Output machine-readable JSON (check only)
@@ -78,47 +86,31 @@ ${pc.bold('Options:')}
   --global          Use explicit global store at ~/.hush (or install skill globally)
   --local           Install skill to ./.claude/skills/ (skill/set only)
   --gui             Use macOS dialog for input (set only, for AI agents)
+  --ref <git-ref>   Compare diff output against a git ref (diff only)
+  --bundle <name>   Resolve a specific bundle (diff/export-example only)
+  --from <version>  Legacy repo version to migrate from (migrate only)
+  --cleanup         Remove validated v2 leftovers after migration (migrate only)
   -h, --help        Show this help message
   -v, --version     Show version number
 
-${pc.bold('Variable Expansion (v5+):')}
-  Subdirectory .env files can reference root secrets:
-  
-    \${VAR}           Pull VAR from root secrets
-    \${VAR:-default}  Pull VAR, use default if missing
-    \${env:VAR}       Read from system environment (CI, etc.)
-  
-  Behavior:
-    - Template vars are merged with target filters (additive)
-    - Template vars take precedence over target filters
-    - Subdirectory templates are safe to commit
-  
-  Example subdirectory template (apps/mobile/.env):
-    EXPO_PUBLIC_API_URL=\${API_URL}
-    PORT=\${PORT:-3000}
-  
-  Subdirectory templates are safe to commit - they contain no secrets.
+${pc.bold('Repository Model (current v3):')}
+  Hush stores repo authority in encrypted-at-rest v3 docs:
 
-${pc.bold('File Naming (v5+):')}
-  Hush uses .hush files instead of .env to avoid conflicts with other tools:
-  
-    .hush                  Shared secrets (source file)
-    .hush.development      Development secrets (source file)
-    .hush.encrypted        Encrypted shared secrets (committed)
-    .hush.development.encrypted  Encrypted dev secrets (committed)
-    
-    Subdirectories support templates (e.g. apps/web/.hush.development)
-  
-  The .env files are reserved for other tools (Wrangler, Metro, etc.).
+    .hush/manifest.encrypted
+    .hush/files/**.encrypted
+
+  Use ${pc.cyan('hush bootstrap')} to create a repo and ${pc.cyan('hush migrate --from v2')} to convert
+  a legacy ${pc.cyan('hush.yaml')} repo. Normal runtime commands do not use hush.yaml.
 
 ${pc.bold('Examples:')}
-  hush init                     Initialize config + generate keys
-  hush migrate                  Migrate v4 .env.encrypted to v5 .hush.encrypted
-  hush encrypt                  Encrypt .hush files
+  hush bootstrap                Bootstrap a v3 repo + active identity
+  hush config show             Show v3 config structure
+  hush config active-identity  Show or switch the active identity
+  hush init                     Deprecated alias for bootstrap
+  hush migrate --from v2        Inventory or convert a legacy hush.yaml repo to v3
   hush run -- npm start         Run with secrets in memory (AI-safe!)
   hush run -e prod -- npm build Run with production secrets
-  hush run -t api -- wrangler dev  Run filtered for 'api' target (root secrets only)
-  cd apps/mobile && hush run -- expo start  Run from subdirectory (applies template + target filters)
+  hush run -t api -- wrangler dev  Run a specific v3 target
   hush set DATABASE_URL         Set a secret interactively (prompts for value)
   hush set API_KEY "myvalue"    Set a secret inline (no prompt)
   echo "val" | hush set KEY     Set a secret from piped input
@@ -138,6 +130,11 @@ ${pc.bold('Examples:')}
   hush push --dry-run           Preview push to Cloudflare
   hush push -t app              Push only the 'app' target
   hush status                   Show current status
+  hush diff                     Compare current runtime target against HEAD
+  hush diff --ref HEAD~1        Compare current runtime target against HEAD~1
+  hush diff --bundle project    Compare a bundle against HEAD
+  hush export-example           Emit a safe example for the default target
+  hush export-example --bundle project  Emit a safe example from a bundle
   hush skill                    Install Claude skill (interactive)
 `);
 }
@@ -163,10 +160,17 @@ export interface ParsedArgs {
   force: boolean;
   gui: boolean;
   vault?: string;
+  roles?: string;
+  identities?: string;
+  ref?: string;
+  bundle?: string;
+  from?: string;
+  cleanup: boolean;
   file?: FileKey;
   key?: string;
   value?: string;
   target?: string;
+  positionalArgs: string[];
   cmdArgs: string[];
 }
 
@@ -202,10 +206,17 @@ export function parseArgs(args: string[]): ParsedArgs {
   let force = false;
   let gui = false;
   let vault: string | undefined;
+  let roles: string | undefined;
+  let identities: string | undefined;
+  let ref: string | undefined;
+  let bundle: string | undefined;
+  let from: string | undefined;
+  let cleanup = false;
   let file: FileKey | undefined;
   let key: string | undefined;
   let value: string | undefined;
   let target: string | undefined;
+  let positionalArgs: string[] = [];
   let cmdArgs: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -305,6 +316,36 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--roles') {
+      roles = args[++i];
+      continue;
+    }
+
+    if (arg === '--identities') {
+      identities = args[++i];
+      continue;
+    }
+
+    if (arg === '--ref') {
+      ref = args[++i];
+      continue;
+    }
+
+    if (arg === '--bundle') {
+      bundle = args[++i];
+      continue;
+    }
+
+    if (arg === '--from') {
+      from = args[++i];
+      continue;
+    }
+
+    if (arg === '--cleanup') {
+      cleanup = true;
+      continue;
+    }
+
     if (arg === '-t' || arg === '--target') {
       target = args[++i];
       continue;
@@ -362,35 +403,68 @@ export function parseArgs(args: string[]): ParsedArgs {
       subcommand = arg;
       continue;
     }
+
+    if (command === 'config' && !arg.startsWith('-')) {
+      if (!subcommand) {
+        subcommand = arg;
+      } else {
+        positionalArgs.push(arg);
+      }
+      continue;
+    }
   }
 
-  return { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, value, target, cmdArgs };
+  return {
+    command,
+    subcommand,
+    env,
+    envExplicit,
+    root,
+    dryRun,
+    verbose,
+    quiet,
+    warn,
+    json,
+    onlyChanged,
+    requireSource,
+    allowPlaintext,
+    global,
+    local,
+    force,
+    gui,
+    vault,
+    roles,
+    identities,
+    ref,
+    bundle,
+    from,
+    cleanup,
+    file,
+    key,
+    value,
+    target,
+    positionalArgs,
+    cmdArgs,
+  };
 }
 
 function checkMigrationNeeded(root: string, command: string): void {
-  const skipCommands = ['', 'help', 'version', 'init', 'skill', 'migrate'];
+  const skipCommands = ['', 'help', 'version', 'bootstrap', 'config', 'init', 'skill', 'migrate'];
   if (skipCommands.includes(command)) return;
 
-  const configPath = findConfigPath(root);
-  if (!configPath) return;
-
-  const config = loadConfig(root);
-  const { needsMigration, from, to } = checkSchemaVersion(config);
-
-  if (needsMigration) {
+  const project = findProjectRoot(root);
+  if (project?.repositoryKind === 'legacy-v2') {
     console.log('');
     console.log(pc.yellow('━'.repeat(60)));
     console.log(pc.yellow(pc.bold('  Migration Required')));
     console.log(pc.yellow('━'.repeat(60)));
     console.log('');
-    console.log(`  Your ${pc.cyan('hush.yaml')} uses schema version ${pc.bold(String(from))}.`);
-    console.log(`  Hush ${VERSION} uses schema version ${pc.bold(String(to))}.`);
+    console.log(`  This repository still uses ${pc.cyan('hush.yaml')} legacy runtime authority.`);
+    console.log(`  Hush ${VERSION} expects a ${pc.bold('.hush/')} v3 repository for normal runtime commands.`);
     console.log('');
-    console.log(pc.dim('  Migration guide:'));
-    console.log(`  ${pc.cyan(`https://hush-docs.pages.dev/migrations/v${from}-to-v${to}`)}`);
-    console.log('');
-    console.log(pc.dim('  Or ask your AI assistant:'));
-    console.log(pc.dim(`  "Help me migrate hush.yaml from schema v${from} to v${to}"`));
+    console.log(pc.dim('  Run this first:'));
+    console.log(`  ${pc.cyan('hush migrate --from v2 --dry-run')}`);
+    console.log(`  ${pc.cyan('hush migrate --from v2')}`);
     console.log('');
     console.log(pc.yellow('━'.repeat(60)));
     console.log('');
@@ -405,7 +479,7 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, file, key, value, target, cmdArgs } = parseArgs(args);
+  const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, roles, identities, ref, bundle, from, cleanup, file, key, value, target, positionalArgs, cmdArgs } = parseArgs(args);
   const storeMode: StoreMode = global && command !== 'skill' ? 'global' : 'project';
   const store = resolveStoreContext(root, storeMode);
 
@@ -419,6 +493,14 @@ export async function main(): Promise<void> {
     switch (command) {
       case 'init':
         await initCommand(defaultContext, { store });
+        break;
+
+      case 'bootstrap':
+        await bootstrapCommand(defaultContext, { store });
+        break;
+
+      case 'config':
+        await configCommand(defaultContext, { store, subcommand, args: positionalArgs, roles, identities });
         break;
 
       case 'encrypt':
@@ -509,6 +591,14 @@ export async function main(): Promise<void> {
         await traceCommand(defaultContext, { store, env, key });
         break;
 
+      case 'diff':
+        await diffCommand(defaultContext, { store, env, target, bundle, ref });
+        break;
+
+      case 'export-example':
+        await exportExampleCommand(defaultContext, { store, env, target, bundle });
+        break;
+
       case 'template':
         await templateCommand(defaultContext, { root, env });
         break;
@@ -518,7 +608,7 @@ export async function main(): Promise<void> {
         break;
 
       case 'migrate':
-        await migrateCommand(defaultContext, { root, dryRun });
+        await migrateCommand(defaultContext, { root, dryRun, from, cleanup });
         break;
 
       default:

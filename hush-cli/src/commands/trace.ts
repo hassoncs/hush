@@ -1,106 +1,136 @@
-import { join } from 'node:path';
 import pc from 'picocolors';
-import { parseEnvContent } from '../core/parse.js';
-import type { TraceOptions, Target, HushContext } from '../types.js';
+import { appendAuditEvent } from '../v3/audit.js';
+import { requireActiveIdentity } from '../v3/identity.js';
+import { loadV3Repository } from '../v3/repository.js';
+import { resolveV3Target } from '../v3/resolver.js';
+import { isIdentityAllowed, type HushFileIndexEntry } from '../v3/domain.js';
+import type { HushContext, HushResolvedNode, TraceOptions } from '../types.js';
 
-function matchesPattern(key: string, pattern: string): boolean {
-  const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
-  return regex.test(key);
+function canReadFile(file: HushFileIndexEntry, identity: string, roles: readonly string[]): boolean {
+  return roles.some((role) => isIdentityAllowed(file.readers, identity, role as never));
 }
 
-function matchesAnyPattern(key: string, patterns: string[]): string | null {
-  for (const pattern of patterns) {
-    if (matchesPattern(key, pattern)) {
-      return pattern;
-    }
-  }
-  return null;
+function formatReaders(file: Pick<HushFileIndexEntry, 'readers'>): string {
+  return `roles=${file.readers.roles.join(',') || '-'} identities=${file.readers.identities.join(',') || '-'}`;
 }
 
-type TargetDisposition = 
-  | { status: 'included' }
-  | { status: 'excluded'; reason: string }
-  | { status: 'not_included'; reason: string };
+function matchLogicalPath(selector: string, logicalPath: string): boolean {
+  return logicalPath === selector || logicalPath.split('/').filter(Boolean).at(-1) === selector;
+}
 
-function getTargetDisposition(key: string, target: Target): TargetDisposition {
-  if (target.include && target.include.length > 0) {
-    const matchedInclude = matchesAnyPattern(key, target.include);
-    if (!matchedInclude) {
-      return { status: 'not_included', reason: `not in include: ${target.include.join(', ')}` };
+function formatNodeSummary(logicalPath: string, node: HushResolvedNode): string[] {
+  const lines = [`    ${logicalPath}`];
+
+  for (const record of node.provenance) {
+    const importLabel = record.import
+      ? ` imported-from=${record.import.project}${record.import.bundle ? `:${record.import.bundle}` : ''}${record.import.file ? `:${record.import.file}` : ''}`
+      : '';
+    lines.push(`      ${pc.dim(`file=${record.filePath}${importLabel}`)}`);
+  }
+
+  if (node.interpolation?.dependencies.length) {
+    for (const dependency of node.interpolation.dependencies) {
+      lines.push(`      ${pc.dim(`interpolation=${dependency.path}${dependency.filePath ? ` <- ${dependency.filePath}` : ''}`)}`);
     }
   }
 
-  if (target.exclude && target.exclude.length > 0) {
-    const matchedExclude = matchesAnyPattern(key, target.exclude);
-    if (matchedExclude) {
-      return { status: 'excluded', reason: `matches exclude: ${matchedExclude}` };
-    }
-  }
+  return lines;
+}
 
-  return { status: 'included' };
+function extractUnreadableFilePaths(message: string): string[] {
+  const match = message.match(/: (.+)$/);
+  return match?.[1]?.split(',').map((value) => value.trim()).filter(Boolean) ?? [];
 }
 
 export async function traceCommand(ctx: HushContext, options: TraceOptions): Promise<void> {
-  const { store, env, key } = options;
-  const root = store.root;
-  const config = ctx.config.loadConfig(root);
+  const repository = loadV3Repository(options.store.root, { keyIdentity: options.store.keyIdentity });
+  const identity = requireActiveIdentity(ctx, options.store, repository.manifest.identities, {
+    name: 'trace',
+    args: [options.key],
+  });
+  const roles = repository.manifest.identities[identity]?.roles ?? [];
+  const matchedFiles = repository.files
+    .map((file) => ({
+      file,
+      matches: file.logicalPaths.filter((logicalPath) => matchLogicalPath(options.key, logicalPath)).sort(),
+      readable: canReadFile(file, identity, roles),
+    }))
+    .filter((entry) => entry.matches.length > 0)
+    .sort((left, right) => left.file.path.localeCompare(right.file.path));
+  const allMatchedLogicalPaths = Array.from(new Set(matchedFiles.flatMap((entry) => entry.matches))).sort();
+  const lines: string[] = [];
 
-  ctx.logger.log(pc.bold(`\nTracing variable: ${pc.cyan(key)}\n`));
+  appendAuditEvent(ctx, options.store, {
+    type: 'read_attempt',
+    activeIdentity: identity,
+    success: true,
+    command: { name: 'trace', args: [options.key] },
+    files: matchedFiles.map((entry) => entry.file.path),
+    logicalPaths: allMatchedLogicalPaths,
+  });
 
-  ctx.logger.log(pc.blue('Source Status:'));
+  lines.push(pc.blue('Hush trace\n'));
+  lines.push(`Selector: ${pc.cyan(options.key)}`);
+  lines.push(`Active identity: ${pc.green(identity)}`);
+  lines.push(`Matched logical paths: ${pc.cyan(String(allMatchedLogicalPaths.length))}`);
 
-  const sources: { name: string; path: string; found: boolean }[] = [
-    { name: config.sources.shared, path: join(root, config.sources.shared + '.encrypted'), found: false },
-    { name: config.sources.development, path: join(root, config.sources.development + '.encrypted'), found: false },
-    { name: config.sources.production, path: join(root, config.sources.production + '.encrypted'), found: false },
-    { name: config.sources.local, path: join(root, config.sources.local + '.encrypted'), found: false },
-  ];
+  if (matchedFiles.length === 0) {
+    lines.push('');
+    lines.push(pc.yellow('No matching logical path found in the repository.'));
+    ctx.logger.log(lines.join('\n'));
+    return;
+  }
 
-  const maxSourceLen = Math.max(...sources.map(s => s.name.length));
-
-  for (const source of sources) {
-    if (!ctx.fs.existsSync(source.path)) {
-      ctx.logger.log(`  ${source.name.padEnd(maxSourceLen)} : ${pc.dim('(file not found)')}`);
-      continue;
+  lines.push('');
+  lines.push('Repository files:');
+  for (const entry of matchedFiles) {
+    const status = entry.readable ? pc.green('readable') : pc.red('unreadable');
+    lines.push(`  ${pc.cyan(entry.file.path)} ${pc.dim(`(${status}; ${formatReaders(entry.file)})`)}`);
+    for (const logicalPath of entry.matches) {
+      lines.push(`    ${logicalPath}`);
     }
+  }
 
+  lines.push('');
+  lines.push('Targets:');
+  const targetNames = Object.keys(repository.manifest.targets ?? {}).sort();
+
+  for (const targetName of targetNames) {
     try {
-        const content = ctx.sops.decrypt(source.path, { root, keyIdentity: store.keyIdentity });
-      const vars = parseEnvContent(content);
-      const found = vars.some(v => v.key === key);
-      source.found = found;
+      const resolution = resolveV3Target(ctx, {
+        store: options.store,
+        repository,
+        targetName,
+        command: { name: 'trace', args: [options.key] },
+      });
+      const matchedNodes = [
+        ...Object.entries(resolution.values),
+        ...Object.entries(resolution.artifacts),
+      ].filter(([logicalPath]) => allMatchedLogicalPaths.includes(logicalPath));
 
-      if (found) {
-        ctx.logger.log(`  ${source.name.padEnd(maxSourceLen)} : ${pc.green('✅ Present')}`);
-      } else {
-        ctx.logger.log(`  ${source.name.padEnd(maxSourceLen)} : ${pc.dim('❌ Not found')}`);
+      if (matchedNodes.length === 0) {
+        lines.push(`  ${pc.cyan(targetName)} ${pc.dim('(not selected by target bundle)')}`);
+        continue;
       }
-    } catch {
-      ctx.logger.log(`  ${source.name.padEnd(maxSourceLen)} : ${pc.red('⚠️  Decrypt failed')}`);
+
+      lines.push(`  ${pc.cyan(targetName)} ${pc.green('(resolved)')}`);
+      for (const [logicalPath, node] of matchedNodes.sort(([left], [right]) => left.localeCompare(right))) {
+        lines.push(...formatNodeSummary(logicalPath, node));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('requires unreadable file')) {
+        lines.push(`  ${pc.cyan(targetName)} ${pc.red(`(${message})`)}`);
+        continue;
+      }
+
+      lines.push(`  ${pc.cyan(targetName)} ${pc.red('(acl denied)')}`);
+      for (const filePath of extractUnreadableFilePaths(message)) {
+        const file = repository.filesByPath[filePath];
+        lines.push(`    ${pc.yellow(filePath)}${file ? ` ${pc.dim(`(${formatReaders(file)})`)}` : ''}`);
+      }
     }
   }
 
-  const foundInAnySource = sources.some(s => s.found);
-
-  ctx.logger.log(pc.blue(`\nTarget Disposition (Environment: ${env}):`));
-
-  const maxTargetLen = Math.max(...config.targets.map(t => t.name.length));
-
-  for (const target of config.targets) {
-    const disposition = getTargetDisposition(key, target);
-
-    const targetLabel = `[${target.name}]`.padEnd(maxTargetLen + 2);
-
-    if (!foundInAnySource) {
-      ctx.logger.log(`  ${targetLabel} : ${pc.yellow('⚠️  Variable not in any source')}`);
-    } else if (disposition.status === 'included') {
-      ctx.logger.log(`  ${targetLabel} : ${pc.green('✅ Included')}`);
-    } else if (disposition.status === 'excluded') {
-      ctx.logger.log(`  ${targetLabel} : ${pc.red(`🚫 Excluded`)} ${pc.dim(`(${disposition.reason})`)}`);
-    } else {
-      ctx.logger.log(`  ${targetLabel} : ${pc.red(`🚫 Not included`)} ${pc.dim(`(${disposition.reason})`)}`);
-    }
-  }
-
-  ctx.logger.log('');
+  ctx.logger.log(lines.join('\n'));
 }

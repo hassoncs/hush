@@ -2,7 +2,7 @@ import { fs } from './lib/fs.js';
 import { spawnSync, execSync } from 'node:child_process';
 import { join } from 'node:path';
 import { loadConfig, findProjectRoot } from './config/loader.js';
-import { decrypt, encrypt, edit, isSopsInstalled } from './core/sops.js';
+import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, edit, isSopsInstalled } from './core/sops.js';
 import { ageAvailable, ageGenerate, agePublicFromPrivate, keyExists, keySave, keyLoad, keyPath } from './lib/age.js';
 import { opInstalled, opAvailable, opGetKey, opStoreKey } from './lib/onepassword.js';
 import type { HushContext } from './types.js';
@@ -35,6 +35,8 @@ export const defaultContext: HushContext = {
     env: process.env,
     stdin: process.stdin,
     stdout: process.stdout,
+    on: (event, listener) => void process.on(event, listener),
+    removeListener: (event, listener) => void process.removeListener(event, listener),
   },
   config: {
     loadConfig,
@@ -57,7 +59,10 @@ export const defaultContext: HushContext = {
   },
   sops: {
     decrypt,
+    decryptYaml,
     encrypt,
+    encryptYaml,
+    encryptYamlContent,
     edit,
     isSopsInstalled,
   },

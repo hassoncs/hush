@@ -1,43 +1,27 @@
-import { join } from 'node:path';
 import pc from 'picocolors';
-import { interpolateVars } from '../core/interpolate.js';
-import { mergeVars } from '../core/merge.js';
-import { parseEnvContent } from '../core/parse.js';
-import type { EnvVar, ListOptions, HushContext } from '../types.js';
+import { appendCommandReadAudit, resolveTargetEnvView } from './v3-command-helpers.js';
+import type { ListOptions, HushContext } from '../types.js';
 
 export async function listCommand(ctx: HushContext, options: ListOptions): Promise<void> {
-  const { store, env } = options;
-  const config = ctx.config.loadConfig(store.root);
+  try {
+    const view = resolveTargetEnvView(ctx, options.store, undefined, {
+      name: 'list',
+      args: [],
+    });
 
-  ctx.logger.log(pc.blue(`Variables for ${env}:\n`));
+    appendCommandReadAudit(ctx, options.store, view, { name: 'list', args: [] });
 
-  const sharedEncrypted = join(store.root, config.sources.shared + '.encrypted');
-  const envEncrypted = join(store.root, config.sources[env] + '.encrypted');
+    ctx.logger.log(pc.blue(`Variables for target ${view.targetName}:\n`));
 
-  const varSources: EnvVar[][] = [];
+    for (const { key, value } of view.envVars) {
+      const displayValue = value.length > 50 ? `${value.slice(0, 47)}...` : value;
+      ctx.logger.log(`${pc.cyan(key)}=${pc.dim(displayValue)}`);
+    }
 
-  if (ctx.fs.existsSync(sharedEncrypted)) {
-    const content = ctx.sops.decrypt(sharedEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
-    varSources.push(parseEnvContent(content));
-  }
-
-  if (ctx.fs.existsSync(envEncrypted)) {
-    const content = ctx.sops.decrypt(envEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
-    varSources.push(parseEnvContent(content));
-  }
-
-  if (varSources.length === 0) {
-    ctx.logger.error(pc.red('No encrypted files found'));
+    ctx.logger.log(pc.dim(`\nTotal: ${view.envVars.length} variables`));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.logger.error(pc.red(message));
     ctx.process.exit(1);
   }
-
-  const merged = mergeVars(...varSources);
-  const interpolated = interpolateVars(merged);
-
-  for (const { key, value } of interpolated) {
-    const displayValue = value.length > 50 ? value.slice(0, 47) + '...' : value;
-    ctx.logger.log(`${pc.cyan(key)}=${pc.dim(displayValue)}`);
-  }
-
-  ctx.logger.log(pc.dim(`\nTotal: ${interpolated.length} variables`));
 }

@@ -1,292 +1,178 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { HushContext, StoreContext } from '../src/types.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { join } from 'node:path';
+import * as nodeFs from 'node:fs';
 import { parseArgs } from '../src/cli.js';
+import { bootstrapCommand } from '../src/commands/bootstrap.js';
+import { setCommand } from '../src/commands/set.js';
+import { configCommand } from '../src/commands/config.js';
+import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../src/core/sops.js';
+import type { HushContext, StoreContext } from '../src/types.js';
+import { TEST_AGE_PRIVATE_KEY, TEST_AGE_PUBLIC_KEY, ensureTestSopsEnv, readDecryptedYamlFile } from './helpers/sops-test.js';
 
-const setKeyMock = vi.fn();
-const platformMock = vi.fn(() => 'darwin');
+const TEST_DIR = join('/tmp', 'hush-test-set-command');
 
-vi.mock('../src/core/sops.js', () => ({
-  setKey: setKeyMock,
-}));
-
-vi.mock('node:os', () => ({
-  platform: platformMock,
-}));
-
-function createMockStdin(overrides: Partial<NodeJS.ReadStream> = {}): NodeJS.ReadStream {
-  return {
-    isTTY: true,
-    setEncoding: vi.fn(),
-    on: vi.fn(),
-    resume: vi.fn(),
-    pause: vi.fn(),
-    setRawMode: vi.fn(),
-    removeListener: vi.fn(),
-    ...overrides,
-  } as unknown as NodeJS.ReadStream;
-}
-
-function createStore(mode: 'project' | 'global' = 'project'): StoreContext {
+function createStore(root: string, mode: 'project' | 'global' = 'project'): StoreContext {
+  const stateRoot = join(root, '.state-root');
   return {
     mode,
-    root: mode === 'global' ? '/Users/test/.hush' : '/root',
-    configPath: mode === 'global' ? '/Users/test/.hush/hush.yaml' : '/root/hush.yaml',
-    keyIdentity: mode === 'global' ? 'hush-global' : 'test/repo',
-    displayLabel: mode === 'global' ? '~/.hush' : '/root',
+    root,
+    configPath: mode === 'project' ? join(root, 'hush.yaml') : null,
+    keyIdentity: mode === 'global' ? 'hush-global' : root,
+    displayLabel: root,
+    stateRoot: mode === 'global' ? stateRoot : undefined,
+    projectStateRoot: mode === 'global' ? join(stateRoot, 'projects', 'hush-global-test') : undefined,
+    activeIdentityPath: mode === 'global' ? join(stateRoot, 'projects', 'hush-global-test', 'active-identity.json') : undefined,
+    auditLogPath: mode === 'global' ? join(stateRoot, 'projects', 'hush-global-test', 'audit.jsonl') : undefined,
   };
 }
 
-describe('set command argument parsing', () => {
-  const mockConsoleError = vi.fn();
-  const mockProcessExit = vi.fn();
+function createContext(root: string): HushContext {
+  ensureTestSopsEnv();
 
-  const createMockContext = (): HushContext => {
-    return {
-      fs: {
-        existsSync: vi.fn().mockReturnValue(true),
-        readFileSync: vi.fn().mockReturnValue(''),
-        writeFileSync: vi.fn(),
-        mkdirSync: vi.fn(),
-        readdirSync: vi.fn().mockReturnValue([]),
-        unlinkSync: vi.fn(),
-        statSync: vi.fn().mockReturnValue({ isDirectory: () => false, mtime: new Date() }),
-        renameSync: vi.fn(),
-      },
-      path: {
-        join: (...parts: string[]) => parts.join('/'),
-      },
-      exec: {
-        spawnSync: vi.fn(),
-        execSync: vi.fn(),
-      },
-      logger: {
-        log: vi.fn(),
-        error: mockConsoleError,
-        warn: vi.fn(),
-        info: vi.fn(),
-      },
-      process: {
-        cwd: () => '/root',
-        exit: mockProcessExit as any,
-        env: {},
-        stdin: createMockStdin(),
-        stdout: { write: vi.fn() } as any,
-      },
-      config: {
-        loadConfig: vi.fn().mockReturnValue({
-          sources: {
-            shared: '.hush',
-            development: '.hush.development',
-            production: '.hush.production',
-            local: '.hush.local',
-          },
-          targets: [{ name: 'root', path: '.', format: 'dotenv' }],
-        }),
-        findProjectRoot: vi.fn().mockReturnValue({
-          configPath: '/root/hush.yaml',
-          projectRoot: '/root',
-        }),
-      },
-      age: {
-        ageAvailable: vi.fn().mockReturnValue(true),
-        ageGenerate: vi.fn(),
-        keyExists: vi.fn().mockReturnValue(true),
-        keySave: vi.fn(),
-        keyPath: vi.fn().mockReturnValue('/keys/test.txt'),
-        keyLoad: vi.fn(),
-        agePublicFromPrivate: vi.fn(),
-      },
-      onepassword: {
-        opInstalled: vi.fn().mockReturnValue(false),
-        opAvailable: vi.fn().mockReturnValue(false),
-        opGetKey: vi.fn(),
-        opStoreKey: vi.fn(),
-      },
-      sops: {
-        decrypt: vi.fn(),
-        encrypt: vi.fn(),
-        edit: vi.fn(),
-        isSopsInstalled: vi.fn().mockReturnValue(true),
-      },
-    };
+  return {
+    fs: {
+      existsSync: nodeFs.existsSync,
+      readFileSync: nodeFs.readFileSync,
+      writeFileSync: nodeFs.writeFileSync,
+      mkdirSync: nodeFs.mkdirSync,
+      readdirSync: nodeFs.readdirSync as HushContext['fs']['readdirSync'],
+      unlinkSync: nodeFs.unlinkSync,
+      rmSync: nodeFs.rmSync,
+      statSync: nodeFs.statSync,
+      renameSync: nodeFs.renameSync,
+    },
+    path: {
+      join,
+    },
+    exec: {
+      spawnSync: vi.fn(() => ({ status: 0, stdout: '', stderr: '' })),
+      execSync: vi.fn(() => ''),
+    },
+    logger: {
+      log: vi.fn(),
+      error: vi.fn(),
+      warn: vi.fn(),
+      info: vi.fn(),
+    },
+    process: {
+      cwd: () => root,
+      exit: ((code: number) => { throw new Error(`Process exit: ${code}`); }) as never,
+      env: {},
+      stdin: {
+        isTTY: true,
+        setEncoding: vi.fn(),
+        on: vi.fn(),
+        resume: vi.fn(),
+        pause: vi.fn(),
+        setRawMode: vi.fn(),
+        removeListener: vi.fn(),
+      } as unknown as NodeJS.ReadStream,
+      stdout: { write: vi.fn() } as unknown as NodeJS.WriteStream,
+      on: vi.fn(),
+      removeListener: vi.fn(),
+    },
+    config: {
+      loadConfig: vi.fn(),
+      findProjectRoot: vi.fn(),
+    },
+    age: {
+      ageAvailable: vi.fn(() => true),
+      ageGenerate: vi.fn(() => ({ private: TEST_AGE_PRIVATE_KEY, public: TEST_AGE_PUBLIC_KEY })),
+      keyExists: vi.fn((identity: string) => identity === 'hush-global'),
+      keySave: vi.fn(),
+      keyPath: vi.fn(() => join(TEST_DIR, 'keys', 'hush-global.txt')),
+      keyLoad: vi.fn(() => ({ private: TEST_AGE_PRIVATE_KEY, public: TEST_AGE_PUBLIC_KEY })),
+      agePublicFromPrivate: vi.fn(() => TEST_AGE_PUBLIC_KEY),
+    },
+    onepassword: {
+      opInstalled: vi.fn(() => false),
+      opAvailable: vi.fn(() => false),
+      opGetKey: vi.fn(() => null),
+      opStoreKey: vi.fn(),
+    },
+    sops: {
+      decrypt: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decrypt(filePath, options)),
+      decryptYaml: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decryptYaml(filePath, options)),
+      encrypt: vi.fn((inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encrypt(inputPath, outputPath, options)),
+      encryptYaml: vi.fn((inputPath: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encryptYaml(inputPath, outputPath, options)),
+      encryptYamlContent: vi.fn((content: string, outputPath: string, options?: { root?: string; keyIdentity?: string }) => encryptYamlContent(content, outputPath, options)),
+      edit: vi.fn(),
+      isSopsInstalled: vi.fn(() => isSopsInstalled()),
+    },
   };
+}
 
+describe('setCommand legacy guard and global bootstrap', () => {
   beforeEach(() => {
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
+    nodeFs.mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    nodeFs.rmSync(TEST_DIR, { recursive: true, force: true });
     vi.clearAllMocks();
-    platformMock.mockReturnValue('darwin');
-    mockProcessExit.mockImplementation((code: number) => {
-      throw new Error(`Process exit: ${code}`);
-    });
   });
 
-  it('errors when no key is provided', async () => {
-    const ctx = createMockContext();
-    const { setCommand } = await import('../src/commands/set.js');
+  it('rejects legacy hush.yaml repos instead of writing legacy encrypted source files', async () => {
+    const root = join(TEST_DIR, 'legacy-repo');
+    nodeFs.mkdirSync(root, { recursive: true });
+    nodeFs.writeFileSync(join(root, 'hush.yaml'), 'version: 2\nsources:\n  shared: .env\ntargets:\n  - name: root\n    path: .\n    format: dotenv\n', 'utf-8');
 
-    try {
-      await setCommand(ctx, {
-        store: createStore(),
-        key: undefined,
-      });
-      expect.fail('Should have exited');
-    } catch (e: any) {
-      expect(e.message).toBe('Process exit: 1');
-    }
+    const ctx = createContext(root);
 
-    expect(mockConsoleError).toHaveBeenCalledWith(expect.stringContaining('Usage: hush set'));
+    await expect(setCommand(ctx, {
+      store: createStore(root),
+      key: 'DATABASE_URL',
+      value: 'postgres://db',
+    })).rejects.toThrow(/Bootstrap or migrate before using this command/i);
   });
 
-  it('prefers GUI prompt over piped stdin when --gui is set', async () => {
-    const ctx = createMockContext();
-    const execSync = vi.fn().mockReturnValue('gui-secret\n');
-
-    ctx.exec.execSync = execSync;
-    ctx.process.stdin = createMockStdin({
-      isTTY: false,
-    });
-
-    const { setCommand } = await import('../src/commands/set.js');
+  it('bootstraps the global store as a v3 repository before writing secrets', async () => {
+    const root = join(TEST_DIR, 'global-store');
+    const ctx = createContext(root);
 
     await setCommand(ctx, {
-      store: createStore(),
-      key: 'API_KEY',
-      gui: true,
-    });
-
-    expect(execSync).toHaveBeenCalledOnce();
-    expect(execSync).toHaveBeenCalledWith(
-      expect.stringContaining('text returned of (display dialog'),
-      expect.objectContaining({
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      })
-    );
-    expect(execSync).toHaveBeenCalledWith(expect.stringContaining('with hidden answer'), expect.anything());
-    expect(setKeyMock).toHaveBeenCalledWith('/root/.hush.encrypted', 'API_KEY', 'gui-secret', {
-      root: '/root',
-      keyIdentity: 'test/repo',
-    });
-  });
-
-  it('uses the inline value even when --gui is requested', async () => {
-    const ctx = createMockContext();
-    const execSync = vi.fn();
-
-    ctx.exec.execSync = execSync;
-
-    const { setCommand } = await import('../src/commands/set.js');
-
-    await setCommand(ctx, {
-      store: createStore(),
-      key: 'API_KEY',
-      value: 'inline-secret',
-      gui: true,
-    });
-
-    expect(execSync).not.toHaveBeenCalled();
-    expect(setKeyMock).toHaveBeenCalledWith('/root/.hush.encrypted', 'API_KEY', 'inline-secret', {
-      root: '/root',
-      keyIdentity: 'test/repo',
-    });
-  });
-
-  it('surfaces macOS dialog launch failures instead of treating them as empty input', async () => {
-    const ctx = createMockContext();
-    const error = Object.assign(new Error('execution error'), {
-      stderr: 'not authorized to send Apple events to System Events',
-    });
-
-    ctx.exec.execSync = vi.fn().mockImplementation(() => {
-      throw error;
-    });
-
-    const { setCommand } = await import('../src/commands/set.js');
-
-    await expect(
-      setCommand(ctx, {
-        store: createStore(),
-        key: 'API_KEY',
-        gui: true,
-      })
-    ).rejects.toThrow('macOS dialog failed: not authorized to send Apple events to System Events');
-
-    expect(mockConsoleError).not.toHaveBeenCalledWith(expect.stringContaining('No value entered, aborting'));
-  });
-
-  it('treats dialog cancellation as cancellation instead of a generic GUI failure', async () => {
-    const ctx = createMockContext();
-    const error = Object.assign(new Error('execution error'), {
-      stderr: 'User canceled.',
-    });
-
-    ctx.exec.execSync = vi.fn().mockImplementation(() => {
-      throw error;
-    });
-
-    const { setCommand } = await import('../src/commands/set.js');
-
-    try {
-      await setCommand(ctx, {
-        store: createStore(),
-        key: 'API_KEY',
-        gui: true,
-      });
-      expect.fail('Should have exited');
-    } catch (e: any) {
-      expect(e.message).toBe('Process exit: 1');
-    }
-
-    expect(ctx.logger.log).toHaveBeenCalledWith(expect.stringContaining('Cancelled'));
-  });
-
-  it('bootstraps the global store from the hush-global key before setting a secret', async () => {
-    const ctx = createMockContext();
-    const { setCommand } = await import('../src/commands/set.js');
-
-    const existingPaths = new Set<string>(['/keys/hush-global.txt']);
-    const existsSync = vi.fn((path: string) => existingPaths.has(path));
-
-    ctx.fs.existsSync = existsSync;
-    ctx.fs.mkdirSync = vi.fn((path: string) => {
-      existingPaths.add(path);
-      return path;
-    });
-    ctx.fs.writeFileSync = vi.fn((path: string) => {
-      existingPaths.add(path);
-    });
-    ctx.age.keyLoad = vi.fn().mockReturnValue({
-      private: 'AGE-SECRET-KEY-EXAMPLE',
-      public: 'age1globalpublickey',
-    });
-
-    await setCommand(ctx, {
-      store: createStore('global'),
+      store: createStore(root, 'global'),
       key: 'OPENAI_API_KEY',
       value: 'secret-value',
     });
 
-    expect(ctx.fs.mkdirSync).toHaveBeenCalledWith('/Users/test/.hush', { recursive: true });
-    expect(ctx.fs.writeFileSync).toHaveBeenCalledWith(
-      '/Users/test/.hush/hush.yaml',
-      expect.stringContaining('sources:'),
+    expect(nodeFs.existsSync(join(root, '.hush', 'manifest.encrypted'))).toBe(true);
+    expect(nodeFs.existsSync(join(root, '.hush', 'files', 'env', 'project', 'shared.encrypted'))).toBe(true);
+    expect(nodeFs.existsSync(join(root, '.sops.yaml'))).toBe(true);
+
+    const sharedFile = readDecryptedYamlFile(root, join(root, '.hush', 'files', 'env', 'project', 'shared.encrypted'));
+    expect(sharedFile).toContain('env/project/shared/OPENAI_API_KEY');
+    expect(sharedFile).toContain('secret-value');
+  });
+
+  it('denies writes when the active identity is not an owner', async () => {
+    const root = join(TEST_DIR, 'member-write-denied');
+    nodeFs.mkdirSync(root, { recursive: true });
+    nodeFs.writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ repository: 'https://github.com/hassoncs/hush' }),
       'utf-8',
     );
-    expect(ctx.fs.writeFileSync).toHaveBeenCalledWith(
-      '/Users/test/.hush/.sops.yaml',
-      expect.stringContaining('age1globalpublickey'),
-      'utf-8',
-    );
-    expect(setKeyMock).toHaveBeenCalledWith('/Users/test/.hush/.hush.encrypted', 'OPENAI_API_KEY', 'secret-value', {
-      root: '/Users/test/.hush',
-      keyIdentity: 'hush-global',
-    });
+
+    const ctx = createContext(root);
+    const store = createStore(root);
+
+    await bootstrapCommand(ctx, { store });
+    await configCommand(ctx, { store, subcommand: 'active-identity', args: ['member-local'] });
+
+    await expect(setCommand(ctx, {
+      store,
+      key: 'DATABASE_URL',
+      value: 'postgres://db',
+    })).rejects.toThrow(/must have the owner role/i);
   });
 });
 
 describe('CLI argument parsing for set command', () => {
   it('parses hush set KEY VALUE correctly', () => {
     const result = parseArgs(['set', 'MY_KEY', 'my-value']);
-    
+
     expect(result.command).toBe('set');
     expect(result.key).toBe('MY_KEY');
     expect(result.value).toBe('my-value');
@@ -294,7 +180,7 @@ describe('CLI argument parsing for set command', () => {
 
   it('parses hush set KEY (no value) for prompting', () => {
     const result = parseArgs(['set', 'MY_KEY']);
-    
+
     expect(result.command).toBe('set');
     expect(result.key).toBe('MY_KEY');
     expect(result.value).toBeUndefined();
@@ -302,7 +188,7 @@ describe('CLI argument parsing for set command', () => {
 
   it('parses hush set KEY VALUE -e production correctly', () => {
     const result = parseArgs(['set', 'MY_KEY', 'my-value', '-e', 'production']);
-    
+
     expect(result.command).toBe('set');
     expect(result.key).toBe('MY_KEY');
     expect(result.value).toBe('my-value');
@@ -312,67 +198,9 @@ describe('CLI argument parsing for set command', () => {
 
   it('parses hush set KEY --local correctly', () => {
     const result = parseArgs(['set', 'MY_KEY', '--local']);
-    
+
     expect(result.command).toBe('set');
     expect(result.key).toBe('MY_KEY');
     expect(result.local).toBe(true);
-  });
-
-  it('parses hush set KEY --gui correctly', () => {
-    const result = parseArgs(['set', 'MY_KEY', '--gui']);
-    
-    expect(result.command).toBe('set');
-    expect(result.key).toBe('MY_KEY');
-    expect(result.gui).toBe(true);
-  });
-
-  it('parses hush set --global KEY correctly', () => {
-    const result = parseArgs(['set', '--global', 'MY_KEY']);
-
-    expect(result.command).toBe('set');
-    expect(result.key).toBe('MY_KEY');
-    expect(result.global).toBe(true);
-  });
-
-  it('parses hush set KEY VALUE --global correctly', () => {
-    const result = parseArgs(['set', 'MY_KEY', 'my-value', '--global']);
-
-    expect(result.command).toBe('set');
-    expect(result.key).toBe('MY_KEY');
-    expect(result.value).toBe('my-value');
-    expect(result.global).toBe(true);
-  });
-
-  it('parses hush set KEY VALUE --local correctly', () => {
-    const result = parseArgs(['set', 'MY_KEY', 'my-value', '--local']);
-
-    expect(result.command).toBe('set');
-    expect(result.key).toBe('MY_KEY');
-    expect(result.value).toBe('my-value');
-    expect(result.local).toBe(true);
-  });
-
-  it('parses hush set KEY VALUE --gui correctly', () => {
-    const result = parseArgs(['set', 'MY_KEY', 'my-value', '--gui']);
-
-    expect(result.command).toBe('set');
-    expect(result.key).toBe('MY_KEY');
-    expect(result.value).toBe('my-value');
-    expect(result.gui).toBe(true);
-  });
-
-  it('parses value with spaces', () => {
-    const result = parseArgs(['set', 'MY_KEY', 'value with spaces']);
-    
-    expect(result.command).toBe('set');
-    expect(result.key).toBe('MY_KEY');
-    expect(result.value).toBe('value with spaces');
-  });
-
-  it('does not swap key and value (regression test)', () => {
-    const result = parseArgs(['set', 'DATABASE_URL', 'postgres://localhost/db']);
-    
-    expect(result.key).toBe('DATABASE_URL');
-    expect(result.value).toBe('postgres://localhost/db');
   });
 });

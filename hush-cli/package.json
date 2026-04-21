@@ -15,8 +15,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "bun x vitest run",
+    "test:watch": "bun x vitest",
     "prepublishOnly": "bun run build && bun run test",
     "type-check": "tsc --noEmit"
   },

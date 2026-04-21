@@ -2,8 +2,16 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as nodeFs from 'node:fs';
-import { loadConfig, findConfigPath, findProjectRoot, validateConfig } from '../../src/config/loader.js';
-import type { HushConfig } from '../../src/types.js';
+import {
+  loadConfig,
+  findConfigPath,
+  findProjectRoot,
+  isV3RepositoryRoot,
+  loadProjectRuntimeAuthority,
+  validateConfig,
+} from '../../src/config/loader.js';
+import type { LegacyHushConfig } from '../../src/types.js';
+import { ensureEncryptedFixtureRepo, ensureTestSopsConfig, writeEncryptedYamlFile } from '../helpers/sops-test.js';
 
 const TESTS_DIR = fileURLToPath(new URL('..', import.meta.url));
 const FIXTURES_DIR = join(TESTS_DIR, 'fixtures');
@@ -17,6 +25,12 @@ describe('findConfigPath', () => {
   it('returns null when no config exists', () => {
     const result = findConfigPath(join(FIXTURES_DIR, 'basic/nonexistent'));
     expect(result).toBeNull();
+  });
+
+  it('does not treat v3 repositories as hush.yaml config files', () => {
+    const root = join(FIXTURES_DIR, 'v3/single-user-repo');
+    expect(findConfigPath(root)).toBeNull();
+    expect(isV3RepositoryRoot(root)).toBe(true);
   });
 });
 
@@ -42,11 +56,29 @@ describe('loadConfig', () => {
     expect(api?.exclude).toContain('EXPO_PUBLIC_*');
   });
 
-  it('returns default config when no file exists', () => {
-    const config = loadConfig('/nonexistent/path');
-    expect(config.sources.shared).toBe('.hush');
-    expect(config.targets).toHaveLength(1);
-    expect(config.targets[0].name).toBe('root');
+  it('fails with bootstrap guidance when no config exists', () => {
+    expect(() => loadConfig('/nonexistent/path')).toThrowError(/hush bootstrap/i);
+    expect(() => loadConfig('/nonexistent/path')).toThrowError(/hush init/i);
+  });
+
+  it('rejects using legacy loadConfig on v3 repositories', () => {
+    ensureEncryptedFixtureRepo(join(FIXTURES_DIR, 'v3/single-user-repo'));
+    expect(() => loadConfig(join(FIXTURES_DIR, 'v3/single-user-repo'))).toThrowError(/Legacy hush\.yaml runtime loading is disabled/i);
+  });
+
+  it('loads v3 repositories through the runtime authority union', () => {
+    const fixtureRoot = join(FIXTURES_DIR, 'v3/single-user-repo');
+    ensureEncryptedFixtureRepo(fixtureRoot);
+    const authority = loadProjectRuntimeAuthority(fixtureRoot);
+
+    expect(authority.kind).toBe('v3');
+    if (authority.kind === 'v3') {
+      const repository = authority;
+      expect(authority.manifest.activeIdentity).toBe('developer-local');
+      expect(repository.files).toHaveLength(1);
+      expect(repository.filesByPath['env/app/shared']?.logicalPaths).toContain('env/apps/api/env/DATABASE_URL');
+      expect(repository.loadFile('env/app/shared').entries['env/apps/api/env/DATABASE_URL']).toBeDefined();
+    }
   });
 });
 
@@ -69,6 +101,7 @@ describe('findProjectRoot', () => {
     expect(result).not.toBeNull();
     expect(result?.projectRoot).toBe(TEST_DIR);
     expect(result?.configPath).toBe(join(TEST_DIR, 'hush.yaml'));
+    expect(result?.repositoryKind).toBe('legacy-v2');
   });
 
   it('finds hush.yaml in current directory', () => {
@@ -77,6 +110,7 @@ describe('findProjectRoot', () => {
     const result = findProjectRoot(TEST_DIR);
     expect(result).not.toBeNull();
     expect(result?.projectRoot).toBe(TEST_DIR);
+    expect(result?.repositoryKind).toBe('legacy-v2');
   });
 
   it('returns null when no hush.yaml exists', () => {
@@ -93,11 +127,23 @@ describe('findProjectRoot', () => {
     expect(result).not.toBeNull();
     expect(result?.projectRoot).toBe(join(TEST_DIR, 'apps'));
   });
+
+  it('discovers v3 repos without requiring hush.yaml', () => {
+    nodeFs.mkdirSync(join(TEST_DIR, '.hush'), { recursive: true });
+    ensureTestSopsConfig(TEST_DIR);
+    writeEncryptedYamlFile(TEST_DIR, join(TEST_DIR, '.hush/manifest.encrypted'), 'version: 3\nidentities:\n  dev:\n    roles: [owner]\n');
+
+    const result = findProjectRoot(join(TEST_DIR, 'apps/web/src'));
+    expect(result).not.toBeNull();
+    expect(result?.projectRoot).toBe(TEST_DIR);
+    expect(result?.repositoryKind).toBe('v3');
+    expect(result?.configPath).toBeNull();
+  });
 });
 
 describe('validateConfig', () => {
   it('returns no errors for valid config', () => {
-    const config: HushConfig = {
+    const config: LegacyHushConfig = {
       sources: { shared: '.env', development: '.env.dev', production: '.env.prod', local: '.env.local' },
       targets: [{ name: 'root', path: '.', format: 'dotenv' }],
     };
@@ -105,7 +151,7 @@ describe('validateConfig', () => {
   });
 
   it('returns error for missing target name', () => {
-    const config: HushConfig = {
+    const config: LegacyHushConfig = {
       sources: { shared: '.env', development: '.env.dev', production: '.env.prod', local: '.env.local' },
       targets: [{ name: '', path: '.', format: 'dotenv' }],
     };
@@ -114,7 +160,7 @@ describe('validateConfig', () => {
   });
 
   it('returns error for missing target path', () => {
-    const config: HushConfig = {
+    const config: LegacyHushConfig = {
       sources: { shared: '.env', development: '.env.dev', production: '.env.prod', local: '.env.local' },
       targets: [{ name: 'test', path: '', format: 'dotenv' }],
     };

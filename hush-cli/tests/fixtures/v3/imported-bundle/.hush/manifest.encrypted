@@ -1,0 +1,58 @@
+version: ENC[AES256_GCM,data:Aw==,iv:6ljAZ3YQzkIQWK4k1iDHOFVJCGb2HnCB3M1UVHHBpNA=,tag:C/f7Z7pwCJf0eAYoc1cF+Q==,type:int]
+activeIdentity: ENC[AES256_GCM,data:uAhD/zF6YJCPUrYcMEqt,iv:udhk2MsbO09raDWY77RMddP/6splStfoIfzglK18ZOM=,tag:3SadzqU4NlDZ2KPdI3ychA==,type:str]
+identities:
+    developer-local:
+        roles:
+            - ENC[AES256_GCM,data:k5IvBeE=,iv:hTv8GcBgLEKIkRKHQV6tV1SYpBw8OOeweGPA4hc5k+U=,tag:BtBvU0z3UW5KraNVNbsI7g==,type:str]
+    ci:
+        roles:
+            - ENC[AES256_GCM,data:XBk=,iv:x1xBNJMpfzBEQLp+GBhaHPyYCd7jPlvck8MicnS00fs=,tag:Pe7bGzqarUdXLuGMiGUbuQ==,type:str]
+imports:
+    platform:
+        project: ENC[AES256_GCM,data:xDSF4KmSvt9i9bHioHmEtm6CIM5NLjxlXjaWc9WtVpuidcE=,iv:+kVP5XWe1zEUDgSrNl/9q6ciFa7yoctgvJivNhfnHFI=,tag:f826NwOeb9RGZCFA5CXzEg==,type:str]
+        pull:
+            bundles:
+                - ENC[AES256_GCM,data:2WVI1bkXW/fUirOYKsGGNo3KXuHzrGhx,iv:ncOfcs4DAMFRC7BNX8xOP8E5eFh0ZKLimGNGPB7loXY=,tag:DlKOsc7tjtYfN/oWusPhCw==,type:str]
+            files:
+                - ENC[AES256_GCM,data:NjKXcBiXOE8zJbvQIwWJY0rdOw==,iv:kz6/Li1KofiZIDCWT9gFjFgkRu5vQ9s5cMwNxrKmtf4=,tag:dFqcQWifiK8wugTxxT+0aA==,type:str]
+            artifacts: []
+bundles:
+    app:
+        files:
+            - path: ENC[AES256_GCM,data:de5PCuTIfloV+j7wr7U=,iv:Zmkj3JFuDGbE2MAVSs0arYafgGh4g0LC+fqQlw8ESmY=,tag:DGODYjfXQHyg8QpUojm0Rg==,type:str]
+        imports:
+            - project: ENC[AES256_GCM,data:j+Q/w6C4Gq0=,iv:nIK84RznIfn4Q1wFUs+yCXBJE/F0a6dtM6Yp4OZlMVo=,tag:R75jS0SCHlWORaw7ptImMA==,type:str]
+              bundle: ENC[AES256_GCM,data:RjRU3SeBoq89TkhGCD54ytQ8MZwuT4hZ,iv:yTqawPtg+Jc/ugQ/03T7gnafqtGNYwWypkNyFf49z3o=,tag:qaLUiaJ/EcslyN1MjUMJ3A==,type:str]
+        paths: []
+targets:
+    app-dev:
+        bundle: ENC[AES256_GCM,data:ug3f,iv:Hgh9ZWf6F9W0iGcQ31h9JKGKAhv0Rj+bXmL4U2uFlT4=,tag:yF+s2ZNBNMDufPT89cRqFQ==,type:str]
+        format: ENC[AES256_GCM,data:b2gr2T+X,iv:7fBNBOxk3PTSgLXvea1MaZtB83G0+TFQP/D5FtQ3pN8=,tag:/x1T5zKlMYJpRack60U1uw==,type:str]
+fileIndex:
+    env/app/shared:
+        path: ENC[AES256_GCM,data:WyTDQomdJHg/GvG4+F4=,iv:2gtgt5NZM4EI8SC58b9wa1LtOx3cy8rA6sjczs/B2GQ=,tag:g+9jebLhwoeBx2kThXYtCw==,type:str]
+        readers:
+            roles:
+                - ENC[AES256_GCM,data:NanM+v4=,iv:l9vEFMKX9ca2XyAt/lWt0IuKiworeuRJDKZUYKmdCFA=,tag:bW1Nt/T5uclNT/XgS39fPQ==,type:str]
+                - ENC[AES256_GCM,data:cT8=,iv:+snflHLCsLn6+ZS2o/iAZTI+LdaGy7X7pSnMcuz4hvg=,tag:nmtNNYygY2G+k+D7kIb/mg==,type:str]
+            identities:
+                - ENC[AES256_GCM,data:fBYgcyLBwAohzWCVfRiR,iv:lKla2wMwvcJivoteWlH201NUcYcE7Ne6iO62YiTgB2M=,tag:6vP1OYzcAjWdNdFwT2R6TA==,type:str]
+                - ENC[AES256_GCM,data:IlM=,iv:eWqY68SgQORHlGknJXlZc4L8uTsNH43/DKpY5f+LTMw=,tag:jyBrOxPzluSYkpcuowFvgA==,type:str]
+        sensitive: ENC[AES256_GCM,data:9+PM2lY=,iv:dusxRu2AydCbsWqig8mS/Tuh+CybnolmgHDj7btfTaU=,tag:/e0FMxkq0KP9pu7PZKihyg==,type:bool]
+        logicalPaths:
+            - ENC[AES256_GCM,data:ZfI5vlBb0sQ0xcFAlDIVdM7t4pQhKEr/ZSAJZPlRh3oFx7os,iv:cM9TB/vlmoCTANMzu99MD5X4mjLziNfNovoxSCJ1Vmk=,tag:s6tObKolDu/qkowvMjrBQg==,type:str]
+sops:
+    age:
+        - recipient: age1k6085c7hu6xgwtp2w35kf224peecjjagvswzhgtgmh76gaxcppnq9rlkqx
+          enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBZYk5BWTlSbk05N2xIVEIw
+            b2ZESjFQVGJUejFYR2dkbmE3NFJwaEd0cW13CkZVQXlYQ2J2L29nWFZVZHcrY0dM
+            cysxRjRsdkpmWWRvRmJya1ZpQXdJdzQKLS0tIGtNb0JvS1pxRlFrc2tQdUI1aEQ5
+            Nm55V2FZV05Ra0JWQXJDR3FPa0IzVEUK5JaKPJrNgY09GLRb0kquIv4X++AW1hd4
+            gk61wyPiaCtu2GPjcQ94bxPUgDndonJ2MxD2mAsVWYy82j7HLHjTlA==
+            -----END AGE ENCRYPTED FILE-----
+    lastmodified: "2026-04-21T04:31:33Z"
+    mac: ENC[AES256_GCM,data:8KcxWiIcFzED6mh9SDi/q9eInwIEw2PRj/xpYuaH0U53QBYGpB1lTDsG8Mm6mP1KA6fPp8YQEpog5iOS2XgbM0rjVrgkochSJzRzTAnXuweTSnMi+zLSEQXJ8BvCE392JEWp5+iMAyX814GxWKVTTTxzOwJb64pM6vAGY5R+w6U=,iv:qtEb26rfJRMk7RQFUB/fyT9CDVfH6f8ZHMhqhctcSyY=,tag:nGS8kvM9GsA1QIlEmY7Tgw==,type:str]
+    encrypted_regex: .*
+    version: 3.11.0

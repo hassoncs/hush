@@ -1,9 +1,17 @@
-import { join } from 'node:path';
 import { platform } from 'node:os';
 import pc from 'picocolors';
-import { setKey } from '../core/sops.js';
+import { appendAuditEvent } from '../index.js';
 import type { HushContext, SetOptions } from '../types.js';
 import { ensureGlobalStoreBootstrap } from '../global-store.js';
+import {
+  ensureEditableFileDocument,
+  readCurrentIdentity,
+  requireMutableIdentity,
+  requireV3Repository,
+  setEnvValueInDocument,
+  writeMachineLocalOverrides,
+  writeEditableFileDocument,
+} from './v3-command-helpers.js';
 
 type FileKey = 'shared' | 'development' | 'production' | 'local';
 
@@ -228,32 +236,13 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
     ensureGlobalStoreBootstrap(ctx, store);
   }
 
-  const config = ctx.config.loadConfig(store.root);
-
   const fileKey: FileKey = file ?? 'shared';
-  const sourcePath = config.sources[fileKey];
-  const encryptedPath = join(store.root, sourcePath + '.encrypted');
 
   if (!key) {
     ctx.logger.error(pc.red('Usage: hush set <KEY> [-e environment]'));
     ctx.logger.error(pc.dim('Example: hush set DATABASE_URL'));
     ctx.logger.error(pc.dim('         hush set API_KEY -e production'));
     ctx.logger.error(pc.dim('\nTo edit all secrets in an editor, use: hush edit'));
-    ctx.process.exit(1);
-  }
-
-  const hasEncryptedFile = ctx.fs.existsSync(encryptedPath);
-  const hasSopsConfig = ctx.fs.existsSync(join(store.root, '.sops.yaml'));
-
-  if (!hasEncryptedFile && !hasSopsConfig) {
-    if (store.mode === 'global') {
-      ctx.logger.error(pc.red('Global Hush store is not initialized'));
-      ctx.logger.error(pc.dim('Run "hush keys generate --global" or "hush keys setup --global" first'));
-      ctx.logger.error(pc.dim('Global secrets live in ~/.hush'));
-    } else {
-      ctx.logger.error(pc.red('Hush is not initialized in this directory'));
-      ctx.logger.error(pc.dim('Run "hush init" first, then "hush encrypt"'));
-    }
     ctx.process.exit(1);
   }
 
@@ -265,16 +254,47 @@ export async function setCommand(ctx: HushContext, options: SetOptions): Promise
       ctx.process.exit(1);
     }
 
-    setKey(encryptedPath, key, value, { root: store.root, keyIdentity: store.keyIdentity });
+    const repository = requireV3Repository(store, 'set');
+    const activeIdentity = requireMutableIdentity(ctx, store, repository, {
+      name: 'set',
+      args: [fileKey, key],
+    });
+    const editable = ensureEditableFileDocument(ctx, store, repository, fileKey);
+    const nextDocument = setEnvValueInDocument(editable.document, key, value);
+    if (editable.scope === 'machine-local') {
+      writeMachineLocalOverrides(ctx, store, nextDocument);
+    } else {
+      writeEditableFileDocument(ctx, store, repository, editable.systemPath, nextDocument);
+    }
 
-    const envLabel = fileKey === 'shared' ? '' : ` in ${fileKey}`;
-    ctx.logger.log(pc.green(`\n${key} set${envLabel} (${value.length} chars, encrypted)`));
+    appendAuditEvent(ctx, store, {
+      type: 'write',
+      activeIdentity,
+      success: true,
+      command: { name: 'set', args: [fileKey, key] },
+      files: [editable.filePath],
+      logicalPaths: [`${editable.filePath}/${key}`],
+      details: {
+        scope: editable.scope,
+        chars: value.length,
+      },
+    });
+
+    const scopeLabel = editable.scope === 'machine-local' ? ' in machine-local overrides' : fileKey === 'shared' ? '' : ` in ${fileKey}`;
+    ctx.logger.log(pc.green(`\n${key} set${scopeLabel} (${value.length} chars, encrypted-at-rest v3 doc)`));
   } catch (error) {
     const err = error as Error;
     if (err.message === 'Cancelled') {
       ctx.logger.log(pc.yellow('Cancelled'));
       ctx.process.exit(1);
     }
+    appendAuditEvent(ctx, store, {
+      type: 'write',
+      activeIdentity: readCurrentIdentity(ctx, store),
+      success: false,
+      command: { name: 'set', args: [fileKey, key ?? ''] },
+      reason: err.message,
+    });
     throw err;
   }
 }

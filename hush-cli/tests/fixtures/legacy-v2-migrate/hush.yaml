@@ -1,0 +1,18 @@
+version: 2
+project: fixture/legacy-migrate
+sources:
+  shared: .env
+  development: .env.development
+  production: .env.production
+  local: .env.local
+targets:
+  - name: web
+    path: ./apps/web
+    format: dotenv
+    include:
+      - NEXT_PUBLIC_*
+  - name: api
+    path: ./apps/api
+    format: wrangler
+    exclude:
+      - NEXT_PUBLIC_*

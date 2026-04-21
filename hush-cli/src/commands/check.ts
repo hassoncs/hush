@@ -1,314 +1,182 @@
 import { join } from 'node:path';
 import pc from 'picocolors';
-import { parseEnvContent } from '../core/parse.js';
-import { computeDiff, isInSync } from '../lib/diff.js';
-import type { CheckOptions, CheckFileResult, CheckResult, HushConfig, PlaintextFileResult, HushContext } from '../types.js';
+import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
+import { loadV3Repository } from '../v3/repository.js';
+import type { CheckFileResult, CheckOptions, CheckResult, HushContext, PlaintextFileResult } from '../types.js';
+import { DEFAULT_PERSISTED_OUTPUT_DIRNAME } from './v3-command-helpers.js';
 
-interface SourceEncryptedPair {
-  source: string;
-  encrypted: string;
-  sourceKey: 'shared' | 'development' | 'production';
-}
+const LEFTOVER_ARTIFACT_NAMES = new Set([
+  'hush.yaml',
+  'hush.yml',
+  '.env',
+  '.env.development',
+  '.env.production',
+  '.env.local',
+  '.env.staging',
+  '.env.test',
+  '.dev.vars',
+  '.hush',
+  '.hush.development',
+  '.hush.production',
+  '.hush.local',
+  '.hush.encrypted',
+  '.hush.development.encrypted',
+  '.hush.production.encrypted',
+  '.hush.local.encrypted',
+]);
 
-function getSourceEncryptedPairs(config: HushConfig): SourceEncryptedPair[] {
-  const pairs: SourceEncryptedPair[] = [];
-  
-  if (config.sources.shared) {
-    pairs.push({
-      source: config.sources.shared,
-      encrypted: config.sources.shared + '.encrypted',
-      sourceKey: 'shared',
-    });
-  }
-  if (config.sources.development) {
-    pairs.push({
-      source: config.sources.development,
-      encrypted: config.sources.development + '.encrypted',
-      sourceKey: 'development',
-    });
-  }
-  if (config.sources.production) {
-    pairs.push({
-      source: config.sources.production,
-      encrypted: config.sources.production + '.encrypted',
-      sourceKey: 'production',
-    });
-  }
-  
-  return pairs;
-}
+const SKIP_SCAN_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt']);
 
-function getGitChangedFiles(ctx: HushContext, root: string): Set<string> {
-  try {
-    const staged = ctx.exec.execSync('git diff --cached --name-only', { cwd: root, encoding: 'utf-8' }) as string;
-    const unstaged = ctx.exec.execSync('git diff --name-only', { cwd: root, encoding: 'utf-8' }) as string;
-    const files = [...staged.split('\n'), ...unstaged.split('\n')].filter(Boolean);
-    return new Set(files);
-  } catch {
-    return new Set();
-  }
-}
+function scanForLeftoverArtifacts(ctx: HushContext, root: string): PlaintextFileResult[] {
+  const findings: PlaintextFileResult[] = [];
 
-function findPlaintextEnvFiles(ctx: HushContext, root: string): PlaintextFileResult[] {
-  const results: PlaintextFileResult[] = [];
-  // Only warn about .env files (legacy/output files), NOT .hush files (Hush's source files)
-  const plaintextPatterns = ['.env', '.env.development', '.env.production', '.env.local', '.env.staging', '.env.test', '.dev.vars'];
-  const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.nuxt']);
-  
-  function scanDir(dir: string, relativePath: string = '') {
-    let entries: string[];
+  function walk(currentDir: string, relativeDir = ''): void {
+    let entries: string[] = [];
+
     try {
-      entries = ctx.fs.readdirSync(dir) as string[];
+      entries = ctx.fs.readdirSync(currentDir) as string[];
     } catch {
       return;
     }
 
     for (const entry of entries) {
-      if (skipDirs.has(entry)) continue;
+      if (SKIP_SCAN_DIRS.has(entry)) {
+        continue;
+      }
 
-      const fullPath = join(dir, entry);
-      const relPath = relativePath ? `${relativePath}/${entry}` : entry;
+      const absolutePath = join(currentDir, entry);
+      const relativePath = relativeDir ? `${relativeDir}/${entry}` : entry;
 
-        try {
-          if (ctx.fs.statSync(fullPath).isDirectory()) {
-            scanDir(fullPath, relPath);
-          } else if (plaintextPatterns.includes(entry)) {
-          results.push({ file: relPath, keyCount: 0 });
+      try {
+        const stats = ctx.fs.statSync(absolutePath);
+
+        if (stats.isDirectory()) {
+          if (relativePath === DEFAULT_PERSISTED_OUTPUT_DIRNAME) {
+            findings.push({ file: relativePath, keyCount: 0 });
+            continue;
+          }
+
+          walk(absolutePath, relativePath);
+          continue;
+        }
+
+        if (LEFTOVER_ARTIFACT_NAMES.has(entry)) {
+          findings.push({ file: relativePath, keyCount: 0 });
         }
       } catch {
         continue;
       }
     }
   }
-  
-  scanDir(root);
-  return results;
+
+  walk(root);
+  return findings.sort((left, right) => left.file.localeCompare(right.file));
+}
+
+function buildRepositoryFileResults(repository: ReturnType<typeof loadV3Repository>): CheckFileResult[] {
+  return [
+    {
+      source: 'manifest',
+      encrypted: repository.manifestPath,
+      inSync: true,
+      added: [],
+      removed: [],
+      changed: [],
+    },
+    ...repository.files
+      .sort((left, right) => left.path.localeCompare(right.path))
+      .map((file) => ({
+        source: file.path,
+        encrypted: repository.fileSystemPaths[file.path]!,
+        inSync: true,
+        added: [],
+        removed: [],
+        changed: [],
+      })),
+  ];
 }
 
 export async function check(ctx: HushContext, options: CheckOptions): Promise<CheckResult> {
-  const { store, requireSource, onlyChanged, allowPlaintext } = options;
-  const root = store.root;
-
-  if (!ctx.sops.isSopsInstalled()) {
+  if (!isV3RepositoryRoot(options.store.root)) {
+    const projectInfo = findProjectRoot(options.store.root);
     return {
       status: 'error',
       files: [{
-        source: '',
-        encrypted: '',
+        source: 'repository',
+        encrypted: projectInfo?.repositoryKind === 'legacy-v2'
+          ? `Legacy hush.yaml repo detected at ${projectInfo.configPath}. Run hush migrate --from v2 first.`
+          : `Missing v3 repository at ${options.store.root}.`,
         inSync: false,
         added: [],
         removed: [],
         changed: [],
-        error: 'SOPS_NOT_INSTALLED',
+        error: 'DECRYPT_FAILED',
       }],
     };
   }
 
-  const config = ctx.config.loadConfig(root);
-  const pairs = getSourceEncryptedPairs(config);
-  const result = checkPairs(ctx, root, store.keyIdentity, pairs, requireSource, onlyChanged);
-  
-  if (!allowPlaintext) {
-    const plaintextFiles = findPlaintextEnvFiles(ctx, root);
-    if (plaintextFiles.length > 0) {
-      result.plaintextFiles = plaintextFiles;
-      result.status = 'plaintext';
-    }
-  }
-  
-  return result;
-}
+  try {
+    const repository = loadV3Repository(options.store.root, { keyIdentity: options.store.keyIdentity });
+    const plaintextFiles = options.allowPlaintext ? [] : scanForLeftoverArtifacts(ctx, options.store.root);
 
-function checkPairs(
-  ctx: HushContext,
-  root: string,
-  keyIdentity: string | undefined,
-  pairs: SourceEncryptedPair[],
-  requireSource: boolean,
-  onlyChanged: boolean
-): CheckResult {
-  const changedFiles = onlyChanged ? getGitChangedFiles(ctx, root) : null;
-  const results: CheckFileResult[] = [];
-
-  for (const { source, encrypted } of pairs) {
-    const sourcePath = join(root, source);
-    const encryptedPath = join(root, encrypted);
-
-    if (onlyChanged && changedFiles) {
-      const isSourceChanged = changedFiles.has(source);
-      const isEncryptedChanged = changedFiles.has(encrypted);
-      if (!isSourceChanged && !isEncryptedChanged) {
-        continue;
-      }
-    }
-
-    if (!ctx.fs.existsSync(sourcePath)) {
-      if (requireSource) {
-        results.push({
-          source,
-          encrypted,
-          inSync: false,
-          added: [],
-          removed: [],
-          changed: [],
-          error: 'SOURCE_MISSING',
-        });
-      }
-      continue;
-    }
-
-    if (!ctx.fs.existsSync(encryptedPath)) {
-      const sourceContent = ctx.fs.readFileSync(sourcePath, 'utf-8') as string;
-      const sourceVars = parseEnvContent(sourceContent);
-      const allKeys = sourceVars.map(v => v.key);
-      
-      results.push({
-        source,
-        encrypted,
+    return {
+      status: plaintextFiles.length > 0 ? 'plaintext' : 'ok',
+      files: buildRepositoryFileResults(repository),
+      plaintextFiles: plaintextFiles.length > 0 ? plaintextFiles : undefined,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      status: 'error',
+      files: [{
+        source: 'repository',
+        encrypted: message,
         inSync: false,
-        added: allKeys,
+        added: [],
         removed: [],
         changed: [],
-        error: 'ENCRYPTED_MISSING',
-      });
-      continue;
-    }
-
-    try {
-      const decryptedContent = ctx.sops.decrypt(encryptedPath, { root, keyIdentity });
-      const sourceContent = ctx.fs.readFileSync(sourcePath, 'utf-8') as string;
-
-      const sourceVars = parseEnvContent(sourceContent);
-      const encryptedVars = parseEnvContent(decryptedContent);
-      
-      const diff = computeDiff(sourceVars, encryptedVars);
-      
-      results.push({
-        source,
-        encrypted,
-        inSync: isInSync(diff),
-        added: diff.added,
-        removed: diff.removed,
-        changed: diff.changed,
-      });
-    } catch (error) {
-      const err = error as Error;
-      if (err.message.includes('No matching age key')) {
-        results.push({
-          source,
-          encrypted,
-          inSync: false,
-          added: [],
-          removed: [],
-          changed: [],
-          error: 'DECRYPT_FAILED',
-        });
-      } else {
-        throw error;
-      }
-    }
+        error: 'DECRYPT_FAILED',
+      }],
+    };
   }
-
-  const hasError = results.some(r => r.error === 'SOPS_NOT_INSTALLED' || r.error === 'DECRYPT_FAILED');
-  const hasDrift = results.some(r => !r.inSync);
-
-  let status: 'ok' | 'drift' | 'error';
-  if (hasError) {
-    status = 'error';
-  } else if (hasDrift) {
-    status = 'drift';
-  } else {
-    status = 'ok';
-  }
-
-  return { status, files: results };
 }
 
 function formatTextOutput(result: CheckResult): string {
   const lines: string[] = [];
-  lines.push('Checking secrets...\n');
+  lines.push('Checking v3 repository integrity...\n');
 
   if (result.plaintextFiles && result.plaintextFiles.length > 0) {
-    lines.push(pc.red(pc.bold('⚠ PLAINTEXT SECRETS DETECTED')));
+    lines.push(pc.red(pc.bold('⚠ LEFTOVER PLAINTEXT OR LEGACY ARTIFACTS DETECTED')));
     lines.push('');
-    lines.push(pc.red('The following unencrypted .env files were found:'));
-    for (const pf of result.plaintextFiles) {
-      lines.push(pc.red(`  • ${pf.file}`));
+    lines.push(pc.red('The following artifacts should be removed or migrated:'));
+    for (const artifact of result.plaintextFiles) {
+      lines.push(pc.red(`  • ${artifact.file}`));
     }
     lines.push('');
-    lines.push(pc.yellow('These files contain plaintext secrets that could be exposed to AI assistants.'));
+    lines.push(pc.yellow('These files or directories break the v3 encrypted-at-rest repository model.'));
+    lines.push(pc.dim('Delete them, migrate them, or use --allow-plaintext only when you intentionally need persisted output.'));
     lines.push('');
-    lines.push(pc.bold('To fix:'));
-    lines.push(pc.dim('  1. Run: hush migrate (if upgrading from v4)'));
-    lines.push(pc.dim('  2. Delete or gitignore these .env files'));
-    lines.push(pc.dim('  3. Add to .gitignore: .env, .env.*, .dev.vars'));
-    lines.push('');
-    lines.push(pc.dim('To allow plaintext files (not recommended): --allow-plaintext'));
-    lines.push('');
-    return lines.join('\n');
   }
 
   for (const file of result.files) {
-    if (file.error === 'SOPS_NOT_INSTALLED') {
-      lines.push(pc.red('Error: SOPS is not installed'));
-      lines.push(pc.dim('Run: brew install sops'));
-      continue;
-    }
-
-    if (file.error === 'SOURCE_MISSING') {
-      lines.push(pc.yellow(`Warning: ${file.source} not found (--require-source)`));
+    if (file.source === 'repository' && file.error === 'DECRYPT_FAILED') {
+      lines.push(pc.red('Repository validation failed:'));
+      lines.push(pc.red(`  ${file.encrypted}`));
+      lines.push('');
       continue;
     }
 
     lines.push(`${file.source} ${pc.dim('->')} ${file.encrypted}`);
-
-    if (file.error === 'ENCRYPTED_MISSING') {
-      lines.push(pc.yellow(`  Warning: ${file.encrypted} not found`));
-      if (file.added.length > 0) {
-        lines.push(`  ${pc.yellow('All keys need encryption:')} ${file.added.join(', ')}`);
-      }
-      continue;
-    }
-
-    if (file.error === 'DECRYPT_FAILED') {
-      lines.push(pc.red(`  Error: Failed to decrypt ${file.encrypted}`));
-      lines.push(pc.dim("  This usually means your age key doesn't match."));
-      lines.push(pc.dim('  Check: ~/.config/sops/age/key.txt'));
-      continue;
-    }
-
-    if (file.inSync) {
-      lines.push(pc.green('  ✓ In sync'));
-    } else {
-      if (file.added.length > 0) {
-        lines.push(`  ${pc.yellow('Added keys:')}   ${file.added.join(', ')}`);
-      }
-      if (file.removed.length > 0) {
-        lines.push(`  ${pc.yellow('Removed keys:')} ${file.removed.join(', ')}`);
-      }
-      if (file.changed.length > 0) {
-        lines.push(`  ${pc.yellow('Changed keys:')} ${file.changed.join(', ')}`);
-      }
-    }
-
+    lines.push(pc.green('  ✓ Valid'));
     lines.push('');
   }
 
-  const driftCount = result.files.filter(f => !f.inSync && !f.error).length;
-  const errorCount = result.files.filter(f => f.error === 'ENCRYPTED_MISSING').length;
-  const totalDrift = driftCount + errorCount;
-
   if (result.status === 'error') {
-    const sopsError = result.files.find(f => f.error === 'SOPS_NOT_INSTALLED');
-    if (sopsError) {
-      return lines.join('\n');
-    }
-    lines.push(pc.red('✗ Errors occurred during check'));
-  } else if (totalDrift > 0) {
-    lines.push(pc.yellow(`✗ Drift detected in ${totalDrift} file(s)`));
-    lines.push(pc.dim('Run: hush encrypt'));
-  } else if (result.files.length > 0) {
-    lines.push(pc.green('✓ All secrets in sync'));
+    lines.push(pc.red('✗ Repository integrity check failed'));
+  } else if (result.status === 'plaintext') {
+    lines.push(pc.yellow('✗ Repository valid, but leftover plaintext/legacy artifacts remain'));
+  } else {
+    lines.push(pc.green('✓ V3 repository is valid and free of leftover plaintext artifacts'));
   }
 
   return lines.join('\n');
@@ -322,11 +190,7 @@ export async function checkCommand(ctx: HushContext, options: CheckOptions): Pro
   const result = await check(ctx, options);
 
   if (!options.quiet) {
-    if (options.json) {
-      ctx.logger.log(formatJsonOutput(result));
-    } else {
-      ctx.logger.log(formatTextOutput(result));
-    }
+    ctx.logger.log(options.json ? formatJsonOutput(result) : formatTextOutput(result));
   }
 
   if (result.status === 'plaintext' && !options.warn) {
@@ -334,20 +198,7 @@ export async function checkCommand(ctx: HushContext, options: CheckOptions): Pro
   }
 
   if (result.status === 'error') {
-    const hasSopsError = result.files.some(f => f.error === 'SOPS_NOT_INSTALLED');
-    const hasDecryptError = result.files.some(f => f.error === 'DECRYPT_FAILED');
-
-    if (hasSopsError || hasDecryptError) {
-      ctx.process.exit(3);
-    }
-
-    if (result.files.some(f => f.error === 'SOURCE_MISSING')) {
-      ctx.process.exit(2);
-    }
-  }
-
-  if (result.status === 'drift' && !options.warn) {
-    ctx.process.exit(1);
+    ctx.process.exit(3);
   }
 
   ctx.process.exit(0);

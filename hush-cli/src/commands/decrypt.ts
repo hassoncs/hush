@@ -1,19 +1,15 @@
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import pc from 'picocolors';
-import { filterVarsForTarget } from '../core/filter.js';
-import { interpolateVars, getUnresolvedVars } from '../core/interpolate.js';
-import { mergeVars } from '../core/merge.js';
-import { parseEnvContent, parseEnvFile } from '../core/parse.js';
 import { formatVars } from '../formats/index.js';
-import type { DecryptOptions, EnvVar, HushContext } from '../types.js';
-import { FORMAT_OUTPUT_FILES } from '../types.js';
+import { withMaterializedTarget } from '../index.js';
+import {
+  DEFAULT_PERSISTED_OUTPUT_DIRNAME,
+  requireV3Repository,
+} from './v3-command-helpers.js';
+import type { DecryptOptions, HushContext } from '../types.js';
 
-function getEncryptedPath(sourcePath: string): string {
-  return sourcePath + '.encrypted';
-}
-
-async function confirmDangerousOperation(ctx: HushContext): Promise<boolean> {
+async function confirmDangerousOperation(ctx: HushContext, outputRoot: string): Promise<boolean> {
   if (!ctx.process.stdin.isTTY) {
     ctx.logger.error('\nError: decrypt --force requires interactive confirmation.');
     ctx.logger.error('This command cannot be run in non-interactive environments.');
@@ -23,13 +19,14 @@ async function confirmDangerousOperation(ctx: HushContext): Promise<boolean> {
 
   ctx.logger.log('');
   ctx.logger.log(pc.red('━'.repeat(70)));
-  ctx.logger.log(pc.red(pc.bold('  ⚠️  WARNING: WRITING PLAINTEXT SECRETS TO DISK')));
+  ctx.logger.log(pc.red(pc.bold('  ⚠️  WARNING: WRITING PERSISTED PLAINTEXT ARTIFACTS')));
   ctx.logger.log(pc.red('━'.repeat(70)));
   ctx.logger.log('');
-  ctx.logger.log(pc.yellow('  This will create unencrypted .env files that:'));
-  ctx.logger.log(pc.dim('    • Can be read by AI assistants, scripts, and other tools'));
-  ctx.logger.log(pc.dim('    • May accidentally be committed to git'));
-  ctx.logger.log(pc.dim('    • Defeat the "encrypted at rest" security model'));
+  ctx.logger.log(pc.yellow('  This will materialize readable secrets under:'));
+  ctx.logger.log(pc.dim(`    ${outputRoot}`));
+  ctx.logger.log(pc.dim('    • Files stay on disk until you delete them'));
+  ctx.logger.log(pc.dim('    • Other tools and AI agents can read them'));
+  ctx.logger.log(pc.dim('    • hush check will flag the leftover artifacts'));
   ctx.logger.log('');
   ctx.logger.log(pc.green('  Recommended alternative:'));
   ctx.logger.log(pc.cyan('    hush run -- <command>'));
@@ -57,98 +54,80 @@ async function confirmDangerousOperation(ctx: HushContext): Promise<boolean> {
   });
 }
 
-export async function decryptCommand(ctx: HushContext, options: DecryptOptions): Promise<void> {
-  const { store, env, force } = options;
+function getPersistedTargetNames(repository: ReturnType<typeof requireV3Repository>): string[] {
+  const targets = Object.entries(repository.manifest.targets ?? {})
+    .filter(([, target]) => target.mode !== 'example')
+    .map(([name]) => name)
+    .sort();
 
-  if (!force) {
+  if (targets.length > 0) {
+    return targets;
+  }
+
+  return Object.keys(repository.manifest.targets ?? {}).sort();
+}
+
+export async function decryptCommand(ctx: HushContext, options: DecryptOptions): Promise<void> {
+  if (!options.force) {
     console.error(pc.red('Error: decrypt requires --force flag'));
     console.error('');
-    console.error(pc.dim('This command writes plaintext secrets to disk, which is generally unsafe.'));
+    console.error(pc.dim('This command writes persisted plaintext artifacts to disk, which is generally unsafe.'));
     console.error(pc.dim('Use "hush run -- <command>" instead for memory-only decryption.'));
     console.error('');
-    console.error(pc.dim('If you really need plaintext files:'));
+    console.error(pc.dim('If you really need persisted plaintext output:'));
     console.error(pc.cyan('  hush decrypt --force'));
     process.exit(1);
   }
 
-  const confirmed = await confirmDangerousOperation(ctx);
+  const repository = requireV3Repository(options.store, 'decrypt');
+  const outputRoot = join(options.store.root, DEFAULT_PERSISTED_OUTPUT_DIRNAME);
+  const confirmed = await confirmDangerousOperation(ctx, outputRoot);
   if (!confirmed) {
     ctx.process.exit(0);
   }
 
-  const config = ctx.config.loadConfig(store.root);
-
-  ctx.logger.log(pc.yellow(`⚠️  Writing unencrypted secrets for ${env}...`));
-
-  const sharedEncrypted = join(store.root, getEncryptedPath(config.sources.shared));
-  const envEncrypted = join(store.root, getEncryptedPath(config.sources[env]));
-  const localPath = join(store.root, config.sources.local);
-
-  const varSources: EnvVar[][] = [];
-
-  if (ctx.fs.existsSync(sharedEncrypted)) {
-    const content = ctx.sops.decrypt(sharedEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
-    const vars = parseEnvContent(content);
-    varSources.push(vars);
-    ctx.logger.log(pc.dim(`  ${config.sources.shared}.encrypted: ${vars.length} vars`));
-  }
-
-  if (ctx.fs.existsSync(envEncrypted)) {
-    const content = ctx.sops.decrypt(envEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
-    const vars = parseEnvContent(content);
-    varSources.push(vars);
-    ctx.logger.log(pc.dim(`  ${config.sources[env]}.encrypted: ${vars.length} vars`));
-  }
-
-  if (ctx.fs.existsSync(localPath)) {
-    const vars = parseEnvFile(localPath);
-    varSources.push(vars);
-    ctx.logger.log(pc.dim(`  ${config.sources.local}: ${vars.length} vars (overrides)`));
-  }
-
-  if (varSources.length === 0) {
-    ctx.logger.error(pc.red('No encrypted files found'));
-    ctx.logger.error(pc.dim(`Expected: ${sharedEncrypted}`));
+  const targets = getPersistedTargetNames(repository);
+  if (targets.length === 0) {
+    ctx.logger.error(pc.red('No v3 targets are available to materialize.'));
     ctx.process.exit(1);
   }
 
-  const merged = mergeVars(...varSources);
-  const interpolated = interpolateVars(merged);
+  ctx.logger.log(pc.yellow(`⚠️  Writing persisted plaintext artifacts to ${outputRoot}...`));
 
-  const unresolved = getUnresolvedVars(interpolated);
-  if (unresolved.length > 0) {
-    ctx.logger.warn(pc.yellow(`  Warning: ${unresolved.length} vars have unresolved references`));
-  }
+  try {
+    for (const targetName of targets) {
+      const files = withMaterializedTarget(ctx, {
+        store: options.store,
+        repository,
+        targetName,
+        command: { name: 'decrypt', args: ['--force', targetName] },
+        mode: 'persisted',
+        outputRoot,
+      }, (materialization) => {
+        const writtenFiles = materialization.stagedArtifacts.map((artifact) => artifact.path);
+        const targetOutput = materialization.targetArtifact;
+        const stagedTarget = materialization.stagedArtifacts.find((artifact) => artifact.logicalPath === targetOutput?.logicalPath);
 
-  ctx.logger.log(pc.yellow(`\n⚠️  Writing to ${config.targets.length} targets:`));
+        if (targetOutput && stagedTarget && typeof targetOutput.content === 'string') {
+          const rewritten = formatVars(materialization.envVars, targetOutput.format as never);
+          ctx.fs.writeFileSync(stagedTarget.path, rewritten, 'utf-8');
+        }
 
-  for (const target of config.targets) {
-      const targetDir = join(store.root, target.path);
-    const filtered = filterVarsForTarget(interpolated, target);
+        return writtenFiles;
+      });
 
-    if (filtered.length === 0) {
-      ctx.logger.log(pc.dim(`  ${target.path}/ - no matching vars, skipped`));
-      continue;
+      ctx.logger.log(pc.yellow(`  ${targetName}`));
+      for (const filePath of files) {
+        ctx.logger.log(pc.dim(`    ${filePath}`));
+      }
     }
 
-    const outputFilename = FORMAT_OUTPUT_FILES[target.format][env];
-    const outputPath = join(targetDir, outputFilename);
-
-    if (!ctx.fs.existsSync(targetDir)) {
-      ctx.fs.mkdirSync(targetDir, { recursive: true });
-    }
-
-    const content = formatVars(filtered, target.format);
-    ctx.fs.writeFileSync(outputPath, content, 'utf-8');
-
-    const relativePath = target.path === '.' ? outputFilename : `${target.path}/${outputFilename}`;
-    ctx.logger.log(
-      pc.yellow(`  ⚠️  ${relativePath}`) +
-      pc.dim(` (${target.format}, ${filtered.length} vars)`)
-    );
+    ctx.logger.log('');
+    ctx.logger.log(pc.yellow('⚠️  Decryption complete - persisted plaintext artifacts now exist on disk'));
+    ctx.logger.log(pc.dim(`   Delete ${outputRoot} when done, or use "hush run" next time.`));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.logger.error(pc.red(message));
+    ctx.process.exit(1);
   }
-
-  ctx.logger.log('');
-  ctx.logger.log(pc.yellow('⚠️  Decryption complete - plaintext secrets on disk'));
-  ctx.logger.log(pc.dim('   Delete these files when done, or use "hush run" next time.'));
 }

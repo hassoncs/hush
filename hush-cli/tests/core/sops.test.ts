@@ -1,46 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-
-const execSyncMock = vi.fn();
-const spawnSyncMock = vi.fn();
-const keyExistsMock = vi.fn();
-const keyPathMock = vi.fn();
-
-vi.mock('node:child_process', () => ({
-  execSync: execSyncMock,
-  spawnSync: spawnSyncMock,
-}));
-
-vi.mock('../../src/lib/age.js', () => ({
-  keyExists: keyExistsMock,
-  keyPath: keyPathMock,
-}));
+import { decrypt, decryptYaml, encrypt, encryptYamlContent, setKey, withPrivatePlaintextTempFile } from '../../src/core/sops.js';
+import { ensureTestSopsConfig, ensureTestSopsEnv } from '../helpers/sops-test.js';
 
 describe('sops helpers', () => {
   let storeDir: string;
 
-  async function loadSopsModule() {
-    return import(`../../src/core/sops.js?test=${Date.now()}-${Math.random()}`);
-  }
-
   beforeEach(() => {
-    vi.clearAllMocks();
-    execSyncMock.mockReturnValue('EXISTING=1\n');
-    spawnSyncMock.mockReturnValue({ status: 0 });
-    keyExistsMock.mockReturnValue(true);
-    keyPathMock.mockReturnValue('/keys/hush-global.txt');
     storeDir = mkdtempSync(join(tmpdir(), 'hush-sops-test-'));
-    writeFileSync(join(storeDir, '.sops.yaml'), 'creation_rules:\n  - path_regex: ".*"\n', 'utf-8');
+    ensureTestSopsEnv();
+    ensureTestSopsConfig(storeDir);
   });
 
   afterEach(() => {
     rmSync(storeDir, { recursive: true, force: true });
   });
 
-  it('uses the store-specific .sops.yaml when encrypting a file', async () => {
-    const { encrypt } = await loadSopsModule();
+  it('encrypts and decrypts dotenv content with the repo-local .sops.yaml', () => {
     const inputPath = join(storeDir, '.hush');
     const outputPath = join(storeDir, '.hush.encrypted');
 
@@ -51,58 +30,75 @@ describe('sops helpers', () => {
       keyIdentity: 'hush-global',
     });
 
-    expect(
-      execSyncMock.mock.calls.some(
-        ([command, options]) =>
-          typeof command === 'string' &&
-          command.includes(`--config "${join(storeDir, '.sops.yaml')}"`) &&
-          options?.env?.SOPS_AGE_KEY_FILE === '/keys/hush-global.txt'
-      )
-    ).toBe(true);
+    expect(readFileSync(outputPath, 'utf-8')).toContain('sops_version=');
+    expect(decrypt(outputPath, { root: storeDir, keyIdentity: 'hush-global' })).toContain('API_KEY=value');
   });
 
-  it('uses the store-specific .sops.yaml when re-encrypting via setKey', async () => {
-    const { setKey } = await loadSopsModule();
+  it('re-encrypts updates through setKey', () => {
     const encryptedPath = join(storeDir, '.hush.encrypted');
 
-    writeFileSync(encryptedPath, 'encrypted', 'utf-8');
+    writeFileSync(join(storeDir, '.plain.env'), 'EXISTING=1\n', 'utf-8');
+    encrypt(join(storeDir, '.plain.env'), encryptedPath, {
+      root: storeDir,
+      keyIdentity: 'hush-global',
+    });
 
     setKey(encryptedPath, 'API_KEY', 'secret-value', {
       root: storeDir,
       keyIdentity: 'hush-global',
     });
 
-    expect(
-      execSyncMock.mock.calls.some(
-        ([command, options]) =>
-          typeof command === 'string' &&
-          command.includes(`--config "${join(storeDir, '.sops.yaml')}"`) &&
-          options?.env?.SOPS_AGE_KEY_FILE === '/keys/hush-global.txt'
-      )
-    ).toBe(true);
+    const decrypted = decrypt(encryptedPath, { root: storeDir, keyIdentity: 'hush-global' });
+    expect(decrypted).toContain('EXISTING=1');
+    expect(decrypted).toContain('API_KEY=secret-value');
   });
 
-  it('uses the store-specific .sops.yaml when opening sops edit', async () => {
-    const { edit } = await loadSopsModule();
-    const encryptedPath = join(storeDir, '.hush.encrypted');
+  it('encrypts and decrypts yaml authority documents', () => {
+    const manifestPath = join(storeDir, '.hush', 'manifest.encrypted');
+    mkdirSync(dirname(manifestPath), { recursive: true });
 
-    writeFileSync(encryptedPath, 'encrypted', 'utf-8');
-
-    edit(encryptedPath, {
+    encryptYamlContent('version: 3\nidentities:\n  dev:\n    roles: [owner]\n', manifestPath, {
       root: storeDir,
       keyIdentity: 'hush-global',
     });
 
-    expect(spawnSyncMock).toHaveBeenCalledWith(
-      'sops',
-      ['--config', join(storeDir, '.sops.yaml'), '--input-type', 'dotenv', '--output-type', 'dotenv', encryptedPath],
-      expect.objectContaining({
-        env: expect.objectContaining({
-          SOPS_AGE_KEY_FILE: '/keys/hush-global.txt',
-        }),
-        shell: true,
-        stdio: 'inherit',
-      }),
-    );
+    expect(readFileSync(manifestPath, 'utf-8')).toContain('sops:');
+    expect(decryptYaml(manifestPath, { root: storeDir, keyIdentity: 'hush-global' })).toContain('version: 3');
+  });
+
+  it('stages plaintext in a private temp dir with restrictive permissions and cleanup', () => {
+    let observedTempFile = '';
+
+    withPrivatePlaintextTempFile('yaml', 'version: 3\n', (tempFile) => {
+      observedTempFile = tempFile;
+      const fileMode = statSync(tempFile).mode & 0o777;
+      const dirMode = statSync(dirname(tempFile)).mode & 0o777;
+
+      expect(fileMode).toBe(0o600);
+      expect(dirMode).toBe(0o700);
+    });
+
+    expect(observedTempFile).toContain(`${tmpdir()}/hush-sops-`);
+    expect(existsSync(observedTempFile)).toBe(false);
+    expect(existsSync(dirname(observedTempFile))).toBe(false);
+  });
+
+  it('uses the private temp staging helper for setKey updates', () => {
+    const encryptedPath = join(storeDir, '.hush.encrypted');
+
+    writeFileSync(join(storeDir, '.plain.env'), 'EXISTING=1\n', 'utf-8');
+    encrypt(join(storeDir, '.plain.env'), encryptedPath, {
+      root: storeDir,
+      keyIdentity: 'hush-global',
+    });
+
+    setKey(encryptedPath, 'API_KEY', 'secret-value', {
+      root: storeDir,
+      keyIdentity: 'hush-global',
+    });
+
+    const decrypted = decrypt(encryptedPath, { root: storeDir, keyIdentity: 'hush-global' });
+    expect(decrypted).toContain('EXISTING=1');
+    expect(decrypted).toContain('API_KEY=secret-value');
   });
 });

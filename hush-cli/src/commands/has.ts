@@ -1,9 +1,6 @@
-import { join } from 'node:path';
 import pc from 'picocolors';
-import { interpolateVars } from '../core/interpolate.js';
-import { mergeVars } from '../core/merge.js';
-import { parseEnvContent } from '../core/parse.js';
-import type { EnvVar, Environment, HushContext, StoreContext } from '../types.js';
+import { appendCommandReadAudit, resolveTargetEnvView } from './v3-command-helpers.js';
+import type { Environment, HushContext, StoreContext } from '../types.js';
 
 export interface HasOptions {
   store: StoreContext;
@@ -13,46 +10,36 @@ export interface HasOptions {
 }
 
 export async function hasCommand(ctx: HushContext, options: HasOptions): Promise<void> {
-  const { store, env, key, quiet } = options;
-  const config = ctx.config.loadConfig(store.root);
+  const { store, key, quiet } = options;
+  let exitStatus = 2;
 
-  const sharedEncrypted = join(store.root, config.sources.shared + '.encrypted');
-  const envEncrypted = join(store.root, config.sources[env] + '.encrypted');
+  try {
+    const view = resolveTargetEnvView(ctx, store, undefined, {
+      name: 'has',
+      args: [key],
+    });
+    const found = view.envVars.find((variable) => variable.key === key);
+    const exists = found !== undefined && found.value.length > 0;
 
-  const varSources: EnvVar[][] = [];
+    appendCommandReadAudit(ctx, store, view, { name: 'has', args: [key] });
 
-  if (ctx.fs.existsSync(sharedEncrypted)) {
-    const content = ctx.sops.decrypt(sharedEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
-    varSources.push(parseEnvContent(content));
-  }
-
-  if (ctx.fs.existsSync(envEncrypted)) {
-    const content = ctx.sops.decrypt(envEncrypted, { root: store.root, keyIdentity: store.keyIdentity });
-    varSources.push(parseEnvContent(content));
-  }
-
-  if (varSources.length === 0) {
     if (!quiet) {
-      ctx.logger.error(pc.red('No encrypted files found'));
+      if (exists) {
+        ctx.logger.log(pc.green(`${key} is set (${found!.value.length} chars)`));
+      } else if (found) {
+        ctx.logger.log(pc.yellow(`${key} exists but is empty`));
+      } else {
+        ctx.logger.log(pc.red(`${key} not found in target ${view.targetName}`));
+      }
     }
-    ctx.process.exit(2);
-  }
 
-  const merged = mergeVars(...varSources);
-  const interpolated = interpolateVars(merged);
-
-  const found = interpolated.find(v => v.key === key);
-  const exists = found !== undefined && found.value.length > 0;
-
-  if (!quiet) {
-    if (exists) {
-      ctx.logger.log(pc.green(`${key} is set (${found!.value.length} chars)`));
-    } else if (found) {
-      ctx.logger.log(pc.yellow(`${key} exists but is empty`));
-    } else {
-      ctx.logger.log(pc.red(`${key} not found`));
+    exitStatus = exists ? 0 : 1;
+  } catch (error) {
+    if (!quiet) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.logger.error(pc.red(message));
     }
   }
 
-  ctx.process.exit(exists ? 0 : 1);
+  ctx.process.exit(exitStatus);
 }
