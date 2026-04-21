@@ -12,7 +12,7 @@ Hush is an AI-native secrets manager. The codebase, documentation, releases, and
 hush/
 ├── hush-cli/           # CLI package (@chriscode/hush)
 │   ├── src/
-│   │   ├── commands/   # CLI commands (run, set, encrypt, etc.)
+│   │   ├── commands/   # CLI commands (bootstrap, config, run, set, etc.)
 │   │   ├── core/       # Core logic (parse, merge, filter, mask)
 │   │   ├── formats/    # Output formatters (dotenv, wrangler, json)
 │   │   ├── config/     # Configuration loader
@@ -98,7 +98,7 @@ Hush uses per-project age keys backed up to 1Password.
 | 1Password: `SOPS Key - {project}` | Backup of private key |
 | `.sops.yaml` | Public key (committed) |
 
-The project identifier comes from `project` field in `hush.yaml` or auto-detected from `package.json` repository URL.
+The project identifier comes from the v3 repository metadata or auto-detected from `package.json` repository URL.
 
 ### Commands
 
@@ -139,7 +139,7 @@ This will:
 
 ### CI Setup
 
-For CI, the private key is stored as `SOPS_AGE_KEY` GitHub secret. All other secrets are Hush-managed via `.env.encrypted`.
+For CI, the private key is stored as `SOPS_AGE_KEY` GitHub secret. Repository authority stays in encrypted v3 documents under `.hush/`.
 
 ---
 
@@ -251,7 +251,7 @@ Migration: See docs/migrations/v2-to-v3.md
 
 ```bash
 # Bug fix
-git commit -m "fix(cli): handle empty hush.yaml targets gracefully"
+git commit -m "fix(cli): handle empty v3 target selection gracefully"
 
 # New feature
 git commit -m "feat(core): support variable interpolation in include patterns"
@@ -260,10 +260,10 @@ git commit -m "feat(core): support variable interpolation in include patterns"
 git commit -m "docs(guides): add monorepo setup guide"
 
 # Breaking change
-git commit -m "feat(config)!: rename 'targets' to 'outputs' in hush.yaml
+git commit -m "feat(config)!: require explicit target mode in manifest definitions
 
-BREAKING CHANGE: The 'targets' key in hush.yaml is now 'outputs'.
-This better reflects that these are output destinations, not build targets."
+BREAKING CHANGE: v3 target definitions must now declare an explicit mode.
+Update `.hush/manifest.encrypted` targets before upgrading."
 ```
 
 ---
@@ -341,33 +341,35 @@ title: "Migration: v2 to v3"
 
 ## Summary
 
-**Who's affected:** Users with `hush.yaml` files using the `targets` key
+**Who's affected:** Users upgrading an existing v3 repository layout or manifest schema
 **Estimated time:** 5-10 minutes
 
 ## Breaking Changes
 
-### 1. `targets` renamed to `outputs`
+### 1. Runtime target schema changed
 
-The `targets` key in `hush.yaml` has been renamed to `outputs`.
+The v3 manifest target definition changed and requires an explicit `mode`.
 
-**Before (v2):**
+**Before:**
 ```yaml
 targets:
-  - name: web
-    path: ./apps/web
+  runtime:
+    bundle: project
 ```
 
-**After (v3):**
+**After:**
 ```yaml
-outputs:
-  - name: web
-    path: ./apps/web
+targets:
+  runtime:
+    mode: runtime
+    bundle: project
 ```
 
 **Migration:**
 ```bash
-# In hush.yaml, rename 'targets:' to 'outputs:'
-sed -i '' 's/^targets:/outputs:/' hush.yaml
+# Update the encrypted manifest in place
+hush config show manifest
+hush edit --file shared
 ```
 
 ## AI Migration Assistant
@@ -382,9 +384,9 @@ Rules:
 - Use hush inspect, hush has, hush status only
 
 Steps:
-1. Check my hush.yaml for deprecated keys
-2. Update configuration to v3 format
-3. Run hush status to verify
+1. Inspect `.hush/manifest.encrypted` and declared files
+2. Update the repository to the new v3 schema
+3. Run `hush config show state` and the project checks to verify
 ```
 ```
 
@@ -472,9 +474,9 @@ One workflow handles everything (`.github/workflows/release.yml`):
 
 | Secret | Purpose |
 |--------|---------|
-| `SOPS_AGE_KEY` | Private age key for decrypting `.env.encrypted` |
+| `SOPS_AGE_KEY` | Private age key for decrypting the v3 repository under `.hush/` |
 
-All other secrets (Cloudflare credentials, etc.) are stored in `.env.encrypted` and decrypted at runtime using `hush run`.
+All other secrets (Cloudflare credentials, etc.) are stored in encrypted v3 file documents under `.hush/files/**.encrypted` and resolved at runtime using `hush run`.
 
 ### Setting Up CI Secrets
 
@@ -482,12 +484,12 @@ All other secrets (Cloudflare credentials, etc.) are stored in `.env.encrypted` 
 # 1. Generate CI key (separate from developer keys)
 hush keys generate
 
-# 2. Add secrets to encrypted file
+# 2. Bootstrap the v3 repository shell if needed
+hush bootstrap
+
+# 3. Add secrets to encrypted v3 files
 hush set CLOUDFLARE_API_TOKEN
 hush set CLOUDFLARE_ACCOUNT_ID
-
-# 3. Encrypt
-hush encrypt
 
 # 4. Add the private key to GitHub secrets as SOPS_AGE_KEY
 # Get it from: cat ~/.config/sops/age/keys/{project}.txt
