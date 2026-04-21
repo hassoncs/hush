@@ -2,7 +2,7 @@ name: CI & Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, prerelease-next]
   pull_request:
     branches: [main]
 
@@ -34,7 +34,7 @@ jobs:
 
   release:
     needs: ci
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/prerelease-next') && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -66,6 +66,16 @@ jobs:
       - name: Calculate version bump
         id: version
         run: |
+          RELEASE_CHANNEL="latest"
+          IS_PRERELEASE="false"
+          if [ "${GITHUB_REF}" = "refs/heads/prerelease-next" ]; then
+            RELEASE_CHANNEL="next"
+            IS_PRERELEASE="true"
+          fi
+
+          echo "release_channel=$RELEASE_CHANNEL" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+
           # Get current npm version
           CURRENT_NPM_VERSION=$(npx -y npm@11.5.1 view @chriscode/hush version 2>/dev/null || echo "0.0.0")
           echo "current_npm_version=$CURRENT_NPM_VERSION" >> $GITHUB_OUTPUT
@@ -111,19 +121,25 @@ jobs:
             
             case "$BUMP" in
               major)
-                NEW_VERSION="$((MAJOR + 1)).0.0"
+                BASE_VERSION="$((MAJOR + 1)).0.0"
                 ;;
               minor)
-                NEW_VERSION="$MAJOR.$((MINOR + 1)).0"
+                BASE_VERSION="$MAJOR.$((MINOR + 1)).0"
                 ;;
               patch)
-                NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+                BASE_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
                 ;;
             esac
+
+            if [ "$IS_PRERELEASE" = "true" ]; then
+              NEW_VERSION="$BASE_VERSION-next.0"
+            else
+              NEW_VERSION="$BASE_VERSION"
+            fi
             
             echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
             echo "should_release=true" >> $GITHUB_OUTPUT
-            echo "Calculated new version: $NEW_VERSION ($BUMP bump)"
+            echo "Calculated new version: $NEW_VERSION ($BUMP bump, channel=$RELEASE_CHANNEL)"
           fi
       
       - name: Check if version already published
@@ -157,7 +173,12 @@ jobs:
       
       - name: Publish to npm (trusted publishing)
         if: steps.version.outputs.should_release == 'true' && steps.check_published.outputs.already_published == 'false'
-        run: npx -y npm@11.5.1 publish --access public --provenance
+        run: |
+          if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
+            npx -y npm@11.5.1 publish --tag "${{ steps.version.outputs.release_channel }}" --access public --provenance
+          else
+            npx -y npm@11.5.1 publish --access public --provenance
+          fi
         working-directory: hush-cli
       
       - name: Create git tag
@@ -199,10 +220,17 @@ jobs:
             NOTES="- Initial release"
           fi
           
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --notes "$NOTES" \
-            --latest
+          if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes "$NOTES" \
+              --prerelease
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes "$NOTES" \
+              --latest
+          fi
 
   deploy-docs:
     needs: ci
