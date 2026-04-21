@@ -128,15 +128,24 @@ function encryptWithFormat(inputPath: string, outputPath: string, format: SopsFi
 
   try {
     const configPath = getSopsConfigFile(options);
-    const configFlag = configPath ? ` --config "${configPath}"` : '';
-    execSync(
-      `sops --input-type ${format} --output-type ${format} --encrypt${configFlag} "${inputPath}" > "${outputPath}"`,
-      {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: getSopsEnv(options),
-      }
-    );
+    const args = [
+      '--input-type', format,
+      '--output-type', format,
+      '--encrypt',
+      '--filename-override', outputPath,
+      ...(configPath ? ['--config', configPath] : []),
+      inputPath,
+    ];
+    const result = spawnSync('sops', args, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: getSopsEnv(options),
+    });
+    if (result.status !== 0) {
+      throw { stderr: result.stderr || result.stdout || `exit code ${result.status}` };
+    }
+    const encrypted = result.stdout;
+    writeFileSync(outputPath, encrypted, 'utf-8');
   } catch (error) {
     const err = error as { stderr?: string; message?: string };
     throw new Error(`SOPS encryption failed: ${err.stderr || err.message}`);
@@ -236,7 +245,7 @@ export function setKey(filePath: string, key: string, value: string, options?: S
     const configFlag = configPath ? ` --config "${configPath}"` : '';
 
     execSync(
-      `sops --input-type dotenv --output-type dotenv --encrypt${configFlag} "${tempFile}" > "${filePath}"`,
+      `sops --input-type dotenv --output-type dotenv --encrypt${configFlag} --filename-override "${filePath}" "${tempFile}" > "${filePath}"`,
       {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],

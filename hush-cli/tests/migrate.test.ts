@@ -83,7 +83,7 @@ function createContext(root: string): HushContext {
   };
 }
 
-function writeLegacyRepo(root: string, overrides?: { pagesTarget?: boolean }): void {
+function writeLegacyRepo(root: string, overrides?: { pagesTarget?: boolean; plaintextLocal?: string; sharedOverrideContent?: string }): void {
   nodeFs.mkdirSync(root, { recursive: true });
   nodeFs.writeFileSync(join(root, 'hush.yaml'), `version: 2
 project: test/repo
@@ -104,10 +104,14 @@ targets:
     exclude:
       - NEXT_PUBLIC_*
 ${overrides?.pagesTarget ? '  - name: pages\n    path: ./apps/pages\n    format: wrangler\n    push_to:\n      type: cloudflare-pages\n      project: docs\n' : ''}`.replace(/^\n/, ''), 'utf-8');
-  writeEncryptedDotenvFile(root, join(root, '.env.encrypted'), 'DATABASE_URL=postgres://db\nNEXT_PUBLIC_API_URL=https://example.com');
+  writeEncryptedDotenvFile(root, join(root, '.env.encrypted'), overrides?.sharedOverrideContent ?? 'DATABASE_URL=postgres://db\nNEXT_PUBLIC_API_URL=https://example.com');
   writeEncryptedDotenvFile(root, join(root, '.env.development.encrypted'), 'DEBUG=true\nAPI_BASE=http://localhost:3000');
   writeEncryptedDotenvFile(root, join(root, '.env.production.encrypted'), 'DEBUG=false\nAPI_BASE=https://api.example.com');
-  writeEncryptedDotenvFile(root, join(root, '.env.local.encrypted'), 'LOCAL_ONLY=yes');
+  if (overrides?.plaintextLocal) {
+    nodeFs.writeFileSync(join(root, '.env.local'), `${overrides.plaintextLocal}\n`, 'utf-8');
+  } else {
+    writeEncryptedDotenvFile(root, join(root, '.env.local.encrypted'), 'LOCAL_ONLY=yes');
+  }
   nodeFs.writeFileSync(join(root, 'README.md'), 'Use `hush run -- npm start` after migration.\n', 'utf-8');
 }
 
@@ -203,6 +207,59 @@ describe('migrateCommand v2 -> v3', () => {
     expect(nodeFs.existsSync(join(root, '.env.encrypted'))).toBe(true);
   });
 
+  it('fails clearly on keyless template repos and recommends hush bootstrap', async () => {
+    const root = join(TEST_DIR, 'keyless-template-repo');
+    nodeFs.mkdirSync(root, { recursive: true });
+    nodeFs.writeFileSync(join(root, 'hush.yaml'), 'version: 2\nproject: test/keyless\nsources:\n  shared: .hush\ntargets: []\n', 'utf-8');
+    const ctx = createContext(root);
+
+    await expect(migrateCommand(ctx, { root, dryRun: false, from: 'v2', cleanup: false })).rejects.toThrow(/hush bootstrap/i);
+    expect(nodeFs.existsSync(join(root, '.hush', 'manifest.encrypted'))).toBe(false);
+  });
+
+  it('repairs bare .hush gitignore entries so v3 files remain committable', async () => {
+    const root = join(TEST_DIR, 'gitignore-repo');
+    writeLegacyRepo(root);
+    nodeFs.writeFileSync(join(root, '.gitignore'), '.hush\nnode_modules\n', 'utf-8');
+    const ctx = createContext(root);
+
+    await migrateCommand(ctx, { root, dryRun: false, from: 'v2', cleanup: false });
+
+    const gitignore = nodeFs.readFileSync(join(root, '.gitignore'), 'utf-8');
+    expect(gitignore).not.toMatch(/^\.hush\/?$/m);
+    expect(gitignore).toMatch(/^\.hush-materialized\/$/m);
+    expect(ctx.logger.log).toHaveBeenCalledWith(expect.stringMatching(/Updated \.gitignore/i));
+  }, 15000);
+
+  it('migrates plaintext local overrides and resolves self-referential placeholders before v3 validation', async () => {
+    const root = join(TEST_DIR, 'plaintext-local-repo');
+    writeLegacyRepo(root, {
+      sharedOverrideContent: 'OLLAMA_API_KEY=${OLLAMA_API_KEY}\nOPENROUTER_API_KEY=${OPENROUTER_API_KEY}',
+      plaintextLocal: 'OLLAMA_API_KEY=http://localhost:11434\nOPENROUTER_API_KEY=sk-local',
+    });
+    const ctx = createContext(root);
+
+    await migrateCommand(ctx, { root, dryRun: false, from: 'v2', cleanup: false });
+
+    const runtimeFile = readDecryptedYamlFile(root, join(root, '.hush', 'files', 'env', 'targets', 'api', 'runtime.encrypted'));
+    const localFile = readDecryptedYamlFile(root, join(process.env.HOME!, '.hush', 'state', 'projects', createProjectSlug('test/repo'), 'user', 'local-overrides.encrypted'));
+
+    expect(runtimeFile).toContain('http://localhost:11434');
+    expect(runtimeFile).not.toContain('${OLLAMA_API_KEY}');
+    expect(localFile).toContain('env/project/local/OLLAMA_API_KEY');
+  }, 15000);
+
+  it('fails migration with a clear unresolved interpolation error before v3 materialization crashes', async () => {
+    const root = join(TEST_DIR, 'unresolved-placeholder-repo');
+    writeLegacyRepo(root, {
+      sharedOverrideContent: 'OLLAMA_API_KEY=${OLLAMA_API_KEY}\n',
+    });
+    const ctx = createContext(root);
+
+    await expect(migrateCommand(ctx, { root, dryRun: false, from: 'v2', cleanup: false })).rejects.toThrow(/Legacy interpolation placeholders remained unresolved/i);
+    expect(nodeFs.existsSync(join(root, '.hush', 'manifest.encrypted'))).toBe(false);
+  });
+
   it('migrates cloudflare pages targets and preserves their deployment metadata', async () => {
     const root = join(TEST_DIR, 'pages-repo');
     writeLegacyRepo(root, { pagesTarget: true });
@@ -217,6 +274,39 @@ describe('migrateCommand v2 -> v3', () => {
     expect(manifest).toContain('project: docs');
   }, 15000);
 
+  it('migrates object-keyed legacy targets without crashing', async () => {
+    const root = join(TEST_DIR, 'object-keyed-targets');
+    nodeFs.mkdirSync(root, { recursive: true });
+    nodeFs.writeFileSync(join(root, 'hush.yaml'), `version: 2
+project: test/object-keyed
+sources:
+  shared: .hush
+targets:
+  api:
+    path: ./apps/api
+    format: wrangler
+    exclude:
+      - NEXT_PUBLIC_*
+  web:
+    path: ./apps/web
+    format: dotenv
+    include:
+      - NEXT_PUBLIC_*
+  schema_only:
+    env:
+      NODE_ENV: production
+`, 'utf-8');
+    writeEncryptedDotenvFile(root, join(root, '.hush.encrypted'), 'DATABASE_URL=postgres://db\nNEXT_PUBLIC_API_URL=https://example.com');
+    const ctx = createContext(root);
+
+    await migrateCommand(ctx, { root, dryRun: false, from: 'v2', cleanup: false });
+
+    const manifest = readDecryptedYamlFile(root, join(root, '.hush', 'manifest.encrypted'));
+    expect(manifest).toContain('api:');
+    expect(manifest).toContain('web:');
+    expect(manifest).not.toContain('schema_only:');
+  }, 15000);
+
   it('parses migrate flags correctly', () => {
     const parsed = parseArgs(['migrate', '--from', 'v2', '--cleanup', '--dry-run']);
 
@@ -224,5 +314,13 @@ describe('migrateCommand v2 -> v3', () => {
     expect(parsed.from).toBe('v2');
     expect(parsed.cleanup).toBe(true);
     expect(parsed.dryRun).toBe(true);
+  });
+
+  it('parses --cwd as a migrate root alias', () => {
+    const parsed = parseArgs(['--cwd', '/tmp/custom-root', 'migrate', '--from', 'v2']);
+
+    expect(parsed.command).toBe('migrate');
+    expect(parsed.root).toBe('/tmp/custom-root');
+    expect(parsed.from).toBe('v2');
   });
 });

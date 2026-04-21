@@ -2,7 +2,7 @@ import { dirname, join, relative } from 'node:path';
 import pc from 'picocolors';
 import { stringify as stringifyYaml } from 'yaml';
 import { parseEnvContent } from '../core/parse.js';
-import { interpolateVars } from '../core/interpolate.js';
+import { getUnresolvedVars, interpolateVars } from '../core/interpolate.js';
 import { mergeVars } from '../core/merge.js';
 import { getProjectIdentifier } from '../project.js';
 import { loadLegacyV2Inventory } from '../v3/legacy-v2.js';
@@ -41,6 +41,7 @@ interface LegacySourceInventory {
   sourcePath: string;
   encryptedPath: string;
   encryptedExists: boolean;
+  plaintextExists: boolean;
 }
 
 interface MigrationReference {
@@ -100,6 +101,7 @@ function getLegacySources(inventory: LegacyV2Inventory): LegacySourceInventory[]
     sourcePath: source.path,
     encryptedPath: `${source.path}.encrypted`,
     encryptedExists: false,
+    plaintextExists: false,
   }));
 }
 
@@ -107,6 +109,7 @@ function withSourcePresence(ctx: HushContext, root: string, sources: LegacySourc
   return sources.map((source) => ({
     ...source,
     encryptedExists: ctx.fs.existsSync(join(root, source.encryptedPath)),
+    plaintextExists: ctx.fs.existsSync(join(root, source.sourcePath)),
   }));
 }
 
@@ -118,11 +121,36 @@ function collectCommandReferences(ctx: HushContext, root: string): MigrationRefe
     const current = queue.shift()!;
     for (const entry of ctx.fs.readdirSync(current) as string[]) {
       const filePath = join(current, entry);
-      const stats = ctx.fs.statSync(filePath);
+      let stats: ReturnType<typeof ctx.fs.statSync>;
+      try {
+        stats = ctx.fs.statSync(filePath);
+      } catch {
+        // broken symlink or inaccessible file — skip silently
+        continue;
+      }
 
       if (stats.isDirectory()) {
-        if (entry === 'node_modules' || entry === '.git' || entry === '.hush') {
+        if (
+          entry === 'node_modules' ||
+          entry === '.git' ||
+          entry === '.hush' ||
+          entry === '.pnpm-store' ||
+          entry === '.worktrees' ||
+          entry === 'dist' ||
+          entry === 'build' ||
+          entry === '.cache' ||
+          entry === 'coverage'
+        ) {
           continue;
+        }
+        // skip sub-repos (directories with their own .git)
+        try {
+          const gitPath = join(filePath, '.git');
+          if (ctx.fs.existsSync(gitPath)) {
+            continue;
+          }
+        } catch {
+          // ignore
         }
         queue.push(filePath);
         continue;
@@ -217,9 +245,75 @@ function ensureNoRootFileConflict(ctx: HushContext, root: string): void {
   }
 }
 
-function readLegacyVars(ctx: HushContext, root: string, encryptedPath: string, keyIdentity: string | undefined): EnvVar[] {
-  const decrypted = ctx.sops.decrypt(join(root, encryptedPath), { root, keyIdentity });
-  return interpolateVars(parseEnvContent(decrypted));
+function validateMigrationPrerequisites(ctx: HushContext, root: string, sources: LegacySourceInventory[]): void {
+  const hasLegacySourceInputs = sources.some((source) => source.encryptedExists || source.plaintextExists);
+  const hasSopsConfig = ctx.fs.existsSync(join(root, '.sops.yaml'));
+
+  if (!hasLegacySourceInputs && !hasSopsConfig) {
+    throw new Error(
+      `No legacy source files or .sops.yaml were found at ${root}. `
+      + 'This looks like a keyless/template-only repo. Use "hush bootstrap" instead of "hush migrate --from v2".',
+    );
+  }
+}
+
+function repairGitignoreForV3(ctx: HushContext, root: string): string[] {
+  const gitignorePath = join(root, '.gitignore');
+  if (!ctx.fs.existsSync(gitignorePath)) {
+    return [];
+  }
+
+  const raw = ctx.fs.readFileSync(gitignorePath, 'utf-8');
+  const text = typeof raw === 'string' ? raw : raw.toString('utf-8');
+  const lines = text.split(/\r?\n/);
+  const removedEntries: string[] = [];
+  const keptLines = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (trimmed === '.hush' || trimmed === '.hush/') {
+      removedEntries.push(trimmed);
+      return false;
+    }
+    return true;
+  });
+
+  if (removedEntries.length === 0) {
+    return [];
+  }
+
+  const nonEmptyLines = keptLines.filter((line, index, arr) => !(index === arr.length - 1 && line === ''));
+  if (!nonEmptyLines.some((line) => line.trim() === '.hush-materialized/')) {
+    nonEmptyLines.push('.hush-materialized/');
+  }
+
+  ctx.fs.writeFileSync(gitignorePath, `${nonEmptyLines.join('\n')}\n`, 'utf-8');
+  return removedEntries;
+}
+
+function readLegacySourceVars(ctx: HushContext, root: string, source: LegacySourceInventory, keyIdentity: string | undefined): EnvVar[] {
+  if (source.encryptedExists) {
+    const decrypted = ctx.sops.decrypt(join(root, source.encryptedPath), { root, keyIdentity });
+    return interpolateVars(parseEnvContent(decrypted));
+  }
+
+  if (source.plaintextExists) {
+    const raw = ctx.fs.readFileSync(join(root, source.sourcePath), 'utf-8');
+    const content = typeof raw === 'string' ? raw : raw.toString('utf-8');
+    return interpolateVars(parseEnvContent(content));
+  }
+
+  return [];
+}
+
+function assertResolvedLegacyVars(label: string, vars: EnvVar[]): void {
+  const unresolved = getUnresolvedVars(vars);
+  if (unresolved.length === 0) {
+    return;
+  }
+
+  throw new Error(
+    `Legacy interpolation placeholders remained unresolved while building ${label}: ${unresolved.join(', ')}. `
+    + 'Ensure the referenced values exist in the legacy shared/development/production/local sources before migrating.',
+  );
 }
 
 function buildTargetRuntimeDocument(filePath: string, vars: EnvVar[]): HushFileDocument {
@@ -306,11 +400,13 @@ function printInventory(root: string, inventory: LegacyV2Inventory, sources: Leg
   console.log(pc.bold('Inventory:'));
   console.log(`  Root: ${root}`);
   console.log(`  Config: ${inventory.configPath}`);
-  console.log(`  Legacy sources: ${sources.filter((source) => source.encryptedExists).length}/${sources.length} encrypted files found`);
+  console.log(`  Legacy sources: ${sources.filter((source) => source.encryptedExists || source.plaintextExists).length}/${sources.length} source files found`);
   console.log(`  Legacy targets: ${inventory.targets.length}`);
   console.log(`  Repo refs to review: ${references.length}`);
   for (const source of sources) {
-    console.log(`    - ${source.name}: ${source.encryptedPath}${source.encryptedExists ? '' : ' (missing)'}`);
+    const locatedPath = source.encryptedExists ? source.encryptedPath : source.plaintextExists ? source.sourcePath : source.encryptedPath;
+    const suffix = source.encryptedExists ? '' : source.plaintextExists ? ' (plaintext)' : ' (missing)';
+    console.log(`    - ${source.name}: ${locatedPath}${suffix}`);
   }
 }
 
@@ -430,6 +526,7 @@ export async function migrateCommand(ctx: HushContext, options: MigrateOptions):
   }
 
   ensureNoRootFileConflict(ctx, root);
+  validateMigrationPrerequisites(ctx, root, sources);
 
   const keyIdentity = inventory.config.project ?? getProjectIdentifier(root);
   const store = getRepositoryStore(root, keyIdentity);
@@ -442,18 +539,16 @@ export async function migrateCommand(ctx: HushContext, options: MigrateOptions):
   const targetDefinitions: Record<string, HushTargetDefinition> = {};
   const bundleFiles: Record<string, string> = {};
 
-  const sharedVars = sources.find((source) => source.name === 'shared' && source.encryptedExists)
-    ? readLegacyVars(ctx, root, sources.find((source) => source.name === 'shared')!.encryptedPath, keyIdentity)
-    : [];
-  const developmentVars = sources.find((source) => source.name === 'development' && source.encryptedExists)
-    ? readLegacyVars(ctx, root, sources.find((source) => source.name === 'development')!.encryptedPath, keyIdentity)
-    : [];
-  const productionVars = sources.find((source) => source.name === 'production' && source.encryptedExists)
-    ? readLegacyVars(ctx, root, sources.find((source) => source.name === 'production')!.encryptedPath, keyIdentity)
-    : [];
-  const localVars = sources.find((source) => source.name === 'local' && source.encryptedExists)
-    ? readLegacyVars(ctx, root, sources.find((source) => source.name === 'local')!.encryptedPath, keyIdentity)
-    : [];
+  const sharedSource = sources.find((source) => source.name === 'shared')!;
+  const developmentSource = sources.find((source) => source.name === 'development')!;
+  const productionSource = sources.find((source) => source.name === 'production')!;
+  const localSource = sources.find((source) => source.name === 'local')!;
+  const sharedVars = readLegacySourceVars(ctx, root, sharedSource, keyIdentity);
+  const developmentVars = readLegacySourceVars(ctx, root, developmentSource, keyIdentity);
+  const productionVars = readLegacySourceVars(ctx, root, productionSource, keyIdentity);
+  const localVars = readLegacySourceVars(ctx, root, localSource, keyIdentity);
+
+  let repairedGitignoreEntries: string[] = [];
 
   try {
     for (const sourceName of ['shared', 'development', 'production'] as const) {
@@ -467,8 +562,10 @@ export async function migrateCommand(ctx: HushContext, options: MigrateOptions):
 
     for (const target of inventory.targets) {
       const sanitizedTarget = sanitizeName(target.name);
-      const developmentView = filterLegacyVars(interpolateVars(mergeVars(sharedVars, developmentVars)), target);
-      const productionView = filterLegacyVars(interpolateVars(mergeVars(sharedVars, productionVars)), target);
+      const developmentView = filterLegacyVars(interpolateVars(mergeVars(sharedVars, developmentVars, localVars)), target);
+      const productionView = filterLegacyVars(interpolateVars(mergeVars(sharedVars, productionVars, localVars)), target);
+      assertResolvedLegacyVars(`${target.name} runtime target`, developmentView);
+      assertResolvedLegacyVars(`${target.name} production target`, productionView);
 
       const developmentFilePath = `env/targets/${sanitizedTarget}/runtime`;
       const developmentDocument = buildTargetRuntimeDocument(developmentFilePath, developmentView);
@@ -516,6 +613,7 @@ export async function migrateCommand(ctx: HushContext, options: MigrateOptions):
 
     const targetNames = Object.keys(targetDefinitions);
     validateMigratedRepository(ctx, store, targetNames);
+    repairedGitignoreEntries = repairGitignoreForV3(ctx, root);
 
     writeMarker(ctx, root, {
       version: 1,
@@ -545,5 +643,8 @@ export async function migrateCommand(ctx: HushContext, options: MigrateOptions):
   ctx.logger.log('');
   ctx.logger.log(pc.green(pc.bold('Migration complete.')));
   ctx.logger.log(pc.dim('Created .hush/ manifest and file documents, migrated machine-local overrides, and validated the new v3 repo state.'));
+  if (repairedGitignoreEntries.length > 0) {
+    ctx.logger.log(pc.yellow(`Updated .gitignore to stop ignoring the v3 .hush/ repo (${repairedGitignoreEntries.join(', ')} removed; .hush-materialized/ kept ignored).`));
+  }
   ctx.logger.log(pc.dim('Run "hush migrate --from v2 --cleanup" after you review the migrated repo to remove legacy hush.yaml and encrypted source leftovers.'));
 }

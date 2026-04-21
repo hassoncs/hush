@@ -4,6 +4,7 @@ import * as nodeFs from 'node:fs';
 import { bootstrapCommand } from '../src/commands/bootstrap.js';
 import { configCommand } from '../src/commands/config.js';
 import { initCommand } from '../src/commands/init.js';
+import { keysCommand } from '../src/commands/keys.js';
 import { parseArgs } from '../src/cli.js';
 import { getActiveIdentity, loadV3Repository } from '../src/index.js';
 import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, isSopsInstalled } from '../src/core/sops.js';
@@ -284,6 +285,55 @@ describe('bootstrap/config/init task 6', () => {
     expect(parsed.positionalArgs).toEqual(['env/project/shared']);
     expect(parsed.roles).toBe('owner,ci');
     expect(parsed.identities).toBe('member-local');
+  });
+
+  it('parses materialize selection, json, output-root, and cleanup flags through cli argument parsing', () => {
+    const parsed = parseArgs([
+      'materialize',
+      '--target',
+      'ios-signing',
+      '--bundle',
+      'fitbot-signing',
+      '--json',
+      '--to',
+      '/tmp/fitbot-signing',
+      '--cleanup',
+    ]);
+
+    expect(parsed.command).toBe('materialize');
+    expect(parsed.target).toBe('ios-signing');
+    expect(parsed.bundle).toBe('fitbot-signing');
+    expect(parsed.json).toBe(true);
+    expect(parsed.outputRoot).toBe('/tmp/fitbot-signing');
+    expect(parsed.cleanup).toBe(true);
+  });
+
+  it('uses legacy hush.yaml project field for keys generate when package metadata is absent', async () => {
+    const root = join(TEST_DIR, 'legacy-project-key');
+    nodeFs.mkdirSync(root, { recursive: true });
+    nodeFs.writeFileSync(join(root, 'hush.yaml'), 'version: 2\nproject: ch5/actually-app\nsources:\n  shared: .hush\ntargets: []\n', 'utf-8');
+    const harness = createContext(root);
+    harness.ctx.config.findProjectRoot = vi.fn(() => ({
+      repositoryKind: 'legacy-v2' as const,
+      configPath: join(root, 'hush.yaml'),
+      projectRoot: root,
+    }));
+    harness.ctx.config.loadConfig = vi.fn(() => ({
+      version: 2,
+      project: 'ch5/actually-app',
+      sources: {
+        shared: '.hush',
+        development: '.hush.development',
+        production: '.hush.production',
+        local: '.hush.local',
+      },
+      targets: [],
+    }));
+    const store = createStore(root);
+
+    await keysCommand(harness.ctx, { store, subcommand: 'generate', force: true });
+
+    expect(harness.age.keySave).toHaveBeenCalledWith('ch5/actually-app', expect.any(Object));
   });
 
   it('keeps init as a thin deprecated alias to bootstrap', async () => {

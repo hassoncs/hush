@@ -1,8 +1,9 @@
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as nodeFs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-import { decrypt, decryptYaml, encrypt, encryptYamlContent } from '../../src/core/sops.js';
+import { decrypt, decryptYaml, encryptYamlContent } from '../../src/core/sops.js';
 import { createFileDocument, createFileIndexEntry, createManifestDocument } from '../../src/index.js';
 import type { HushManifestDocument } from '../../src/types.js';
 
@@ -49,7 +50,25 @@ export function writeEncryptedDotenvFile(root: string, filePath: string, content
 
   try {
     nodeFs.writeFileSync(tempPlainPath, ensureTrailingNewline(content), 'utf-8');
-    encrypt(tempPlainPath, filePath, { root });
+    const result = spawnSync(
+      'sops',
+      [
+        '--input-type', 'dotenv',
+        '--output-type', 'dotenv',
+        '--encrypt',
+        '--filename-override', filePath,
+        '--config', join(root, '.sops.yaml'),
+        tempPlainPath,
+      ],
+      {
+        encoding: 'utf-8',
+        env: { ...process.env, SOPS_AGE_KEY_FILE: TEST_KEY_FILE },
+      },
+    );
+    if (result.status !== 0) {
+      throw new Error(result.stderr || result.stdout || `sops exited ${result.status}`);
+    }
+    nodeFs.writeFileSync(filePath, result.stdout, 'utf-8');
   } finally {
     nodeFs.rmSync(tempPlainPath, { force: true });
   }

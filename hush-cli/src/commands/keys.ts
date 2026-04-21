@@ -2,8 +2,8 @@ import { join } from 'node:path';
 import pc from 'picocolors';
 import { stringify as yamlStringify } from 'yaml';
 import { HushContext, StoreContext } from '../types.js';
-import { opAvailable, opGetKey, opStoreKey, opListKeys } from '../lib/onepassword.js';
-import { ageAvailable, ageGenerate, agePublicFromPrivate, keyExists, keySave, keyLoad, keysList, keyPath } from '../lib/age.js';
+import { opListKeys } from '../lib/onepassword.js';
+import { keysList } from '../lib/age.js';
 import { getProjectIdentifier } from '../project.js';
 import { GLOBAL_STORE_KEY_IDENTITY } from '../store.js';
 import { ensureGlobalStoreBootstrap } from '../global-store.js';
@@ -20,13 +20,21 @@ function getProject(ctx: HushContext, store: StoreContext): string {
     return GLOBAL_STORE_KEY_IDENTITY;
   }
 
+  const discovered = ctx.config.findProjectRoot(store.root);
+  if (discovered?.repositoryKind === 'legacy-v2') {
+    const config = ctx.config.loadConfig(discovered.projectRoot);
+    if (config.project) {
+      return config.project;
+    }
+  }
+
   const project = getProjectIdentifier(store.root);
   if (project) {
     return project;
   }
 
   ctx.logger.error(pc.red('No project identifier found.'));
-  ctx.logger.error(pc.dim('Add "project: my-project" to hush.yaml'));
+  ctx.logger.error(pc.dim('Add "project: my-project" to hush.yaml or a GitHub repository field to package.json'));
   ctx.process.exit(1);
 }
 
@@ -39,16 +47,16 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
       const project = getProject(ctx, store);
       ctx.logger.log(pc.blue(`Setting up keys for ${pc.cyan(project)}...`));
       
-      if (keyExists(project)) {
+      if (ctx.age.keyExists(project)) {
         ctx.logger.log(pc.green('Key already exists locally.'));
         return;
       }
       
-      if (opAvailable()) {
-        const priv = opGetKey(project, vault);
+      if (ctx.onepassword.opAvailable()) {
+        const priv = ctx.onepassword.opGetKey(project);
         if (priv) {
-          const pub = agePublicFromPrivate(priv);
-          keySave(project, { private: priv, public: pub });
+          const pub = ctx.age.agePublicFromPrivate(priv);
+          ctx.age.keySave(project, { private: priv, public: pub });
           ctx.logger.log(pc.green('Pulled key from 1Password.'));
           return;
         }
@@ -59,22 +67,22 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
     }
     
     case 'generate': {
-      if (!ageAvailable()) {
+      if (!ctx.age.ageAvailable()) {
         ctx.logger.error(pc.red('age not installed. Run: brew install age'));
         ctx.process.exit(1);
       }
 
       const project = getProject(ctx, store);
       
-      if (keyExists(project) && !force) {
+      if (ctx.age.keyExists(project) && !force) {
         ctx.logger.error(pc.yellow(`Key exists for ${project}. Use --force to overwrite.`));
         ctx.process.exit(1);
       }
 
       ctx.logger.log(pc.blue(`Generating key for ${pc.cyan(project)}...`));
-      const key = ageGenerate();
-      keySave(project, key);
-      ctx.logger.log(pc.green(`Saved to ${keyPath(project)}`));
+      const key = ctx.age.ageGenerate();
+      ctx.age.keySave(project, key);
+      ctx.logger.log(pc.green(`Saved to ${ctx.age.keyPath(project)}`));
       ctx.logger.log(pc.dim(`Public: ${key.public}`));
 
       if (store.mode === 'global') {
@@ -82,9 +90,9 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
         ctx.logger.log(pc.green('Bootstrapped ~/.hush'));
       }
       
-      if (opAvailable()) {
+      if (ctx.onepassword.opAvailable()) {
         try {
-          opStoreKey(project, key.private, key.public, vault);
+          ctx.onepassword.opStoreKey(project, key.private, key.public);
           ctx.logger.log(pc.green('Stored in 1Password.'));
         } catch (e) {
           ctx.logger.warn(pc.yellow(`Could not store in 1Password: ${(e as Error).message}`));
@@ -110,40 +118,40 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
     }
     
     case 'pull': {
-      if (!opAvailable()) {
+      if (!ctx.onepassword.opAvailable()) {
         ctx.logger.error(pc.red('1Password CLI not available or not signed in.'));
         ctx.process.exit(1);
       }
 
       const project = getProject(ctx, store);
-      const priv = opGetKey(project, vault);
+      const priv = ctx.onepassword.opGetKey(project);
 
       if (!priv) {
         ctx.logger.error(pc.red(`No key in 1Password for ${project}`));
         ctx.process.exit(1);
       }
 
-      const pub = agePublicFromPrivate(priv);
-      keySave(project, { private: priv, public: pub });
-      ctx.logger.log(pc.green(`Pulled and saved to ${keyPath(project)}`));
+      const pub = ctx.age.agePublicFromPrivate(priv);
+      ctx.age.keySave(project, { private: priv, public: pub });
+      ctx.logger.log(pc.green(`Pulled and saved to ${ctx.age.keyPath(project)}`));
       break;
     }
     
     case 'push': {
-      if (!opAvailable()) {
+      if (!ctx.onepassword.opAvailable()) {
         ctx.logger.error(pc.red('1Password CLI not available or not signed in.'));
         ctx.process.exit(1);
       }
 
       const project = getProject(ctx, store);
-      const key = keyLoad(project);
+      const key = ctx.age.keyLoad(project);
 
       if (!key) {
         ctx.logger.error(pc.red(`No local key for ${project}`));
         ctx.process.exit(1);
       }
 
-      opStoreKey(project, key.private, key.public, vault);
+      ctx.onepassword.opStoreKey(project, key.private, key.public);
       ctx.logger.log(pc.green('Pushed to 1Password.'));
       break;
     }
@@ -154,7 +162,7 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
         ctx.logger.log(`  ${pc.cyan(k.project)} ${pc.dim(k.public.slice(0, 20))}...`);
       }
 
-      if (opAvailable()) {
+      if (ctx.onepassword.opAvailable()) {
         ctx.logger.log(pc.blue('\n1Password keys:'));
         for (const project of opListKeys(vault)) {
           ctx.logger.log(`  ${pc.cyan(project)}`);
