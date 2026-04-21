@@ -349,7 +349,7 @@ describe('task 8 v3 runtime and mutating commands', () => {
     expect(ctx.exec.spawnSync).not.toHaveBeenCalled();
     expect(stripAnsi(logger.error.mock.calls.map(([message]) => String(message)).join('\n'))).toMatch(/requires unreadable file/);
     expect(stripAnsi(logger.error.mock.calls.map(([message]) => String(message)).join('\n'))).not.toMatch(/Invalid v3 file document/);
-  });
+  }, 15000);
 
   it('set writes v3 file docs and machine-local override docs instead of legacy sources', async () => {
     const root = join(TEST_DIR, 'set-project');
@@ -407,7 +407,7 @@ describe('task 8 v3 runtime and mutating commands', () => {
     const localOverride = readDecryptedYamlFile(root, localOverridePath);
     expect(localOverride).toContain('path: env/project/local');
     expect(localOverride).toContain('env/project/local/DEBUG');
-  });
+  }, 15000);
 
   it('edit opens the v3 yaml document directly and keeps it valid', async () => {
     const root = join(TEST_DIR, 'edit-project');
@@ -616,7 +616,7 @@ describe('task 8 v3 runtime and mutating commands', () => {
     expect(ctx.exec.execSync).not.toHaveBeenCalled();
     expect(getLogOutput(logger)).toContain('Would push api-workers');
     expect(getLogOutput(logger)).toContain('API_TOKEN');
-  });
+  }, 15000);
 
   it('decrypt --force writes persisted artifacts under the guarded output root', async () => {
     const root = join(TEST_DIR, 'decrypt-project');

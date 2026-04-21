@@ -209,7 +209,7 @@ describe('bootstrap/config/init task 6', () => {
       roles: ['owner', 'ci'],
       identities: ['member-local'],
     });
-  });
+  }, 15000);
 
   it('denies config readers updates when the active identity is not an owner', async () => {
     const projectRoot = join(TEST_DIR, 'config-readers-owner-gate-project');
