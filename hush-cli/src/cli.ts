@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import pc from 'picocolors';
 import type { Environment, StoreMode } from './types.js';
 import { defaultContext } from './context.js';
@@ -644,16 +642,4 @@ export async function main(): Promise<void> {
   }
 }
 
-function isCliEntrypoint(): boolean {
-  const entryPath = process.argv[1];
-
-  if (!entryPath) {
-    return false;
-  }
-
-  return resolve(entryPath) === resolve(fileURLToPath(import.meta.url));
-}
-
-if (isCliEntrypoint()) {
-  await main();
-}
+await main();
