@@ -310,6 +310,8 @@ hush bootstrap --global
 
 `hush bootstrap` is the canonical setup flow for Task 6. It creates the initial v3 repository layout, `.sops.yaml`, default identities, bundle and target shells, and the machine-local active identity pointer.
 
+When package metadata does not declare a project identifier, bootstrap falls back to the repo basename (for example `bottown`) instead of inventing a nested `local/<repo>` identity.
+
 ### Created layout
 
 ```text
@@ -579,7 +581,7 @@ If the repo still uses `hush.yaml`, `status` reports that migration is required 
 | `audit log path ... (missing)` | No diagnostic command has written audit yet | run a read/write command or check state permissions |
 
 <Aside type="tip">
-If `hush status` shows "age key configured" but `hush inspect` fails with "no identity matched", your direnv isn't loaded. Run `direnv allow` in the project directory.
+If `hush status` shows "age key configured" but `hush inspect` still fails with "no identity matched", check the reported key identity and attempted paths. Hush now prefers the standard SOPS keyring at `~/.config/sops/age/keys.txt`, then falls back to per-project keys in `~/.config/sops/age/keys/<project>.txt`, then legacy `key.txt`.
 </Aside>
 
 ---

@@ -176,6 +176,21 @@ describe('bootstrap/config/init task 6', () => {
     expect(sopsConfig).toContain(TEST_AGE_PUBLIC_KEY);
   });
 
+  it('falls back to the repo basename for bootstrap identity when no project metadata is detected', async () => {
+    const projectRoot = join(TEST_DIR, 'bottown');
+    nodeFs.mkdirSync(projectRoot, { recursive: true });
+
+    const { ctx, store, age } = createContext(projectRoot);
+    store.keyIdentity = undefined;
+
+    await bootstrapCommand(ctx, { store });
+
+    expect(age.keySave).toHaveBeenCalledWith('bottown', expect.any(Object));
+
+    const repository = loadV3Repository(projectRoot, { keyIdentity: 'bottown' });
+    expect(repository.manifest.metadata?.project).toBe('bottown');
+  });
+
   it('updates config state and file readers through the new config command', async () => {
     const projectRoot = join(TEST_DIR, 'config-project');
     nodeFs.mkdirSync(projectRoot, { recursive: true });

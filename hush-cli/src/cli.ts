@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
 import pc from 'picocolors';
+import { pathToFileURL } from 'node:url';
 import type { Environment, StoreMode } from './types.js';
 import { defaultContext } from './context.js';
 import { encryptCommand } from './commands/encrypt.js';
@@ -642,4 +643,11 @@ export async function main(): Promise<void> {
   }
 }
 
-await main();
+function isCliEntrypoint(): boolean {
+  const entry = process.argv[1];
+  return Boolean(entry) && import.meta.url === pathToFileURL(entry).href;
+}
+
+if (process.env.HUSH_CLI_ENTRYPOINT === '1' || isCliEntrypoint()) {
+  await main();
+}

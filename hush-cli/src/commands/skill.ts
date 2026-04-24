@@ -163,6 +163,8 @@ npx hush config show
 npx hush inspect
 \`\`\`
 
+Hush prefers explicit SOPS env when present, then repo-scoped keys in \`~/.config/sops/age/keys/<project>.txt\`, then the standard SOPS keyring at \`~/.config/sops/age/keys.txt\`, and finally the legacy compatibility path \`~/.config/sops/age/key.txt\`.
+
 ## Global store
 
 \`\`\`bash
@@ -189,6 +191,8 @@ Create a new v3 repository.
 hush bootstrap
 hush bootstrap --global
 \`\`\`
+
+When package metadata does not declare a project identifier, bootstrap falls back to the repo basename instead of inventing a nested \`local/<repo>\` key identity.
 
 ### hush config
 

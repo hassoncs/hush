@@ -8,7 +8,9 @@ export interface AgeKey {
   public: string;
 }
 
-const KEYS_DIR = join(homedir(), '.config', 'sops', 'age', 'keys');
+function getKeysDir(): string {
+  return join(homedir(), '.config', 'sops', 'age', 'keys');
+}
 
 export function ageAvailable(): boolean {
   try {
@@ -35,7 +37,7 @@ export function agePublicFromPrivate(privateKey: string): string {
 }
 
 export function keyPath(project: string): string {
-  return join(KEYS_DIR, `${project.replace(/\//g, '-')}.txt`);
+  return join(getKeysDir(), `${project.replace(/\//g, '-')}.txt`);
 }
 
 export function keyExists(project: string): boolean {
@@ -60,12 +62,13 @@ export function keyLoad(project: string): AgeKey | null {
 }
 
 export function keysList(): { project: string; public: string }[] {
-  if (!fs.existsSync(KEYS_DIR)) return [];
+  const keysDir = getKeysDir();
+  if (!fs.existsSync(keysDir)) return [];
   
-  return fs.readdirSync(KEYS_DIR)
+  return fs.readdirSync(keysDir)
     .filter(f => f.endsWith('.txt'))
     .map(f => {
-      const content = fs.readFileSync(join(KEYS_DIR, f), 'utf-8') as string;
+      const content = fs.readFileSync(join(keysDir, f), 'utf-8') as string;
       const project = content.match(/# project: (.+)/)?.[1] ?? content.match(/# repo: (.+)/)?.[1];
       const pub = content.match(/# public key: (age1[a-z0-9]+)/)?.[1];
       return project && pub ? { project, public: pub } : null;

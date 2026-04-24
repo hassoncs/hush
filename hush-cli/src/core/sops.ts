@@ -14,6 +14,32 @@ interface SopsOptions {
 
 type SopsFileFormat = 'dotenv' | 'yaml';
 
+interface ResolvedAgeKeySource {
+  projectRoot?: string;
+  detectedProjectIdentifier?: string;
+  resolvedKeyIdentity?: string;
+  selectedKeySource?: string;
+  selectedKeyPath?: string;
+  attemptedKeyPaths: string[];
+}
+
+function getStandardSopsAgeKeyFile(): string {
+  if (process.platform === 'darwin') {
+    return join(homedir(), 'Library', 'Application Support', 'sops', 'age', 'keys.txt');
+  }
+
+  const configRoot = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+  return join(configRoot, 'sops', 'age', 'keys.txt');
+}
+
+function getCompatConfigSopsAgeKeyFile(): string {
+  return join(homedir(), '.config', 'sops', 'age', 'keys.txt');
+}
+
+function getLegacySopsAgeKeyFile(): string {
+  return join(homedir(), '.config', 'sops', 'age', 'key.txt');
+}
+
 function getSopsConfigFile(options?: SopsOptions): string | undefined {
   if (!options?.root) {
     return undefined;
@@ -23,38 +49,143 @@ function getSopsConfigFile(options?: SopsOptions): string | undefined {
   return fs.existsSync(configPath) ? configPath : undefined;
 }
 
-function getAgeKeyFile(options?: SopsOptions): string | undefined {
-  if (process.env.SOPS_AGE_KEY_FILE) {
-    return process.env.SOPS_AGE_KEY_FILE;
+function uniquePaths(paths: Array<string | undefined>): string[] {
+  return [...new Set(paths.filter((path): path is string => Boolean(path)))];
+}
+
+function formatKeyPathForDisplay(path: string): string {
+  const home = homedir();
+  return path.startsWith(`${home}/`) ? path.replace(home, '~') : path;
+}
+
+function resolveAgeKeySource(options?: SopsOptions): ResolvedAgeKeySource {
+  const explicitKeyFile = process.env.SOPS_AGE_KEY_FILE;
+  if (explicitKeyFile) {
+    return {
+      selectedKeySource: 'env:SOPS_AGE_KEY_FILE',
+      selectedKeyPath: explicitKeyFile,
+      attemptedKeyPaths: [explicitKeyFile],
+    };
   }
 
-  const keyIdentity = options?.keyIdentity;
-  if (keyIdentity && keyExists(keyIdentity)) {
-    return keyPath(keyIdentity);
+  if (process.env.SOPS_AGE_KEY_CMD) {
+    return {
+      selectedKeySource: 'env:SOPS_AGE_KEY_CMD',
+      attemptedKeyPaths: [],
+    };
+  }
+
+  if (process.env.SOPS_AGE_KEY) {
+    return {
+      selectedKeySource: 'env:SOPS_AGE_KEY',
+      attemptedKeyPaths: [],
+    };
   }
 
   const projectRoot = options?.root ?? findProjectRoot(process.cwd())?.projectRoot;
-  if (projectRoot) {
-    const project = keyIdentity ?? getProjectIdentifier(projectRoot);
-    if (project && keyExists(project)) {
-      return keyPath(project);
+  const detectedProjectIdentifier = projectRoot ? getProjectIdentifier(projectRoot) : undefined;
+  const resolvedKeyIdentity = options?.keyIdentity ?? detectedProjectIdentifier;
+  const projectKeyPath = resolvedKeyIdentity ? keyPath(resolvedKeyIdentity) : undefined;
+  const standardKeyPath = getStandardSopsAgeKeyFile();
+  const compatConfigKeyPath = getCompatConfigSopsAgeKeyFile();
+  const legacyKeyPath = getLegacySopsAgeKeyFile();
+  const attemptedKeyPaths = uniquePaths([
+    projectKeyPath,
+    standardKeyPath,
+    compatConfigKeyPath,
+    legacyKeyPath,
+  ]);
+
+  if (projectKeyPath && keyExists(resolvedKeyIdentity!)) {
+    return {
+      projectRoot,
+      detectedProjectIdentifier,
+      resolvedKeyIdentity,
+      selectedKeySource: 'project-key',
+      selectedKeyPath: projectKeyPath,
+      attemptedKeyPaths,
+    };
+  }
+
+  for (const defaultPath of [standardKeyPath, compatConfigKeyPath, legacyKeyPath]) {
+    if (fs.existsSync(defaultPath)) {
+      return {
+        projectRoot,
+        detectedProjectIdentifier,
+        resolvedKeyIdentity,
+        selectedKeySource: defaultPath === standardKeyPath
+          ? 'default-keyring'
+          : defaultPath === compatConfigKeyPath
+            ? 'compat-keyring'
+            : 'legacy-default-keyring',
+        selectedKeyPath: defaultPath,
+        attemptedKeyPaths,
+      };
     }
   }
 
-  const defaultPath = join(homedir(), '.config', 'sops', 'age', 'key.txt');
-  if (fs.existsSync(defaultPath)) {
-    return defaultPath;
-  }
+  return {
+    projectRoot,
+    detectedProjectIdentifier,
+    resolvedKeyIdentity,
+    attemptedKeyPaths,
+  };
+}
 
-  return undefined;
+function getAgeKeyFile(options?: SopsOptions): string | undefined {
+  return resolveAgeKeySource(options).selectedKeyPath;
 }
 
 function getSopsEnv(options?: SopsOptions): NodeJS.ProcessEnv {
+  if (process.env.SOPS_AGE_KEY_FILE || process.env.SOPS_AGE_KEY_CMD || process.env.SOPS_AGE_KEY) {
+    return process.env;
+  }
+
   const ageKeyFile = getAgeKeyFile(options);
   if (ageKeyFile) {
     return { ...process.env, SOPS_AGE_KEY_FILE: ageKeyFile };
   }
   return process.env;
+}
+
+function buildDecryptionFailureMessage(errorOutput: string, resolution: ResolvedAgeKeySource): string {
+  const lines = ['SOPS decryption failed: No matching age key found.'];
+
+  if (resolution.projectRoot) {
+    lines.push(`Project root: ${resolution.projectRoot}`);
+  }
+
+  if (resolution.detectedProjectIdentifier) {
+    lines.push(`Detected project identifier: ${resolution.detectedProjectIdentifier}`);
+  }
+
+  if (resolution.resolvedKeyIdentity) {
+    lines.push(`Key identity: ${resolution.resolvedKeyIdentity}`);
+  }
+
+  if (resolution.selectedKeySource) {
+    lines.push(`Selected key source: ${resolution.selectedKeySource}`);
+  }
+
+  if (resolution.selectedKeyPath) {
+    lines.push(`Selected key path: ${formatKeyPathForDisplay(resolution.selectedKeyPath)}`);
+  }
+
+  if (resolution.attemptedKeyPaths.length > 0) {
+    lines.push('Attempted key paths:');
+    for (const path of resolution.attemptedKeyPaths) {
+      lines.push(`  - ${formatKeyPathForDisplay(path)}`);
+    }
+  }
+
+  lines.push('You can also provide a key explicitly with SOPS_AGE_KEY_FILE, SOPS_AGE_KEY_CMD, or SOPS_AGE_KEY.');
+
+  const trimmedErrorOutput = errorOutput.trim();
+  if (trimmedErrorOutput.length > 0) {
+    lines.push('', 'SOPS output:', trimmedErrorOutput);
+  }
+
+  return lines.join('\n');
 }
 
 export function isSopsInstalled(): boolean {
@@ -70,7 +201,8 @@ export function isSopsInstalled(): boolean {
 }
 
 export function isAgeKeyConfigured(): boolean {
-  return getAgeKeyFile() !== undefined;
+  const resolution = resolveAgeKeySource();
+  return Boolean(resolution.selectedKeySource || resolution.selectedKeyPath);
 }
 
 function decryptWithFormat(filePath: string, format: SopsFileFormat, options?: SopsOptions): string {
@@ -94,18 +226,11 @@ function decryptWithFormat(filePath: string, format: SopsFileFormat, options?: S
     return result;
   } catch (error) {
     const err = error as { stderr?: string; message?: string };
-    if (err.stderr?.includes('No identity matched')) {
-      const projectRoot = options?.root ?? findProjectRoot(process.cwd())?.projectRoot;
-      const project = options?.keyIdentity ?? (projectRoot ? getProjectIdentifier(projectRoot) : undefined);
-      const keyLocation = project
-        ? `~/.config/sops/age/keys/${project.replace(/\//g, '-')}.txt`
-        : '~/.config/sops/age/key.txt';
-      throw new Error(
-        'SOPS decryption failed: No matching age key found.\n' +
-          `Ensure your age key is at ${keyLocation}`
-      );
+    const errorOutput = err.stderr || err.message || '';
+    if (/no identity matched|failed to load age identities/i.test(errorOutput)) {
+      throw new Error(buildDecryptionFailureMessage(errorOutput, resolveAgeKeySource(options)));
     }
-    throw new Error(`SOPS decryption failed: ${err.stderr || err.message}`);
+    throw new Error(`SOPS decryption failed: ${errorOutput}`);
   }
 }
 

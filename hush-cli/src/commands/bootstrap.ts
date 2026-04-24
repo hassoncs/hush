@@ -91,7 +91,7 @@ function resolveBootstrapProjectIdentity(root: string, keyIdentity: string | und
     return detectedProject;
   }
 
-  return `local/${basename(root) || 'hush-project'}`;
+  return basename(root) || 'hush-project';
 }
 
 async function setupKey(ctx: HushContext, project: string): Promise<KeySetupResult> {
