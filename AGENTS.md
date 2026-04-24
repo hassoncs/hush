@@ -549,3 +549,19 @@ git log --oneline v2.3.0..HEAD  # Commits since last release
 | CLI version | `hush-cli/package.json` |
 | Migration guides | `docs/src/content/docs/migrations/` |
 | CI workflows | `.github/workflows/` |
+
+---
+
+## Wiki
+
+This repo has a local wiki at `.llm/wiki/`. Read it before touching code.
+
+**Agent Start Here:**
+1. Read `.llm/wiki/CONTEXT.md` — what this repo does, where the important code lives, quick-start task table
+2. Use the task table to find the right topic page
+3. Read that topic under `.llm/wiki/topics/`
+4. Only then open raw source files
+
+**Self-update rule:** If you change architecture, add/remove commands, discover a sharp edge, or fix a non-obvious bug — update the relevant wiki page before closing out. If no topic covers the new knowledge, add it to the nearest topic file or `CONTEXT.md`. Keep the wiki honest and operational, not decorative.
+
+**Cross-project wiki:** For pattern comparison, reuse decisions, or workspace-level brainstorming, start at `~/Workspaces/Personal/ch5-company/wiki/CONTEXT.md`.
