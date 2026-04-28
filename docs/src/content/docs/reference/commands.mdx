@@ -17,10 +17,10 @@ Hush keeps secrets **encrypted at rest**. The primary way to use secrets is `hus
 
 | Category | Commands | Description |
 |----------|----------|-------------|
-| **Primary (AI-Safe)** | `run`, `materialize`, `set`, `edit`, `inspect`, `has` | Safe command surfaces that avoid printing secret values |
+| **Primary (AI-Safe)** | `run`, `materialize`, `set`, `copy-key`, `move-key`, `edit`, `inspect`, `has` | Safe command surfaces that avoid printing secret values |
 | **Setup** | `bootstrap`, `config`, `init`, `migrate`, `encrypt`, `status`, `skill` | Repository setup and bounded migration, with `encrypt` kept only as a retired legacy bridge |
 | **Deployment** | `push`, `check` | CI/CD and cloud deployment |
-| **Debugging** | `resolve`, `trace`, `diff`, `export-example` | Debug safe output, provenance, and example generation |
+| **Debugging** | `resolve`, `trace`, `verify-target`, `diff`, `export-example` | Debug safe output, provenance, target completeness, and example generation |
 
 ### Global Options
 
@@ -261,6 +261,41 @@ AI agents can use inline values directly: `hush set KEY "value"`. For user-provi
 
 ---
 
+## copy-key / move-key
+
+Copy or move one key between encrypted v3 file documents without printing the decrypted value. Use this when a secret exists in Hush but belongs in a different service/environment file for target resolution.
+
+```bash
+# Copy a shared production key into the API production file
+hush copy-key RESEND_API_KEY --from env/project/production --to env/api/production
+
+# Move a key when ownership should change to the destination service file
+hush move-key RESEND_API_KEY --from env/project/production --to env/api/production
+
+# JSON metadata only; no values
+hush copy-key RESEND_API_KEY --from env/project/production --to env/api/production --json
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--from <file-path>` | Source encrypted v3 file path, such as `env/project/production` |
+| `--to <file-path>` | Destination encrypted v3 file path, such as `env/api/production` |
+| `--json` | Output action metadata without values |
+
+### How It Works
+
+1. Requires an owner active identity because the command mutates encrypted repository documents
+2. Finds exactly one matching leaf key in the source file
+3. Writes the same encrypted entry under the destination file path
+4. Deletes the source entry only for `move-key`
+5. Re-encrypts touched file documents and emits audit metadata
+
+`copy-key` and `move-key` do not edit bundle imports. They are explicit ownership/location changes. If multiple services intentionally share one secret, keep it in a `project-*` file and add explicit bundle imports instead.
+
+---
+
 ## edit
 
 Edit a v3 document through a decrypted temporary YAML file in your `$EDITOR`.
@@ -338,6 +373,7 @@ Inspect or update v3 structural config without treating plaintext YAML as the so
 
 ```bash
 hush config show
+hush config show --json
 hush config show identities
 hush config active-identity
 hush config active-identity member-local
@@ -356,6 +392,7 @@ hush config readers env/project/shared --identities owner-local,ci
 ### Notes
 
 - `show` returns structural data only. It does not materialize secret values.
+- Add `--json` to `show` for machine-readable structural output. JSON output includes paths, readers, bundles, targets, and state metadata only — never decrypted values.
 - `active-identity` writes machine-local state under `~/.hush/state/projects/<project-slug>/active-identity.json`.
 - `readers` updates one ACL unit at a time, because files are the only ACL boundary in v3.
 
@@ -642,6 +679,9 @@ hush resolve runtime
 
 # The env flag is accepted for CLI compatibility, but v3 resolution is driven by bundles and files
 hush resolve runtime -e production
+
+# Machine-readable provenance without secret values
+hush resolve runtime --json
 ```
 
 ### Options
@@ -649,6 +689,7 @@ hush resolve runtime -e production
 | Option | Description |
 |--------|-------------|
 | `-e, --env <env>` | Environment: `development` or `production` |
+| `--json` | Output target, bundle, file, logical path, and provenance metadata without values |
 
 ### Example Output
 
@@ -678,6 +719,8 @@ Artifacts:
 
 If resolution fails because the active identity cannot read a required file, `resolve` prints the denied file paths and their readers.
 
+`--json` is safe for automation: it includes logical paths and provenance, but does not include decrypted scalar values.
+
 ---
 
 ## trace
@@ -690,6 +733,9 @@ hush trace DATABASE_URL
 
 # Trace a full logical path
 hush trace env/apps/api/env/DATABASE_URL
+
+# Machine-readable target reachability diagnostics
+hush trace RESEND_API_KEY --json
 ```
 
 ### Options
@@ -697,6 +743,7 @@ hush trace env/apps/api/env/DATABASE_URL
 | Option | Description |
 |--------|-------------|
 | `-e, --env <env>` | Environment: `development` or `production` |
+| `--json` | Output repository matches and per-target reachability diagnostics without values |
 
 ### Example Output
 
@@ -717,6 +764,65 @@ Targets:
 ```
 
 `trace` uses the same v3 resolver as runtime commands, so ACL failures and interpolation provenance match real resolution behavior.
+
+When a key exists in Hush but is not selected by a target bundle, `trace` now explains that explicitly and lists candidate source bundles. The fix is still explicit: add a bundle import, or copy/move the key into the file consumed by that target bundle. Hush does not perform ambient inheritance.
+
+---
+
+## verify-target
+
+Verify that a v3 target resolves and contains required keys. **Use this in release automation before syncing remote runtime secrets or flipping traffic.**
+
+```bash
+# Verify the target resolves at all
+hush verify-target api-production
+
+# Require specific runtime keys
+hush verify-target api-production --require JWT_SECRET --require RESEND_API_KEY
+
+# JSON output for CI or agents
+hush verify-target api-production --require RESEND_API_KEY --json
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--require <key>` | Require a leaf key to resolve from the selected target bundle. Repeatable. |
+| `--json` | Output machine-readable verification results without values |
+
+### How It Works
+
+1. Loads the v3 repository and active identity
+2. Resolves the named target with the same resolver used by `run`, `push`, and `materialize`
+3. Checks file ACLs, conflicts, and required leaf keys
+4. Prints only paths, key names, files, bundles, and errors — never decrypted values
+
+If a required key is missing, run `hush trace <KEY>` to see whether it exists in another file or bundle that the target does not import.
+
+### Service × environment topology guidance
+
+For monorepos, model concrete consumer surfaces as `service-environment` bundles/targets:
+
+```text
+api-development
+api-staging
+api-production
+root-development
+root-staging
+root-production
+```
+
+Use `project-*` only for intentionally shared material:
+
+```text
+project-shared
+project-development
+project-staging
+project-production
+```
+
+Files remain the security boundary, bundles package files, and targets consume bundles. A target such as `api-production` should not see `project-production` secrets unless its bundle explicitly imports that shared bundle/file or the key is copied/moved into an API-owned file. This keeps production secret flow visible and agent-safe.
 
 ---
 

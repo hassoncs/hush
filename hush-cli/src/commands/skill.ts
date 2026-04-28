@@ -17,7 +17,7 @@ Never read ".hush/**" directly.
 Use these commands instead:
 
 - \
-\`npx hush config show\` for repository structure
+\`npx hush config show --json\` for machine-readable repository structure
 - \
 \`npx hush inspect\` for redacted readable values
 - \
@@ -26,6 +26,10 @@ Use these commands instead:
 \`npx hush run -- <cmd>\` to use secrets at runtime
 - \
 \`npx hush materialize --target <name> --json --to <dir>\` to write file or binary artifacts for CI/native tooling
+- \
+\`npx hush verify-target <target> --require <KEY>\` before deploys that sync remote runtime secrets
+- \
+\`npx hush copy-key <KEY> --from <file> --to <file>\` to relocate target-visible secrets without printing values
 
 ## Current repository model
 
@@ -67,6 +71,7 @@ npx hush migrate --from v2 --cleanup
 
 \`\`\`bash
 npx hush config show
+npx hush config show --json
 npx hush inspect
 npx hush has DATABASE_URL
 \`\`\`
@@ -77,6 +82,8 @@ npx hush has DATABASE_URL
 npx hush set DATABASE_URL "postgres://db"
 npx hush set API_KEY --gui
 npx hush set FEATURE_FLAG --local
+npx hush copy-key RESEND_API_KEY --from env/project/production --to env/api/production
+npx hush move-key RESEND_API_KEY --from env/project/production --to env/api/production
 \`\`\`
 
 ### Run with secrets
@@ -100,6 +107,7 @@ npx hush materialize --cleanup --to /tmp/fitbot-signing
 \`\`\`bash
 npx hush resolve runtime
 npx hush trace DATABASE_URL
+npx hush verify-target runtime --require DATABASE_URL
 npx hush diff
 npx hush export-example
 \`\`\`
@@ -200,11 +208,14 @@ Inspect or update structural v3 config.
 
 \`\`\`bash
 hush config show
+hush config show --json
 hush config show files
 hush config active-identity
 hush config active-identity member-local
 hush config readers env/project/shared --roles owner,member,ci
 \`\`\`
+
+Machine-readable config output is structural only; it never includes decrypted values.
 
 ### hush migrate --from v2
 
@@ -245,6 +256,17 @@ hush run -- npm start
 hush run -t api -- wrangler dev
 \`\`\`
 
+### hush verify-target
+
+Verify that a target resolves and contains required keys before release automation syncs remote runtime secrets.
+
+\`\`\`bash
+hush verify-target api-production --require JWT_SECRET --require RESEND_API_KEY
+hush verify-target api-production --require RESEND_API_KEY --json
+\`\`\`
+
+JSON output contains target, bundle, files, logical paths, required keys, and missing keys only. It does not contain secret values.
+
 ### hush materialize
 
 Write a v3 target or bundle to explicit file paths for CI, native build tooling, or other file-based consumers.
@@ -277,9 +299,17 @@ Safe debugging and review surfaces.
 \`\`\`bash
 hush resolve runtime
 hush trace DATABASE_URL
+hush resolve runtime --json
+hush trace DATABASE_URL --json
 hush diff --ref HEAD~1
 hush export-example --bundle project
 \`\`\`
+
+### Service × environment topology
+
+Use concrete service/environment names for target bundles: \`api-development\`, \`api-staging\`, \`api-production\`, \`root-production\`. Use \`project-*\` only for intentionally shared material.
+
+Hush does not use ambient inheritance. If \`RESEND_API_KEY\` exists in \`project-production\` but \`api-production\` does not import that bundle/file, the API target should not see it. Fix by adding an explicit import or by copying/moving the key into the API-owned file with \`hush copy-key\` or \`hush move-key\`.
 
 ### hush encrypt
 
@@ -297,6 +327,7 @@ Deprecated alias for \`hush bootstrap\`.
 \`\`\`bash
 npx hush bootstrap
 npx hush config show
+npx hush config show --json
 npx hush set DATABASE_URL "postgres://db"
 npx hush inspect
 \`\`\`
@@ -323,6 +354,8 @@ npx hush config readers env/project/shared --identities owner-local,ci
 \`\`\`bash
 npx hush run -- npm start
 npx hush run -t api -- wrangler dev
+npx hush verify-target api-production --require RESEND_API_KEY
+npx hush copy-key RESEND_API_KEY --from env/project/production --to env/api/production
 \`\`\`
 
 ## Materialize a signing bundle

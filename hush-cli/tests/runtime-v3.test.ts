@@ -11,6 +11,7 @@ vi.mock('node:readline', () => ({
 }));
 
 import { check, checkCommand } from '../src/commands/check.js';
+import { copyKeyCommand } from '../src/commands/copy-key.js';
 import { decryptCommand } from '../src/commands/decrypt.js';
 import { editCommand } from '../src/commands/edit.js';
 import { hasCommand } from '../src/commands/has.js';
@@ -467,6 +468,87 @@ describe('task 8 v3 runtime and mutating commands', () => {
       expect.objectContaining({ stdio: 'inherit', shell: '/bin/bash' }),
     );
     expect(nodeFs.existsSync(stagedPath)).toBe(false);
+  });
+
+  it('copy-key and move-key transfer entries between encrypted v3 files without logging values', async () => {
+    const root = join(TEST_DIR, 'copy-key-project');
+    const repository = writeRepo(
+      root,
+      `
+      version: 3
+      identities:
+        developer-local:
+          roles: [owner]
+      bundles:
+        project-production:
+          files:
+            - path: env/project/production
+        api-production:
+          files:
+            - path: env/api/production
+      targets:
+        api-production:
+          bundle: api-production
+          format: dotenv
+      `,
+      {
+        'env/project/production': `
+          path: env/project/production
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: true
+          entries:
+            env/project/production/RESEND_API_KEY:
+              value: resend-secret
+              sensitive: true
+            env/project/production/LEGACY_KEY:
+              value: legacy-secret
+              sensitive: true
+        `,
+        'env/api/production': `
+          path: env/api/production
+          readers:
+            roles: [owner]
+            identities: [developer-local]
+          sensitive: true
+          entries: {}
+        `,
+      },
+    );
+    const { ctx, logger, store } = createContext(root);
+    setIdentity(ctx, store, repository, 'developer-local');
+
+    await copyKeyCommand(ctx, {
+      store,
+      key: 'RESEND_API_KEY',
+      from: 'env/project/production',
+      to: 'env/api/production',
+      move: false,
+      json: true,
+    });
+    await copyKeyCommand(ctx, {
+      store,
+      key: 'LEGACY_KEY',
+      from: 'env/project/production',
+      to: 'env/api/production',
+      move: true,
+      json: true,
+    });
+
+    const updated = loadV3Repository(root, { keyIdentity: root });
+    const project = updated.loadFile('env/project/production');
+    const api = updated.loadFile('env/api/production');
+    const output = getLogOutput(logger);
+
+    expect(api.entries['env/api/production/RESEND_API_KEY']).toBeDefined();
+    expect(api.entries['env/api/production/LEGACY_KEY']).toBeDefined();
+    expect(project.entries['env/project/production/RESEND_API_KEY']).toBeDefined();
+    expect(project.entries['env/project/production/LEGACY_KEY']).toBeUndefined();
+    expect(output).toContain('RESEND_API_KEY');
+    expect(output).toContain('LEGACY_KEY');
+    expect(output).not.toContain('resend-secret');
+    expect(output).not.toContain('legacy-secret');
   });
 
   it('has and list resolve values from the v3 runtime target view', async () => {

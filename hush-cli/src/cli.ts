@@ -25,6 +25,8 @@ import { traceCommand } from './commands/trace.js';
 import { diffCommand } from './commands/diff.js';
 import { exportExampleCommand } from './commands/export-example.js';
 import { materializeCommand } from './commands/materialize.js';
+import { verifyTargetCommand } from './commands/verify-target.js';
+import { copyKeyCommand } from './commands/copy-key.js';
 import { templateCommand } from './commands/template.js';
 import { expansionsCommand } from './commands/expansions.js';
 import { migrateCommand } from './commands/migrate.js';
@@ -49,6 +51,8 @@ ${pc.bold('Commands:')}
   encrypt           Retired legacy helper; use hush migrate --from v2
   run -- <cmd>      Run command with secrets in memory (AI-safe)
   set <KEY> [VALUE] Set a single secret (AI-safe, prompts if no value)
+  copy-key <KEY>    Copy one key between encrypted v3 files without printing it
+  move-key <KEY>    Move one key between encrypted v3 files without printing it
   edit [file]       Edit all secrets in $EDITOR
   list              List all variables (shows values)
   inspect           List all variables (masked values, AI-safe)
@@ -60,10 +64,12 @@ ${pc.bold('Commands:')}
   keys <cmd>        Manage SOPS age keys (setup, generate, pull, push, list)
   migrate           Migrate a legacy hush.yaml repo to v3
   materialize       Write target or bundle artifacts to disk for CI/tooling
+  verify-target     Verify a target resolves required keys (AI-safe)
 
 ${pc.bold('Debugging Commands:')}
   resolve <target>  Show what variables a target receives (AI-safe)
   trace <key>       Trace a variable through sources and targets (AI-safe)
+  verify-target <target> --require KEY  Check target completeness (AI-safe)
   diff              Compare current v3 state against HEAD or --ref (AI-safe)
   export-example    Emit a redacted target or bundle example (AI-safe)
   template          Retired legacy helper; use hush migrate --from v2
@@ -80,7 +86,8 @@ ${pc.bold('Options:')}
   --dry-run         Preview changes without applying
   --verbose         Show detailed output (push --dry-run only)
   --warn            Warn but exit 0 on drift (check only)
-  --json            Output machine-readable JSON (check only)
+  --json            Output machine-readable JSON where supported
+  --require <key>   Require key for verify-target (repeatable)
   --only-changed    Only check git-modified files (check only)
   --require-source  Fail if source file is missing (check only)
   --allow-plaintext Allow plaintext .env files (check only, not recommended)
@@ -90,9 +97,11 @@ ${pc.bold('Options:')}
   --ref <git-ref>   Compare diff output against a git ref (diff only)
   --bundle <name>   Resolve a specific bundle (diff/export-example only)
   --from <version>  Legacy repo version to migrate from (migrate only)
+  --from <file>     Source v3 file for copy-key/move-key
   --cleanup         Remove validated v2 leftovers after migration (migrate only)
   --output-root <d> Destination root for materialized files (materialize only)
   --to <dir>        Alias for --output-root (materialize only)
+  --to <file>       Destination v3 file for copy-key/move-key
   -h, --help        Show this help message
   -v, --version     Show version number
 
@@ -121,6 +130,8 @@ ${pc.bold('Examples:')}
   hush set --global OPENAI_API_KEY  Set a global secret in ~/.hush
   hush run --global -- npm start    Run with global secrets only
   hush set API_KEY -e prod      Set a production secret
+  hush copy-key RESEND_API_KEY --from env/project/production --to env/api/production
+  hush move-key RESEND_API_KEY --from env/project/production --to env/api/production
   hush keys setup               Pull key from 1Password or verify local
   hush keys generate            Generate new key + backup to 1Password
   hush edit                     Edit all shared secrets in $EDITOR
@@ -136,6 +147,7 @@ ${pc.bold('Examples:')}
   hush diff                     Compare current runtime target against HEAD
   hush diff --ref HEAD~1        Compare current runtime target against HEAD~1
   hush diff --bundle project    Compare a bundle against HEAD
+  hush verify-target api-production --require DATABASE_URL --require RESEND_API_KEY
   hush export-example           Emit a safe example for the default target
   hush export-example --bundle project  Emit a safe example from a bundle
   hush materialize -t runtime --json --to /tmp/hush-out
@@ -177,6 +189,7 @@ export interface ParsedArgs {
   key?: string;
   value?: string;
   target?: string;
+  requireKeys: string[];
   positionalArgs: string[];
   cmdArgs: string[];
 }
@@ -224,6 +237,7 @@ export function parseArgs(args: string[]): ParsedArgs {
   let key: string | undefined;
   let value: string | undefined;
   let target: string | undefined;
+  let requireKeys: string[] = [];
   let positionalArgs: string[] = [];
   let cmdArgs: string[] = [];
 
@@ -291,6 +305,16 @@ export function parseArgs(args: string[]): ParsedArgs {
 
     if (arg === '--require-source') {
       requireSource = true;
+      continue;
+    }
+
+    if (arg === '--require') {
+      const nextArg = args[++i];
+      if (!nextArg) {
+        console.error(pc.red('Missing value for --require'));
+        process.exit(1);
+      }
+      requireKeys.push(nextArg);
       continue;
     }
 
@@ -397,6 +421,11 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if ((command === 'copy-key' || command === 'move-key') && !arg.startsWith('-') && !key) {
+      key = arg;
+      continue;
+    }
+
     if (command === 'has' && !arg.startsWith('-') && !key) {
       key = arg;
       continue;
@@ -408,6 +437,11 @@ export function parseArgs(args: string[]): ParsedArgs {
     }
 
     if (command === 'resolve' && !arg.startsWith('-') && !target) {
+      target = arg;
+      continue;
+    }
+
+    if (command === 'verify-target' && !arg.startsWith('-') && !target) {
       target = arg;
       continue;
     }
@@ -457,6 +491,7 @@ export function parseArgs(args: string[]): ParsedArgs {
     key,
     value,
     target,
+    requireKeys,
     positionalArgs,
     cmdArgs,
   };
@@ -493,7 +528,7 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, roles, identities, ref, bundle, from, cleanup, outputRoot, file, key, value, target, positionalArgs, cmdArgs } = parseArgs(args);
+  const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, roles, identities, ref, bundle, from, cleanup, outputRoot, file, key, value, target, requireKeys, positionalArgs, cmdArgs } = parseArgs(args);
   const storeMode: StoreMode = global && command !== 'skill' ? 'global' : 'project';
   const store = resolveStoreContext(root, storeMode);
 
@@ -514,7 +549,7 @@ export async function main(): Promise<void> {
         break;
 
       case 'config':
-        await configCommand(defaultContext, { store, subcommand, args: positionalArgs, roles, identities });
+        await configCommand(defaultContext, { store, subcommand, args: positionalArgs, roles, identities, json });
         break;
 
       case 'encrypt':
@@ -539,6 +574,11 @@ export async function main(): Promise<void> {
         await setCommand(defaultContext, { store, file: setFile, key, value, gui });
         break;
       }
+
+      case 'copy-key':
+      case 'move-key':
+        await copyKeyCommand(defaultContext, { store, key, from, to: outputRoot, move: command === 'move-key', json });
+        break;
 
       case 'edit':
         await editCommand(defaultContext, { store, file });
@@ -593,7 +633,7 @@ export async function main(): Promise<void> {
           console.error(pc.dim('Example: hush resolve api-workers'));
           process.exit(1);
         }
-        await resolveCommand(defaultContext, { store, env, target });
+        await resolveCommand(defaultContext, { store, env, target, json });
         break;
 
       case 'trace':
@@ -602,7 +642,16 @@ export async function main(): Promise<void> {
           console.error(pc.dim('Example: hush trace DATABASE_URL'));
           process.exit(1);
         }
-        await traceCommand(defaultContext, { store, env, key });
+        await traceCommand(defaultContext, { store, env, key, json });
+        break;
+
+      case 'verify-target':
+        if (!target) {
+          console.error(pc.red('Usage: hush verify-target <target> [--require KEY ...]'));
+          console.error(pc.dim('Example: hush verify-target api-production --require RESEND_API_KEY'));
+          process.exit(1);
+        }
+        await verifyTargetCommand(defaultContext, { store, env, target, require: requireKeys, json });
         break;
 
       case 'diff':

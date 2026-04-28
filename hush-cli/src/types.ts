@@ -275,6 +275,7 @@ export interface ConfigOptions {
   args: string[];
   roles?: string;
   identities?: string;
+  json?: boolean;
 }
 
 export interface ListOptions {
@@ -325,12 +326,31 @@ export interface ResolveOptions {
   store: StoreContext;
   env: Environment;
   target: string;
+  json?: boolean;
 }
 
 export interface TraceOptions {
   store: StoreContext;
   env: Environment;
   key: string;
+  json?: boolean;
+}
+
+export interface VerifyTargetOptions {
+  store: StoreContext;
+  env: Environment;
+  target: string;
+  require: string[];
+  json?: boolean;
+}
+
+export interface KeyTransferOptions {
+  store: StoreContext;
+  key?: string;
+  from?: string;
+  to?: string;
+  move: boolean;
+  json?: boolean;
 }
 
 export interface DiffOptions {

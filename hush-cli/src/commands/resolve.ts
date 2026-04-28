@@ -33,6 +33,45 @@ function formatConflict(conflict: HushBundleConflictDetail): string[] {
   ];
 }
 
+function toSafeNodeSummary(node: HushResolvedNode): object {
+  return {
+    provenance: node.provenance.map((record) => ({
+      filePath: record.filePath,
+      namespace: record.namespace,
+      import: record.import,
+    })),
+    resolvedFrom: node.resolvedFrom,
+    interpolation: node.interpolation,
+  };
+}
+
+function toSafeResolutionJson(
+  resolution: ReturnType<typeof resolveV3Target>,
+  target: NonNullable<ReturnType<typeof loadV3Repository>['manifest']['targets']>[string],
+): object {
+  return {
+    target: resolution.target,
+    bundle: resolution.bundle,
+    format: target.format,
+    mode: target.mode,
+    identity: resolution.identity,
+    files: resolution.files,
+    valuePaths: Object.keys(resolution.values).sort(),
+    artifactPaths: Object.keys(resolution.artifacts).sort(),
+    values: Object.fromEntries(
+      Object.entries(resolution.values)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([logicalPath, node]) => [logicalPath, toSafeNodeSummary(node)]),
+    ),
+    artifacts: Object.fromEntries(
+      Object.entries(resolution.artifacts)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([logicalPath, node]) => [logicalPath, toSafeNodeSummary(node)]),
+    ),
+    conflicts: resolution.conflicts,
+  };
+}
+
 function explainUnreadableFiles(repository: ReturnType<typeof loadV3Repository>, message: string): string[] {
   const match = message.match(/: (.+)$/);
   const rawFiles = match?.[1]?.split(',').map((value) => value.trim()).filter(Boolean) ?? [];
@@ -81,6 +120,11 @@ export async function resolveCommand(ctx: HushContext, options: ResolveOptions):
       bundle: resolution.bundle,
       target: resolution.target,
     });
+
+    if (options.json) {
+      ctx.logger.log(JSON.stringify(toSafeResolutionJson(resolution, target), null, 2));
+      return;
+    }
 
     lines.push(pc.blue('Hush resolve\n'));
     lines.push(`Target: ${pc.cyan(resolution.target)}`);

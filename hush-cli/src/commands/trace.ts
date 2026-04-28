@@ -4,7 +4,7 @@ import { requireActiveIdentity } from '../v3/identity.js';
 import { loadV3Repository } from '../v3/repository.js';
 import { resolveV3Target } from '../v3/resolver.js';
 import { isIdentityAllowed, type HushFileIndexEntry } from '../v3/domain.js';
-import type { HushContext, HushResolvedNode, TraceOptions } from '../types.js';
+import type { HushContext, HushResolvedNode, HushV3Repository, TraceOptions } from '../types.js';
 
 function canReadFile(file: HushFileIndexEntry, identity: string, roles: readonly string[]): boolean {
   return roles.some((role) => isIdentityAllowed(file.readers, identity, role as never));
@@ -42,6 +42,33 @@ function extractUnreadableFilePaths(message: string): string[] {
   return match?.[1]?.split(',').map((value) => value.trim()).filter(Boolean) ?? [];
 }
 
+function getBundlesReferencingFiles(repository: HushV3Repository, filePaths: readonly string[]): string[] {
+  const wanted = new Set(filePaths);
+  return Object.entries(repository.manifest.bundles ?? {})
+    .filter(([, bundle]) => (bundle.files ?? []).some((file) => wanted.has(file.path)))
+    .map(([bundleName]) => bundleName)
+    .sort();
+}
+
+function formatNotSelectedDiagnosis(targetBundle: string | undefined, filePaths: readonly string[], candidateBundles: readonly string[]): string {
+  const fileLabel = filePaths.join(', ');
+  const bundleLabel = candidateBundles.length > 0 ? candidateBundles.join(', ') : '(no bundle directly references matched file)';
+  return `secret exists in ${fileLabel}, but target bundle ${targetBundle ?? '(none)'} does not resolve those file(s). Candidate source bundle(s): ${bundleLabel}. Add an explicit bundle import or copy/move the key into the target bundle file.`;
+}
+
+function toSafeNodeSummary(logicalPath: string, node: HushResolvedNode): object {
+  return {
+    logicalPath,
+    provenance: node.provenance.map((record) => ({
+      filePath: record.filePath,
+      namespace: record.namespace,
+      import: record.import,
+    })),
+    resolvedFrom: node.resolvedFrom,
+    interpolation: node.interpolation,
+  };
+}
+
 export async function traceCommand(ctx: HushContext, options: TraceOptions): Promise<void> {
   const repository = loadV3Repository(options.store.root, { keyIdentity: options.store.keyIdentity });
   const identity = requireActiveIdentity(ctx, options.store, repository.manifest.identities, {
@@ -58,7 +85,10 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
     .filter((entry) => entry.matches.length > 0)
     .sort((left, right) => left.file.path.localeCompare(right.file.path));
   const allMatchedLogicalPaths = Array.from(new Set(matchedFiles.flatMap((entry) => entry.matches))).sort();
+  const matchedFilePaths = matchedFiles.map((entry) => entry.file.path);
+  const candidateBundles = getBundlesReferencingFiles(repository, matchedFilePaths);
   const lines: string[] = [];
+  const targetResults: object[] = [];
 
   appendAuditEvent(ctx, options.store, {
     type: 'read_attempt',
@@ -75,6 +105,18 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
   lines.push(`Matched logical paths: ${pc.cyan(String(allMatchedLogicalPaths.length))}`);
 
   if (matchedFiles.length === 0) {
+    if (options.json) {
+      ctx.logger.log(JSON.stringify({
+        selector: options.key,
+        activeIdentity: identity,
+        matchedLogicalPaths: [],
+        matchedFiles: [],
+        candidateBundles: [],
+        targets: [],
+      }, null, 2));
+      return;
+    }
+
     lines.push('');
     lines.push(pc.yellow('No matching logical path found in the repository.'));
     ctx.logger.log(lines.join('\n'));
@@ -96,6 +138,7 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
   const targetNames = Object.keys(repository.manifest.targets ?? {}).sort();
 
   for (const targetName of targetNames) {
+    const target = repository.manifest.targets?.[targetName];
     try {
       const resolution = resolveV3Target(ctx, {
         store: options.store,
@@ -110,6 +153,14 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
 
       if (matchedNodes.length === 0) {
         lines.push(`  ${pc.cyan(targetName)} ${pc.dim('(not selected by target bundle)')}`);
+        const diagnosis = formatNotSelectedDiagnosis(target?.bundle, matchedFilePaths, candidateBundles);
+        lines.push(`    ${pc.yellow(`diagnosis: ${diagnosis}`)}`);
+        targetResults.push({
+          target: targetName,
+          bundle: target?.bundle,
+          status: 'not_selected_by_target_bundle',
+          diagnosis,
+        });
         continue;
       }
 
@@ -117,19 +168,47 @@ export async function traceCommand(ctx: HushContext, options: TraceOptions): Pro
       for (const [logicalPath, node] of matchedNodes.sort(([left], [right]) => left.localeCompare(right))) {
         lines.push(...formatNodeSummary(logicalPath, node));
       }
+      targetResults.push({
+        target: targetName,
+        bundle: resolution.bundle,
+        status: 'resolved',
+        matches: matchedNodes
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([logicalPath, node]) => toSafeNodeSummary(logicalPath, node)),
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!message.includes('requires unreadable file')) {
         lines.push(`  ${pc.cyan(targetName)} ${pc.red(`(${message})`)}`);
+        targetResults.push({ target: targetName, bundle: target?.bundle, status: 'error', message });
         continue;
       }
 
       lines.push(`  ${pc.cyan(targetName)} ${pc.red('(acl denied)')}`);
+      const unreadableFiles = extractUnreadableFilePaths(message);
       for (const filePath of extractUnreadableFilePaths(message)) {
         const file = repository.filesByPath[filePath];
         lines.push(`    ${pc.yellow(filePath)}${file ? ` ${pc.dim(`(${formatReaders(file)})`)}` : ''}`);
       }
+      targetResults.push({ target: targetName, bundle: target?.bundle, status: 'acl_denied', unreadableFiles });
     }
+  }
+
+  if (options.json) {
+    ctx.logger.log(JSON.stringify({
+      selector: options.key,
+      activeIdentity: identity,
+      matchedLogicalPaths: allMatchedLogicalPaths,
+      matchedFiles: matchedFiles.map((entry) => ({
+        path: entry.file.path,
+        readable: entry.readable,
+        readers: entry.file.readers,
+        matches: entry.matches,
+      })),
+      candidateBundles,
+      targets: targetResults,
+    }, null, 2));
+    return;
   }
 
   ctx.logger.log(lines.join('\n'));

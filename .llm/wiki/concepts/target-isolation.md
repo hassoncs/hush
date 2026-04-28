@@ -86,4 +86,20 @@ targets:
 
 A target consumes a bundle, which consumes files, which enforce ACLs. The security boundary is always the file.
 
+## Service × Environment Topology Guidance
+
+For monorepos, prefer concrete service/environment bundle and target names such as `api-development`, `api-staging`, `api-production`, `root-staging`, and `root-production`. Use `project-*` only for material that is intentionally shared across services, such as `project-shared`, `project-staging`, or `project-production`.
+
+Hush does **not** use ambient inheritance. If a secret exists in `env/project/production` but a target resolves the `api-production` bundle, the secret should remain invisible unless `api-production` explicitly imports the bundle/file or the key is copied/moved into an API-owned file. This is intentional: target completeness should be verified, not guessed from nearby project files.
+
+Useful diagnostics:
+
+- `hush trace <KEY>` explains when a key exists in another file but is not selected by a target bundle.
+- `hush trace <KEY> --json` exposes the same reachability diagnosis for agents/CI without values.
+- `hush verify-target <target> --require <KEY>` verifies a release target resolves required leaf keys before remote secret sync or deploy.
+- `hush copy-key <KEY> --from <file> --to <file>` and `hush move-key <KEY> --from <file> --to <file>` relocate a key between encrypted v3 file documents without printing its value.
+- `hush config show --json` and `hush resolve <target> --json` provide machine-readable structure/provenance without decrypted scalar values.
+
+For team onboarding or project-agent guidance, point agents at `.claude/skills/hush-environment-topology/`. That skill packages the service × environment naming rules, release verification contract, and safe copy/move workflows in a reusable form.
+
 > Sources: `hush-cli/src/v3/domain.ts` (lines 115-123, 340-354) — `HushTargetDefinition`, `createTargetDefinition`; `hush-cli/src/v3/resolver.ts` (lines 297-317) — `resolveV3Target`; `docs/HUSH_V3_SPEC.md` (lines 305-313) — target model description; `hush-cli/src/commands/run.ts` (lines 32-33) — `selectRuntimeTarget` usage

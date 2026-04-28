@@ -158,6 +158,11 @@ function handleShow(ctx: HushContext, options: ConfigOptions): void {
     files: getReadableFileSummaries(repository, activeIdentity).map((file) => file.path),
   });
 
+  if (options.json) {
+    ctx.logger.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
   ctx.logger.log(stringifyYaml(payload, { indent: 2 }).trimEnd());
 }
 
