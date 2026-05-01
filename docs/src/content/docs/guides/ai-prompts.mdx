@@ -37,6 +37,38 @@ IMPORTANT:
 
 ---
 
+## Nested repo bootstrap prompt
+
+<Aside type="tip" title="Child-local repository">
+Use this prompt when the project is a git repo nested inside a parent that already has `.hush/`.
+</Aside>
+
+```markdown
+This git repository is nested inside a parent that has a Hush `.hush/` repo. I need a child-local Hush repository for this project. Please:
+
+1. Run `npx hush bootstrap --new-repo --yes`
+2. Run `npx hush doctor` to verify the key resolution
+3. Show the resulting layout with `npx hush config show`
+
+Do NOT join the parent `.hush/` repository.
+```
+
+---
+
+## Diagnostic prompt
+
+```markdown
+Something is wrong with Hush key resolution or root discovery in this project. Please:
+
+1. Run `npx hush doctor` to diagnose the issue
+2. If the doctor reports key mismatch, run `npx hush keys setup`
+3. Verify with `npx hush inspect`
+
+If bootstrap fails, try `npx hush bootstrap --new-repo --yes` to force a child-local repository.
+```
+
+---
+
 ## Legacy migration prompt
 
 ```markdown

@@ -1,4 +1,4 @@
-import { basename, dirname } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import pc from 'picocolors';
 import { stringify as stringifyYaml } from 'yaml';
 import type { BootstrapOptions, HushContext, HushV3Repository } from '../types.js';
@@ -14,6 +14,7 @@ import {
 } from '../index.js';
 import { getProjectIdentifier } from '../project.js';
 import { GLOBAL_STORE_KEY_IDENTITY } from '../store.js';
+import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
 
 interface KeySetupResult {
   publicKey: string;
@@ -229,23 +230,162 @@ function ensureActiveIdentity(ctx: HushContext, repository: HushV3Repository, op
   return nextIdentity;
 }
 
-export async function bootstrapCommand(ctx: HushContext, options: BootstrapOptions): Promise<void> {
-  const root = options.store.root;
+function findGitRoot(startDir: string, ctx: HushContext): string | null {
+  let current = resolve(startDir);
+  while (true) {
+    if (ctx.fs.existsSync(ctx.path.join(current, '.git'))) {
+      return current;
+    }
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
 
-  if (!ctx.fs.existsSync(root)) {
-    ctx.fs.mkdirSync(root, { recursive: true });
+async function readLine(ctx: HushContext): Promise<string> {
+  return new Promise((resolve) => {
+    const { stdin } = ctx.process;
+    stdin.resume();
+    stdin.setEncoding('utf-8');
+    stdin.once('data', (data: string) => {
+      stdin.pause();
+      resolve(data.toString());
+    });
+  });
+}
+
+async function verifyBootstrap(
+  ctx: HushContext,
+  root: string,
+  projectIdentity: string,
+): Promise<void> {
+  ctx.logger.log('');
+  ctx.logger.log(pc.blue('━'.repeat(50)));
+  ctx.logger.log(pc.blue(pc.bold('  Bootstrap Verification')));
+  ctx.logger.log(pc.blue('━'.repeat(50)));
+  ctx.logger.log('');
+
+  let allPassed = true;
+
+  // Check 1: hush status — can load the repo
+  try {
+    const manifestPath = getV3ManifestPath(root);
+    const manifestContent = ctx.sops.decryptYaml(manifestPath, { root, keyIdentity: projectIdentity });
+    if (manifestContent && manifestContent.length > 0) {
+      ctx.logger.log(pc.green(`  ✓  hush status — manifest decrypts`));
+    } else {
+      ctx.logger.log(pc.red(`  ✗  hush status — manifest is empty`));
+      allPassed = false;
+    }
+  } catch (error) {
+    ctx.logger.log(pc.red(`  ✗  hush status — failed: ${(error as Error).message}`));
+    allPassed = false;
   }
 
-  ctx.logger.log(pc.blue('Bootstrapping Hush v3...\n'));
+  // Check 2: hush inspect — can decrypt files
+  try {
+    const filePath = getV3EncryptedFilePath(root, 'env/project/shared');
+    if (ctx.fs.existsSync(filePath)) {
+      ctx.sops.decrypt(filePath, { root, keyIdentity: projectIdentity });
+      ctx.logger.log(pc.green('  ✓  hush inspect — shared file decrypts'));
+    } else {
+      ctx.logger.log(pc.red('  ✗  hush inspect — shared file not found'));
+      allPassed = false;
+    }
+  } catch (error) {
+    ctx.logger.log(pc.red(`  ✗  hush inspect — failed: ${(error as Error).message}`));
+    allPassed = false;
+  }
 
-  const projectIdentity = resolveBootstrapProjectIdentity(root, options.store.keyIdentity, options.store.mode);
+  // Check 3: runtime key resolution (non-blocking)
+  try {
+    const { resolveAgeKeySource } = await import('../core/sops.js');
+    const resolution = resolveAgeKeySource({ root, keyIdentity: projectIdentity });
+    if (resolution.selectedKeySource) {
+      ctx.logger.log(pc.green(`  ✓  Key resolution — using ${resolution.selectedKeySource}`));
+    } else if (process.env.SOPS_AGE_KEY_FILE || process.env.SOPS_AGE_KEY) {
+      ctx.logger.log(pc.green('  ✓  Key resolution — explicit SOPS env var set'));
+    } else {
+      ctx.logger.log(pc.yellow('  ⚠  Key resolution — no key found (run "hush keys setup")'));
+    }
+  } catch {
+    ctx.logger.log(pc.yellow('  ⚠  Key resolution — skipped (non-standard environment)'));
+  }
+
+  ctx.logger.log('');
+  if (allPassed) {
+    ctx.logger.log(pc.green(pc.bold('  All checks passed. Repository is ready for use.')));
+  } else {
+    ctx.logger.log(pc.red(pc.bold('  Some checks failed. Run "hush doctor" for diagnostics.')));
+  }
+  ctx.logger.log(pc.blue('━'.repeat(50)));
+  ctx.logger.log('');
+}
+
+export async function bootstrapCommand(ctx: HushContext, options: BootstrapOptions): Promise<void> {
+  const cwd = ctx.process.cwd();
+  const startDir = options.explicitRoot ? resolve(options.explicitRoot) : cwd;
+
+  const gitRoot = findGitRoot(startDir, ctx);
+  const parentDiscovery = options.newRepo ? null : findProjectRoot(startDir);
+  const parentRoot = parentDiscovery?.projectRoot ?? null;
+
+  if (options.newRepo && isV3RepositoryRoot(startDir)) {
+    ctx.logger.error(pc.red(`A Hush repository already exists at ${startDir}.`));
+    ctx.logger.error(pc.dim('Remove .hush/ and .sops.yaml first, or run without --new-repo.'));
+    ctx.process.exit(1);
+  }
+
+  const reason = parentRoot
+    ? 'nearest parent .hush/ was found'
+    : 'no parent Hush repository found; using current directory';
+
+  const effectiveRoot = options.newRepo ? startDir : (parentRoot ?? startDir);
+
+  ctx.logger.log(pc.blue('Hush bootstrap plan'));
+  ctx.logger.log(pc.dim(`  Current directory:  ${cwd}`));
+  ctx.logger.log(pc.dim(`  Detected git root:  ${gitRoot ?? '(none)'}`));
+  if (parentRoot) {
+    ctx.logger.log(pc.dim(`  Detected parent Hush repo:  ${parentRoot}`));
+  }
+  ctx.logger.log(pc.dim(`  Selected repository root:  ${effectiveRoot}`));
+  ctx.logger.log(pc.dim(`  Reason:  ${options.newRepo ? '--new-repo flag; forcing child-local repo' : reason}`));
+  ctx.logger.log('');
+
+  if (!options.yes) {
+    const isInteractive = ctx.process.stdin.isTTY;
+    if (!isInteractive) {
+      ctx.logger.error(pc.red('Non-interactive mode: bootstrap requires --yes (-y) when a plan is displayed.'));
+      ctx.logger.error(pc.dim('Run: hush bootstrap --yes'));
+      ctx.process.exit(1);
+    }
+
+    ctx.logger.log(pc.bold('Proceed with bootstrap?'));
+    ctx.logger.log(pc.dim('  This will create encrypted repository files.'));
+    ctx.logger.log(pc.dim('  Type "yes" to confirm, or anything else to abort.'));
+    ctx.logger.log('');
+
+    const answer = await readLine(ctx);
+    if (answer.trim().toLowerCase() !== 'yes') {
+      ctx.logger.log(pc.yellow('Bootstrap cancelled.'));
+      ctx.process.exit(0);
+    }
+  }
+
+  if (!ctx.fs.existsSync(effectiveRoot)) {
+    ctx.fs.mkdirSync(effectiveRoot, { recursive: true });
+  }
+
+  ctx.logger.log(pc.blue('\nBootstrapping Hush v3...\n'));
+
+  const projectIdentity = resolveBootstrapProjectIdentity(effectiveRoot, options.store.keyIdentity, options.store.mode);
   const keyResult = await setupKey(ctx, projectIdentity);
 
-  createSopsConfig(ctx, root, keyResult.publicKey);
-  ensureManifestShell(ctx, root, projectIdentity);
-  ensureSharedFileShell(ctx, root, projectIdentity);
+  createSopsConfig(ctx, effectiveRoot, keyResult.publicKey);
+  ensureManifestShell(ctx, effectiveRoot, projectIdentity);
+  ensureSharedFileShell(ctx, effectiveRoot, projectIdentity);
 
-  const repository = loadV3Repository(root, { keyIdentity: projectIdentity });
+  const repository = loadV3Repository(effectiveRoot, { keyIdentity: projectIdentity });
   const activeIdentity = ensureActiveIdentity(ctx, repository, options);
 
   ctx.logger.log(pc.bold('\nBootstrap summary:'));
@@ -255,8 +395,14 @@ export async function bootstrapCommand(ctx: HushContext, options: BootstrapOptio
   ctx.logger.log(pc.dim(`  Bundle shells: ${Object.keys(repository.manifest.bundles ?? {}).join(', ') || '(none)'}`));
   ctx.logger.log(pc.dim(`  Target shells: ${Object.keys(repository.manifest.targets ?? {}).join(', ') || '(none)'}`));
 
+  try {
+    await verifyBootstrap(ctx, effectiveRoot, projectIdentity);
+  } catch {
+    ctx.logger.log(pc.yellow('Verification skipped (non-critical).'));
+  }
+
   ctx.logger.log(pc.bold('\nNext steps:'));
-  ctx.logger.log(pc.dim('  1. hush config show')); 
-  ctx.logger.log(pc.dim('  2. hush config active-identity member-local')); 
-  ctx.logger.log(pc.dim('  3. hush config readers env/project/shared --roles owner,member,ci')); 
+  ctx.logger.log(pc.dim('  1. hush config show'));
+  ctx.logger.log(pc.dim('  2. hush config active-identity member-local'));
+  ctx.logger.log(pc.dim('  3. hush config readers env/project/shared --roles owner,member,ci'));
 }

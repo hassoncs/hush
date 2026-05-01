@@ -14,7 +14,7 @@ interface SopsOptions {
 
 type SopsFileFormat = 'dotenv' | 'yaml';
 
-interface ResolvedAgeKeySource {
+export interface ResolvedAgeKeySource {
   projectRoot?: string;
   detectedProjectIdentifier?: string;
   resolvedKeyIdentity?: string;
@@ -58,7 +58,7 @@ function formatKeyPathForDisplay(path: string): string {
   return path.startsWith(`${home}/`) ? path.replace(home, '~') : path;
 }
 
-function resolveAgeKeySource(options?: SopsOptions): ResolvedAgeKeySource {
+export function resolveAgeKeySource(options?: SopsOptions): ResolvedAgeKeySource {
   const explicitKeyFile = process.env.SOPS_AGE_KEY_FILE;
   if (explicitKeyFile) {
     return {

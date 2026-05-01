@@ -29,6 +29,8 @@ Use these commands instead:
 - \
 \`npx hush verify-target <target> --require <KEY>\` before deploys that sync remote runtime secrets
 - \
+\`npx hush doctor\` to diagnose root, key, and store resolution issues
+- \
 \`npx hush copy-key <KEY> --from <file> --to <file>\` to relocate target-visible secrets without printing values
 
 ## Current repository model
@@ -198,9 +200,24 @@ Create a new v3 repository.
 \`\`\`bash
 hush bootstrap
 hush bootstrap --global
+hush bootstrap --new-repo
+hush bootstrap --yes
 \`\`\`
 
 When package metadata does not declare a project identifier, bootstrap falls back to the repo basename instead of inventing a nested \`local/<repo>\` key identity.
+
+By default, bootstrap walks upward to find an existing parent \`.hush/\` repository and joins it. Use \`--new-repo\` to force a child-local repository even when a parent exists. Use \`--yes\` (or \`-y\`) to skip interactive confirmation in non-interactive mode.
+
+### hush doctor
+
+Diagnose root discovery, key resolution, and store configuration for the current directory.
+
+\`\`\`bash
+hush doctor
+hush doctor --new-repo
+\`\`\`
+
+Use this when bootstrap fails, key resolution fails, or you need to understand why Hush picks a particular repository root.
 
 ### hush config
 
@@ -330,6 +347,23 @@ npx hush config show
 npx hush config show --json
 npx hush set DATABASE_URL "postgres://db"
 npx hush inspect
+\`\`\`
+
+## Bootstrap a nested repo (child-local)
+
+When inside a git repo that's nested under a parent Hush repo, use \`--new-repo\` to create a child-local repository instead of joining the parent. Use \`--yes\` in non-interactive contexts.
+
+\`\`\`bash
+npx hush bootstrap --new-repo --yes
+npx hush doctor
+npx hush config show
+\`\`\`
+
+## Diagnose root/key issues
+
+\`\`\`bash
+npx hush doctor
+npx hush doctor --new-repo
 \`\`\`
 
 ## Migrate a legacy repo

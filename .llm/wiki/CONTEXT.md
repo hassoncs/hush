@@ -41,6 +41,8 @@ hush/
 | Modify domain types | `hush-cli/src/v3/domain.ts` |
 | Modify SOPS encryption behavior | `hush-cli/src/core/sops.ts` |
 | Modify key management | `hush-cli/src/commands/keys.ts` |
+| Understand bootstrap behavior (nested repos, plan preview) | [topics/bootstrap-behavior.md](./topics/bootstrap-behavior.md) |
+| Diagnose root/key resolution issues | `hush-cli/src/commands/doctor.ts` |
 | Understand the full V3 architecture spec | `docs/HUSH_V3_SPEC.md` |
 
 ## Architecture Overview

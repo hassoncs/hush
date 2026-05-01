@@ -158,7 +158,7 @@ describe('setCommand legacy guard and global bootstrap', () => {
     const ctx = createContext(root);
     const store = createStore(root);
 
-    await bootstrapCommand(ctx, { store });
+    await bootstrapCommand(ctx, { store, yes: true });
     await configCommand(ctx, { store, subcommand: 'active-identity', args: ['member-local'] });
 
     await expect(setCommand(ctx, {

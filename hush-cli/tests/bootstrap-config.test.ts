@@ -159,7 +159,7 @@ describe('bootstrap/config/init task 6', () => {
 
     const { ctx, store } = createContext(projectRoot);
 
-    await bootstrapCommand(ctx, { store });
+    await bootstrapCommand(ctx, { store, yes: true });
 
     expect(nodeFs.existsSync(join(projectRoot, '.hush/manifest.encrypted'))).toBe(true);
     expect(nodeFs.existsSync(join(projectRoot, '.hush/files/env/project/shared.encrypted'))).toBe(true);
@@ -183,7 +183,7 @@ describe('bootstrap/config/init task 6', () => {
     const { ctx, store, age } = createContext(projectRoot);
     store.keyIdentity = undefined;
 
-    await bootstrapCommand(ctx, { store });
+    await bootstrapCommand(ctx, { store, yes: true });
 
     expect(age.keySave).toHaveBeenCalledWith('bottown', expect.any(Object));
 
@@ -201,7 +201,7 @@ describe('bootstrap/config/init task 6', () => {
     );
 
     const { ctx, store, logger } = createContext(projectRoot);
-    await bootstrapCommand(ctx, { store });
+    await bootstrapCommand(ctx, { store, yes: true });
     logger.log.mockClear();
 
     await configCommand(ctx, { store, subcommand: 'show', args: ['identities'] });
@@ -237,7 +237,7 @@ describe('bootstrap/config/init task 6', () => {
     );
 
     const { ctx, store } = createContext(projectRoot);
-    await bootstrapCommand(ctx, { store });
+    await bootstrapCommand(ctx, { store, yes: true });
     await configCommand(ctx, { store, subcommand: 'active-identity', args: ['member-local'] });
 
     await expect(configCommand(ctx, {
@@ -264,7 +264,7 @@ describe('bootstrap/config/init task 6', () => {
     );
 
     const { ctx, store, logger } = createContext(projectRoot);
-    await bootstrapCommand(ctx, { store });
+    await bootstrapCommand(ctx, { store, yes: true });
 
     await configCommand(ctx, {
       store,

@@ -87,6 +87,15 @@ hush run -- npm run dev
 hush run -e production -- npm run build
 ```
 
+### hush doctor
+
+Diagnose root discovery, key resolution, and store configuration. Use when bootstrap fails or key resolution is unclear:
+
+```bash
+hush doctor
+hush doctor --new-repo
+```
+
 ## Legacy bridge only
 
 If a repo still uses legacy v2 files, use the migration bridge once:

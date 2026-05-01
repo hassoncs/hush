@@ -106,6 +106,7 @@ Hush v3 keeps repository authority in encrypted YAML documents under `.hush/`.
 | `hush run -- <command>` | Run with secrets in memory |
 | `hush push` | Push a target to Cloudflare |
 | `hush keys setup` | Pull or verify the project key |
+| `hush doctor` | Diagnose root, key, and store resolution |
 | `hush skill` | Install the AI skill |
 
 ## Legacy v2 migration

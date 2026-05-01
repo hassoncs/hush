@@ -1,0 +1,193 @@
+import { resolve, dirname } from 'node:path';
+import pc from 'picocolors';
+import type { HushContext } from '../types.js';
+import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
+import { resolveStoreContext, type ResolveStoreContextOptions } from '../store.js';
+import { resolveAgeKeySource, type ResolvedAgeKeySource } from '../core/sops.js';
+import { loadV3Repository } from '../v3/repository.js';
+import { getProjectIdentifier } from '../project.js';
+
+interface DoctorOptions {
+  startDir: string;
+  newRepo?: boolean;
+  explicitRoot?: string;
+}
+
+function findGitRoot(startDir: string, ctx: HushContext): string | null {
+  let current = resolve(startDir);
+  while (true) {
+    if (ctx.fs.existsSync(ctx.path.join(current, '.git'))) {
+      return current;
+    }
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+function formatKeyPath(path: string): string {
+  const home = process.env.HOME;
+  return home && path.startsWith(`${home}/`) ? path.replace(home, '~') : path;
+}
+
+function checkSopsKeyMatch(ctx: HushContext, root: string, resolution: ResolvedAgeKeySource): { matched: boolean; publicKey?: string; sopsPublicKey?: string } {
+  if (!resolution.selectedKeyPath || !ctx.fs.existsSync(resolution.selectedKeyPath)) {
+    return { matched: false };
+  }
+
+  try {
+    const keyContent = ctx.fs.readFileSync(resolution.selectedKeyPath, 'utf-8') as string;
+    const publicKeyMatch = keyContent.match(/public key: ([a-zA-Z0-9+]+)/);
+    const publicKey = publicKeyMatch?.[1];
+
+    const sopsPath = ctx.path.join(root, '.sops.yaml');
+    if (!ctx.fs.existsSync(sopsPath)) {
+      return { matched: false, publicKey };
+    }
+
+    const sopsContent = ctx.fs.readFileSync(sopsPath, 'utf-8') as string;
+    const sopsAgeMatch = sopsContent.match(/age:\s*([a-zA-Z0-9+]+)/);
+    const sopsPublicKey = sopsAgeMatch?.[1];
+
+    return {
+      matched: !!publicKey && !!sopsPublicKey && publicKey === sopsPublicKey,
+      publicKey,
+      sopsPublicKey,
+    };
+  } catch {
+    return { matched: false };
+  }
+}
+
+export async function doctorCommand(ctx: HushContext, options: DoctorOptions): Promise<void> {
+  const cwd = process.cwd();
+  const startDir = options.explicitRoot ? resolve(options.explicitRoot) : cwd;
+
+  ctx.logger.log(pc.blue('━'.repeat(60)));
+  ctx.logger.log(pc.blue(pc.bold('  Hush Doctor')));
+  ctx.logger.log(pc.blue('━'.repeat(60)));
+  ctx.logger.log('');
+
+  // 1. Directory context
+  ctx.logger.log(pc.bold('1. Directory Context'));
+  const gitRoot = findGitRoot(startDir, ctx);
+  ctx.logger.log(pc.dim(`  Current directory:  ${cwd}`));
+  ctx.logger.log(pc.dim(`  Git root:           ${gitRoot ?? '(not a git repo)'}`));
+  ctx.logger.log('');
+
+  // 2. Repository root discovery
+  ctx.logger.log(pc.bold('2. Repository Root Discovery'));
+  const findOptions: ResolveStoreContextOptions = options.newRepo
+    ? { ignoreAncestors: true, explicitRoot: startDir }
+    : {};
+  const store = resolveStoreContext(startDir, 'project', findOptions);
+  const discovery = findProjectRoot(startDir, options.newRepo ? { ignoreAncestors: true } : {});
+
+  if (discovery) {
+    ctx.logger.log(pc.dim(`  Found:              ${discovery.repositoryKind} at ${discovery.projectRoot}`));
+  } else {
+    ctx.logger.log(pc.yellow(`  No Hush repository found from ${startDir}`));
+  }
+
+  const parentDiscovery = options.newRepo ? null : findProjectRoot(startDir);
+  if (parentDiscovery && parentDiscovery.projectRoot !== startDir) {
+    ctx.logger.log(pc.dim(`  Parent repo:        ${parentDiscovery.projectRoot}`));
+    if (options.newRepo) {
+      ctx.logger.log(pc.green(`  --new-repo:         ignoring parent, using ${startDir}`));
+    }
+  }
+
+  ctx.logger.log(pc.dim(`  Resolved root:      ${store.root}`));
+  ctx.logger.log(pc.dim(`  Store mode:         ${store.mode}`));
+  ctx.logger.log('');
+
+  // 3. Key resolution
+  ctx.logger.log(pc.bold('3. Key Resolution'));
+  const projectIdentity = store.keyIdentity ?? (store.root ? getProjectIdentifier(store.root) : undefined);
+  const resolution = resolveAgeKeySource({ root: store.root, keyIdentity: projectIdentity });
+
+  if (resolution.selectedKeySource) {
+    ctx.logger.log(pc.green(`  Selected source:    ${resolution.selectedKeySource}`));
+  } else {
+    ctx.logger.log(pc.red('  Selected source:    (none — no key found)'));
+  }
+
+  if (resolution.selectedKeyPath) {
+    ctx.logger.log(pc.dim(`  Selected path:      ${formatKeyPath(resolution.selectedKeyPath)}`));
+  }
+
+  if (resolution.resolvedKeyIdentity) {
+    ctx.logger.log(pc.dim(`  Key identity:       ${resolution.resolvedKeyIdentity}`));
+  }
+
+  if (resolution.attemptedKeyPaths.length > 0) {
+    ctx.logger.log(pc.dim('  Attempted paths:'));
+    for (const path of resolution.attemptedKeyPaths) {
+      const exists = ctx.fs.existsSync(path);
+      const marker = exists ? pc.green('✓') : pc.red('✗');
+      ctx.logger.log(pc.dim(`    ${marker} ${formatKeyPath(path)}`));
+    }
+  }
+  ctx.logger.log('');
+
+  // 4. SOPS key match
+  if (isV3RepositoryRoot(store.root)) {
+    ctx.logger.log(pc.bold('4. SOPS Key Match'));
+    const match = checkSopsKeyMatch(ctx, store.root, resolution);
+    if (match.matched) {
+      ctx.logger.log(pc.green('  ✓  Selected key matches .sops.yaml public key'));
+    } else if (match.publicKey && match.sopsPublicKey) {
+      ctx.logger.log(pc.red(`  ✗  Key mismatch`));
+      ctx.logger.log(pc.dim(`     Selected key:  ${match.publicKey}`));
+      ctx.logger.log(pc.dim(`     .sops.yaml:    ${match.sopsPublicKey}`));
+    } else if (!match.publicKey) {
+      ctx.logger.log(pc.yellow('  ⚠  Could not read selected key file'));
+    } else {
+      ctx.logger.log(pc.yellow('  ⚠  .sops.yaml not found'));
+    }
+    ctx.logger.log('');
+
+    // 5. Decryption check
+    ctx.logger.log(pc.bold('5. Decryption Check'));
+    try {
+      const repo = loadV3Repository(store.root, { keyIdentity: store.keyIdentity ?? projectIdentity });
+      const fileCount = repo.files.length;
+      ctx.logger.log(pc.green(`  ✓  Repository loads successfully (${fileCount} file(s))`));
+      ctx.logger.log(pc.dim(`  Project identity:   ${repo.manifest.metadata?.project ?? '(not set)'}`));
+    } catch (error) {
+      ctx.logger.log(pc.red(`  ✗  Failed to load repository`));
+      ctx.logger.log(pc.red(`     ${(error as Error).message}`));
+    }
+    ctx.logger.log('');
+  }
+
+  // 6. Recommendations
+  ctx.logger.log(pc.bold('6. Recommendations'));
+  const issues: string[] = [];
+
+  if (!discovery && !options.newRepo) {
+    issues.push('No Hush repository found. Run "hush bootstrap" to create one.');
+  }
+
+  if (!resolution.selectedKeySource) {
+    issues.push('No age key found. Run "hush keys setup" to configure your key.');
+  }
+
+  if (isV3RepositoryRoot(store.root) && resolution.selectedKeySource) {
+    const match = checkSopsKeyMatch(ctx, store.root, resolution);
+    if (!match.matched && match.publicKey && match.sopsPublicKey) {
+      issues.push('Key does not match .sops.yaml. Run "hush keys setup" to sync.');
+    }
+  }
+
+  if (issues.length === 0) {
+    ctx.logger.log(pc.green('  No issues detected. Your Hush configuration looks good.'));
+  } else {
+    for (const issue of issues) {
+      ctx.logger.log(pc.yellow(`  • ${issue}`));
+    }
+  }
+
+  ctx.logger.log('');
+  ctx.logger.log(pc.blue('━'.repeat(60)));
+}

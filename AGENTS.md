@@ -518,6 +518,13 @@ hush set CLOUDFLARE_ACCOUNT_ID
 2. Verify `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`
 3. Try manual deploy: `cd docs && bun run deploy`
 
+### If bootstrap or key resolution fails
+
+1. Run `hush doctor` to diagnose root discovery and key resolution
+2. If key mismatch: `hush keys setup` to sync the key
+3. If nested repo issue: `hush bootstrap --new-repo --yes` to force child-local
+4. Verify with `hush inspect` and `hush status`
+
 ---
 
 ## Quick Reference

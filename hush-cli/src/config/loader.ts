@@ -26,9 +26,37 @@ export function isV3RepositoryRoot(root: string): boolean {
   return fs.existsSync(getV3ManifestPath(root));
 }
 
-export function findProjectRoot(startDir: string): HushProjectDiscoveryResult | null {
+export interface FindProjectRootOptions {
+  /**
+   * If true, only check `startDir` itself; do not walk upward into ancestor
+   * directories. Used by `hush bootstrap --new-repo` to force creation of a
+   * child-local repository even when a parent `.hush/` exists.
+   */
+  ignoreAncestors?: boolean;
+  /**
+   * If true, stop walking upward at git repository boundaries (i.e. the first
+   * directory that contains its own `.git/`). Prevents nested git repos from
+   * silently inheriting a parent's `.hush/` repository.
+   */
+  stopAtGitRoot?: boolean;
+}
+
+function isGitRepositoryRoot(dir: string): boolean {
+  try {
+    return fs.existsSync(join(dir, '.git'));
+  } catch {
+    return false;
+  }
+}
+
+export function findProjectRoot(
+  startDir: string,
+  options: FindProjectRootOptions = {},
+): HushProjectDiscoveryResult | null {
+  const { ignoreAncestors = false, stopAtGitRoot = false } = options;
   let currentDir = resolve(startDir);
-  
+  const startedAtGitRoot = stopAtGitRoot && isGitRepositoryRoot(currentDir);
+
   while (true) {
     if (isV3RepositoryRoot(currentDir)) {
       return {
@@ -46,7 +74,16 @@ export function findProjectRoot(startDir: string): HushProjectDiscoveryResult | 
         projectRoot: currentDir,
       };
     }
-    
+
+    if (ignoreAncestors) {
+      return null;
+    }
+
+    if (stopAtGitRoot && !startedAtGitRoot && isGitRepositoryRoot(currentDir)) {
+      // Hit a git boundary above the start directory before finding a Hush repo.
+      return null;
+    }
+
     const parentDir = dirname(currentDir);
     if (parentDir === currentDir) {
       return null;

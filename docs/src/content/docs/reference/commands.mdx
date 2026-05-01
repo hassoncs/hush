@@ -18,7 +18,7 @@ Hush keeps secrets **encrypted at rest**. The primary way to use secrets is `hus
 | Category | Commands | Description |
 |----------|----------|-------------|
 | **Primary (AI-Safe)** | `run`, `materialize`, `set`, `copy-key`, `move-key`, `edit`, `inspect`, `has` | Safe command surfaces that avoid printing secret values |
-| **Setup** | `bootstrap`, `config`, `init`, `migrate`, `encrypt`, `status`, `skill` | Repository setup and bounded migration, with `encrypt` kept only as a retired legacy bridge |
+| **Setup** | `bootstrap`, `config`, `init`, `migrate`, `encrypt`, `status`, `doctor`, `skill` | Repository setup, diagnostics, and bounded migration, with `encrypt` kept only as a retired legacy bridge |
 | **Deployment** | `push`, `check` | CI/CD and cloud deployment |
 | **Debugging** | `resolve`, `trace`, `verify-target`, `diff`, `export-example` | Debug safe output, provenance, target completeness, and example generation |
 
@@ -341,9 +341,17 @@ hush bootstrap
 
 # Bootstrap the explicit global store
 hush bootstrap --global
+
+# Force a child-local repo even when a parent .hush/ exists
+hush bootstrap --new-repo
+
+# Skip interactive confirmation (CI / non-interactive)
+hush bootstrap --yes
 ```
 
 `hush bootstrap` is the canonical setup flow for Task 6. It creates the initial v3 repository layout, `.sops.yaml`, default identities, bundle and target shells, and the machine-local active identity pointer.
+
+When run inside a nested git repository, bootstrap walks upward to find an existing parent `.hush/` repository and joins it. Use `--new-repo` to force a child-local repository instead. Use `--yes` (or `-y`) to skip the interactive confirmation prompt in non-interactive mode.
 
 When package metadata does not declare a project identifier, bootstrap falls back to the repo basename (for example `bottown`) instead of inventing a nested `local/<repo>` identity.
 
@@ -620,6 +628,30 @@ If the repo still uses `hush.yaml`, `status` reports that migration is required 
 <Aside type="tip">
 If `hush status` shows "age key configured" but `hush inspect` still fails with "no identity matched", check the reported key identity and attempted paths. Hush now prefers the standard SOPS keyring at `~/.config/sops/age/keys.txt`, then falls back to per-project keys in `~/.config/sops/age/keys/<project>.txt`, then legacy `key.txt`.
 </Aside>
+
+---
+
+## doctor
+
+Diagnose root discovery, key resolution, and store configuration for the current directory.
+
+```bash
+hush doctor
+
+# Diagnose as if bootstrapping a child-local repo
+hush doctor --new-repo
+```
+
+`hush doctor` prints a structured diagnostic report covering:
+
+1. **Directory Context** — current directory, git root
+2. **Repository Root Discovery** — which `.hush/` was found (or not), whether a parent repo exists, and the resolved root
+3. **Key Resolution** — selected key source, key identity, all attempted paths with existence markers
+4. **SOPS Key Match** — whether the selected private key's public half matches the `.sops.yaml` creation rule
+5. **Decryption Check** — whether the repository loads and how many files it contains
+6. **Recommendations** — actionable fixes for any detected issues
+
+Use this command when `hush bootstrap` fails, when `hush inspect` reports "no identity matched", or when you need to understand why Hush picks a particular repository root in a nested-git-repo layout.
 
 ---
 

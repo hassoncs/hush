@@ -10,6 +10,7 @@ import { editCommand } from './commands/edit.js';
 import { setCommand } from './commands/set.js';
 import { runCommand } from './commands/run.js';
 import { statusCommand } from './commands/status.js';
+import { doctorCommand } from './commands/doctor.js';
 import { pushCommand } from './commands/push.js';
 import { initCommand } from './commands/init.js';
 import { bootstrapCommand } from './commands/bootstrap.js';
@@ -60,6 +61,7 @@ ${pc.bold('Commands:')}
   check             Verify secrets are encrypted (for pre-commit hooks)
   push              Push secrets to Cloudflare (Workers and Pages)
   status            Show configuration and status
+  doctor            Diagnose root, key, and store resolution for the current directory
   skill             Install Claude Code / OpenCode skill
   keys <cmd>        Manage SOPS age keys (setup, generate, pull, push, list)
   migrate           Migrate a legacy hush.yaml repo to v3
@@ -99,6 +101,8 @@ ${pc.bold('Options:')}
   --from <version>  Legacy repo version to migrate from (migrate only)
   --from <file>     Source v3 file for copy-key/move-key
   --cleanup         Remove validated v2 leftovers after migration (migrate only)
+  --new-repo        Force child-local bootstrap; ignore parent .hush/ discovery
+  --yes, -y         Skip interactive confirmation during bootstrap
   --output-root <d> Destination root for materialized files (materialize only)
   --to <dir>        Alias for --output-root (materialize only)
   --to <file>       Destination v3 file for copy-key/move-key
@@ -184,6 +188,8 @@ export interface ParsedArgs {
   bundle?: string;
   from?: string;
   cleanup: boolean;
+  newRepo: boolean;
+  yes: boolean;
   outputRoot?: string;
   file?: FileKey;
   key?: string;
@@ -232,6 +238,8 @@ export function parseArgs(args: string[]): ParsedArgs {
   let bundle: string | undefined;
   let from: string | undefined;
   let cleanup = false;
+  let newRepo = false;
+  let yes = false;
   let outputRoot: string | undefined;
   let file: FileKey | undefined;
   let key: string | undefined;
@@ -378,6 +386,16 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === '--new-repo') {
+      newRepo = true;
+      continue;
+    }
+
+    if (arg === '--yes' || arg === '-y') {
+      yes = true;
+      continue;
+    }
+
     if (arg === '--output-root' || arg === '--to') {
       outputRoot = args[++i];
       continue;
@@ -486,6 +504,8 @@ export function parseArgs(args: string[]): ParsedArgs {
     bundle,
     from,
     cleanup,
+    newRepo,
+    yes,
     outputRoot,
     file,
     key,
@@ -528,7 +548,10 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, roles, identities, ref, bundle, from, cleanup, outputRoot, file, key, value, target, requireKeys, positionalArgs, cmdArgs } = parseArgs(args);
+  const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, roles, identities, ref, bundle, from,     cleanup,
+    newRepo,
+    yes,
+    outputRoot, file, key, value, target, requireKeys, positionalArgs, cmdArgs } = parseArgs(args);
   const storeMode: StoreMode = global && command !== 'skill' ? 'global' : 'project';
   const store = resolveStoreContext(root, storeMode);
 
@@ -544,9 +567,19 @@ export async function main(): Promise<void> {
         await initCommand(defaultContext, { store });
         break;
 
-      case 'bootstrap':
-        await bootstrapCommand(defaultContext, { store });
+      case 'bootstrap': {
+        const bootstrapStore = resolveStoreContext(root, storeMode, {
+          ignoreAncestors: newRepo,
+          explicitRoot: newRepo ? root : undefined,
+        });
+        await bootstrapCommand(defaultContext, {
+          store: bootstrapStore,
+          newRepo,
+          yes,
+          explicitRoot: newRepo ? root : undefined,
+        });
         break;
+      }
 
       case 'config':
         await configCommand(defaultContext, { store, subcommand, args: positionalArgs, roles, identities, json });
@@ -612,6 +645,14 @@ export async function main(): Promise<void> {
 
       case 'status':
         await statusCommand(defaultContext, { store });
+        break;
+
+      case 'doctor':
+        await doctorCommand(defaultContext, {
+          startDir: root,
+          newRepo,
+          explicitRoot: newRepo ? root : undefined,
+        });
         break;
 
       case 'skill':

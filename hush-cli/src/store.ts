@@ -1,10 +1,18 @@
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { StoreContext, StoreMode } from './types.js';
-import { findConfigPath, findProjectRoot } from './config/loader.js';
+import { findConfigPath, findProjectRoot, type FindProjectRootOptions } from './config/loader.js';
 import { getProjectIdentifier } from './project.js';
 import { loadV3Repository } from './v3/repository.js';
 import { getProjectStatePaths } from './v3/state.js';
+
+export interface ResolveStoreContextOptions extends FindProjectRootOptions {
+  /**
+   * Force the repository root to this absolute path, skipping all upward
+   * discovery. Used by `hush bootstrap --root <dir>` and `hush doctor --root`.
+   */
+  explicitRoot?: string;
+}
 
 export const GLOBAL_STORE_ROOT = join(homedir(), '.hush');
 export const GLOBAL_STORE_KEY_IDENTITY = 'hush-global';
@@ -26,7 +34,11 @@ function resolveProjectKeyIdentity(projectRoot: string, repositoryKind: 'legacy-
   return getProjectIdentifier(projectRoot);
 }
 
-export function resolveStoreContext(startDir: string, mode: StoreMode): StoreContext {
+export function resolveStoreContext(
+  startDir: string,
+  mode: StoreMode,
+  options: ResolveStoreContextOptions = {},
+): StoreContext {
   if (mode === 'global') {
     const root = GLOBAL_STORE_ROOT;
     const store: StoreContext = {
@@ -50,15 +62,20 @@ export function resolveStoreContext(startDir: string, mode: StoreMode): StoreCon
   }
 
   const resolvedStart = resolve(startDir);
-  const projectInfo = findProjectRoot(resolvedStart);
-  const root = projectInfo?.projectRoot ?? resolvedStart;
+  const { explicitRoot, ...findOptions } = options;
+  const projectInfo = explicitRoot
+    ? findProjectRoot(resolve(explicitRoot), { ignoreAncestors: true })
+    : findProjectRoot(resolvedStart, findOptions);
+  const root = explicitRoot
+    ? resolve(explicitRoot)
+    : (projectInfo?.projectRoot ?? resolvedStart);
 
   const store: StoreContext = {
     mode,
     root,
     configPath: projectInfo?.configPath ?? findConfigPath(root),
     keyIdentity: resolveProjectKeyIdentity(root, projectInfo?.repositoryKind),
-    displayLabel: projectInfo?.configPath ? root : resolvedStart,
+    displayLabel: projectInfo?.configPath ? root : (explicitRoot ?? resolvedStart),
   };
 
   const statePaths = getProjectStatePaths(store);

@@ -267,6 +267,12 @@ export interface InitOptions {
 
 export interface BootstrapOptions {
   store: StoreContext;
+  newRepo?: boolean;
+  explicitRoot?: string;
+  yes?: boolean;
+  detectedParentRoot?: string;
+  detectedGitRoot?: string;
+  startDir?: string;
 }
 
 export interface ConfigOptions {
@@ -460,7 +466,10 @@ export interface HushContext {
   };
   config: {
     loadConfig(root: string): LegacyHushConfig;
-    findProjectRoot(startDir: string): HushProjectDiscoveryResult | null;
+    findProjectRoot(
+      startDir: string,
+      options?: { ignoreAncestors?: boolean; stopAtGitRoot?: boolean },
+    ): HushProjectDiscoveryResult | null;
   };
   age: {
     ageAvailable(): boolean;
