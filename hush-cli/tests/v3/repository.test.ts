@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import * as nodeFs from 'node:fs';
 import { loadLegacyV2Inventory } from '../../src/v3/legacy-v2.js';
-import { loadV3Repository } from '../../src/v3/repository.js';
+import { loadV3Repository, persistV3ManifestDocument } from '../../src/v3/repository.js';
 import { ensureEncryptedFixtureRepo, ensureTestSopsConfig, writeEncryptedYamlFile } from '../helpers/sops-test.js';
 
 const TESTS_DIR = fileURLToPath(new URL('..', import.meta.url));
@@ -120,5 +120,128 @@ describe('loadLegacyV2Inventory', () => {
     ]);
     expect(inventory.targets.map((target) => target.name)).toEqual(['root', 'app', 'api']);
     expect(inventory.config.targets[1]?.include).toContain('EXPO_PUBLIC_*');
+  });
+});
+
+describe('persistV3ManifestDocument', () => {
+  it('writes a valid manifest to manifest.encrypted and updates repository.manifest', () => {
+    const fixtureRoot = join(FIXTURES_DIR, 'v3/already-migrated-repo');
+    ensureEncryptedFixtureRepo(fixtureRoot);
+    const repository = loadV3Repository(fixtureRoot, { keyIdentity: fixtureRoot });
+
+    const nextManifest = {
+      ...repository.manifest,
+      metadata: { updatedAt: '2026-01-01' },
+    };
+
+    const mockCtx = {
+      sops: {
+        encryptYamlContent: vi.fn(),
+      },
+    } as unknown as Parameters<typeof persistV3ManifestDocument>[0];
+
+    const result = persistV3ManifestDocument(
+      mockCtx,
+      { root: fixtureRoot, keyIdentity: fixtureRoot },
+      repository,
+      nextManifest,
+    );
+
+    expect(mockCtx.sops.encryptYamlContent).toHaveBeenCalledOnce();
+    const [content, manifestPath] = mockCtx.sops.encryptYamlContent.mock.calls[0]!;
+    expect(manifestPath).toContain('manifest.encrypted');
+    expect(result.metadata?.updatedAt).toBe('2026-01-01');
+    expect(repository.manifest.metadata?.updatedAt).toBe('2026-01-01');
+  });
+
+  it('throws before disk write when manifest is invalid (wrong version)', () => {
+    const fixtureRoot = join(FIXTURES_DIR, 'v3/already-migrated-repo');
+    ensureEncryptedFixtureRepo(fixtureRoot);
+    const repository = loadV3Repository(fixtureRoot, { keyIdentity: fixtureRoot });
+
+    const invalidManifest = {
+      ...repository.manifest,
+      version: '999', // invalid version
+    };
+
+    const encryptSpy = vi.fn();
+    const mockCtx = {
+      sops: {
+        encryptYamlContent: encryptSpy,
+      },
+    } as unknown as Parameters<typeof persistV3ManifestDocument>[0];
+
+    expect(() =>
+      persistV3ManifestDocument(
+        mockCtx,
+        { root: fixtureRoot, keyIdentity: fixtureRoot },
+        repository,
+        invalidManifest,
+      ),
+    ).toThrowError(/version/i);
+
+    expect(encryptSpy).not.toHaveBeenCalled();
+  });
+
+  it('throws before disk write when manifest references a non-declared active identity', () => {
+    const fixtureRoot = join(FIXTURES_DIR, 'v3/already-migrated-repo');
+    ensureEncryptedFixtureRepo(fixtureRoot);
+    const repository = loadV3Repository(fixtureRoot, { keyIdentity: fixtureRoot });
+
+    const invalidManifest = {
+      ...repository.manifest,
+      activeIdentity: 'non-existent-identity',
+    };
+
+    const encryptSpy = vi.fn();
+    const mockCtx = {
+      sops: {
+        encryptYamlContent: encryptSpy,
+      },
+    } as unknown as Parameters<typeof persistV3ManifestDocument>[0];
+
+    expect(() =>
+      persistV3ManifestDocument(
+        mockCtx,
+        { root: fixtureRoot, keyIdentity: fixtureRoot },
+        repository,
+        invalidManifest,
+      ),
+    ).toThrowError(/active identity/i);
+
+    expect(encryptSpy).not.toHaveBeenCalled();
+  });
+
+  it('throws before disk write when manifest has an empty bundle name', () => {
+    const fixtureRoot = join(FIXTURES_DIR, 'v3/already-migrated-repo');
+    ensureEncryptedFixtureRepo(fixtureRoot);
+    const repository = loadV3Repository(fixtureRoot, { keyIdentity: fixtureRoot });
+
+    const invalidManifest = {
+      ...repository.manifest,
+      bundles: {
+        '': {
+          files: [],
+        },
+      },
+    };
+
+    const encryptSpy = vi.fn();
+    const mockCtx = {
+      sops: {
+        encryptYamlContent: encryptSpy,
+      },
+    } as unknown as Parameters<typeof persistV3ManifestDocument>[0];
+
+    expect(() =>
+      persistV3ManifestDocument(
+        mockCtx,
+        { root: fixtureRoot, keyIdentity: fixtureRoot },
+        repository,
+        invalidManifest,
+      ),
+    ).toThrowError(/empty/i);
+
+    expect(encryptSpy).not.toHaveBeenCalled();
   });
 });

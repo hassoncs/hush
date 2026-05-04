@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { fs } from '../lib/fs.js';
 import type { HushFileDocument, HushFilePath, HushManifestDocument } from './domain.js';
 import type { HushContext, HushV3Repository, StoreContext } from '../types.js';
-import { createFileIndexEntry, upsertManifestFileIndexEntry } from './domain.js';
+import { createFileIndexEntry, createManifestDocument, upsertManifestFileIndexEntry } from './domain.js';
 import { parseFileDocument, parseManifestDocument } from './manifest.js';
 import { getV3FilesRoot, getV3ManifestPath, stripEncryptedFileExtension } from './paths.js';
 import { HUSH_V3_ENCRYPTED_FILE_EXTENSION } from './schema.js';
@@ -96,6 +96,27 @@ function validateFileIndex(
 function loadRepositoryFile(root: string, filesRoot: string, filePath: string, keyIdentity: string | undefined): HushFileDocument {
   const content = decryptYaml(filePath, { root, keyIdentity });
   return parseFileDocument(filePath, content, filesRoot);
+}
+
+export function persistV3ManifestDocument(
+  ctx: HushContext,
+  store: StoreContext,
+  repository: HushV3Repository,
+  nextManifest: HushManifestDocument,
+): HushManifestDocument {
+  const validatedManifest = createManifestDocument(nextManifest);
+
+  validateBundleFileReferences(validatedManifest, repository.filesByPath);
+  validateTargetReferences(validatedManifest);
+
+  const content = stringifyYaml(validatedManifest, { indent: 2 });
+  ctx.sops.encryptYamlContent(content, repository.manifestPath, {
+    root: store.root,
+    keyIdentity: store.keyIdentity,
+  });
+
+  repository.manifest = validatedManifest;
+  return validatedManifest;
 }
 
 export function persistV3FileDocument(
