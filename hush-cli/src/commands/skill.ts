@@ -32,6 +32,30 @@ Use these commands instead:
 \`npx hush doctor\` to diagnose root, key, and store resolution issues
 - \
 \`npx hush copy-key <KEY> --from <file> --to <file>\` to relocate target-visible secrets without printing values
+- \
+\`npx hush file add <namespaced-path> [--roles <csv>] [--identities <csv>]\` to create a new encrypted file
+- \
+\`npx hush file remove <namespaced-path> [--keep-file]\` to remove an encrypted file
+- \
+\`npx hush file list\` to list all encrypted files
+- \
+\`npx hush file readers <namespaced-path> [--roles <csv>] [--identities <csv>]\` to update file readers
+- \
+\`npx hush bundle add <name> --files <csv>\` to create a bundle from explicit file refs
+- \
+\`npx hush bundle add-file <bundle> <file>\` to add a file to a bundle
+- \
+\`npx hush bundle remove-file <bundle> <file>\` to remove a file from a bundle
+- \
+\`npx hush bundle remove <name>\` to remove a bundle
+- \
+\`npx hush bundle list\` to list all bundles
+- \
+\`npx hush target add <name> --bundle <bundle> --format <format>\` to create a target
+- \
+\`npx hush target remove <name>\` to remove a target
+- \
+\`npx hush target list\` to list all targets
 
 ## Current repository model
 
@@ -114,6 +138,69 @@ npx hush diff
 npx hush export-example
 \`\`\`
 
+## Topology Management
+
+Files, bundles, and targets form a three-layer hierarchy. Build from the bottom up and tear down from the top.
+
+### Files → Bundles → Targets lifecycle
+
+\`\`\`bash
+# 1. Create an encrypted file
+npx hush file add env/api/production --roles owner,ci
+
+# 2. Create a bundle that references it
+npx hush bundle add api-production --files env/api/production
+
+# 3. Create a target that consumes the bundle
+npx hush target add api-production --bundle api-production --format dotenv
+
+# 4. Verify the target resolves
+npx hush verify-target api-production --require DATABASE_URL
+
+# 5. Teardown in reverse order
+npx hush target remove api-production
+npx hush bundle remove api-production
+npx hush file remove env/api/production
+\`\`\`
+
+### Safety semantics
+
+- All topology mutations require the **owner role**. Members and CI identities cannot add, remove, or modify files, bundles, or targets.
+- Removing a file that is still referenced by a bundle fails. Remove the bundle first.
+- Removing a bundle that is still referenced by a target fails. Remove the target first.
+- \`hush file remove\` deletes the encrypted disk file by default. Pass \`--keep-file\` to remove only the manifest entry.
+- All mutations emit \`metadata_change\` audit events.
+
+### Manage files
+
+\`\`\`bash
+npx hush file add env/api/production --roles owner,ci
+npx hush file add env/api/staging --roles owner,member,ci
+npx hush file list
+npx hush file readers env/api/production --roles owner,ci --identities owner-local,ci
+npx hush file remove env/api/staging
+npx hush file remove env/api/production --keep-file
+\`\`\`
+
+### Manage bundles
+
+\`\`\`bash
+npx hush bundle add api-production --files env/api/production
+npx hush bundle add-file api-production env/project/shared
+npx hush bundle remove-file api-production env/project/shared
+npx hush bundle list
+npx hush bundle remove api-production
+\`\`\`
+
+### Manage targets
+
+\`\`\`bash
+npx hush target add api-production --bundle api-production --format dotenv
+npx hush target add ios-signing --bundle ios-signing --format json --mode file
+npx hush target list
+npx hush target remove api-production
+\`\`\`
+
 ## Commands to avoid
 
 - \`cat .env\`
@@ -173,7 +260,7 @@ npx hush config show
 npx hush inspect
 \`\`\`
 
-Hush prefers explicit SOPS env when present, then repo-scoped keys in \`~/.config/sops/age/keys/<project>.txt\`, then the standard SOPS keyring at \`~/.config/sops/age/keys.txt\`, and finally the legacy compatibility path \`~/.config/sops/age/key.txt\`.
+Hush prefers explicit SOPS env when present, then the expected repo-scoped key in \`~/.config/sops/age/keys/<project>.txt\`, then any local project key that matches the \`.sops.yaml\` recipient, then the standard SOPS keyring (\`~/Library/Application Support/sops/age/keys.txt\` on macOS, \`~/.config/sops/age/keys.txt\` on Linux), and finally the legacy compatibility path \`~/.config/sops/age/key.txt\`.
 
 ## Global store
 
@@ -233,6 +320,41 @@ hush config readers env/project/shared --roles owner,member,ci
 \`\`\`
 
 Machine-readable config output is structural only; it never includes decrypted values.
+
+### hush file
+
+Manage encrypted file documents in the v3 repository.
+
+\`\`\`bash
+hush file add <namespaced-path> [--roles <csv>] [--identities <csv>]
+hush file remove <namespaced-path> [--keep-file]
+hush file list [--json]
+hush file readers <file-path> [--roles <csv>] [--identities <csv>]
+\`\`\`
+
+### hush bundle
+
+Manage bundles of encrypted file references.
+
+\`\`\`bash
+hush bundle add <name> [--files <csv>]
+hush bundle add-file <bundle-name> <file-path>
+hush bundle remove-file <bundle-name> <file-path>
+hush bundle remove <name>
+hush bundle list [--json]
+\`\`\`
+
+All bundle mutations require the owner role and emit \`metadata_change\` audit events.
+
+### hush target
+
+Manage targets in the v3 repository.
+
+\`\`\`bash
+hush target add <name> --bundle <bundle> --format <format> [--mode process|file|example] [--filename <name>] [--subpath <path>] [--materialize-as <name>]
+hush target remove <name>
+hush target list [--json]
+\`\`\`
 
 ### hush migrate --from v2
 

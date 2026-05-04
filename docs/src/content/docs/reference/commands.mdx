@@ -19,6 +19,7 @@ Hush keeps secrets **encrypted at rest**. The primary way to use secrets is `hus
 |----------|----------|-------------|
 | **Primary (AI-Safe)** | `run`, `materialize`, `set`, `copy-key`, `move-key`, `edit`, `inspect`, `has` | Safe command surfaces that avoid printing secret values |
 | **Setup** | `bootstrap`, `config`, `init`, `migrate`, `encrypt`, `status`, `doctor`, `skill` | Repository setup, diagnostics, and bounded migration, with `encrypt` kept only as a retired legacy bridge |
+| **Topology** | `file`, `bundle`, `target` | Manage the files, bundles, and targets that define what secrets go where |
 | **Deployment** | `push`, `check` | CI/CD and cloud deployment |
 | **Debugging** | `resolve`, `trace`, `verify-target`, `diff`, `export-example` | Debug safe output, provenance, target completeness, and example generation |
 
@@ -406,6 +407,200 @@ hush config readers env/project/shared --identities owner-local,ci
 
 ---
 
+## Topology Management
+
+Files, bundles, and targets form a three-layer hierarchy. Build from the bottom up and tear down from the top.
+
+```text
+Files  →  Bundles  →  Targets
+```
+
+- **Files** are the encrypted documents that hold secret entries. Each file has its own ACL (readers).
+- **Bundles** package one or more file references together. A bundle is the unit of access for a target.
+- **Targets** consume a bundle and declare how secrets are materialized (format, mode, filename).
+
+All topology mutations require the **owner role**. Reference validation runs before any disk write, so dangling refs are rejected before encryption.
+
+### Lifecycle example
+
+```bash
+# 1. Create an encrypted file
+hush file add env/api/production --roles owner,ci
+
+# 2. Create a bundle that references it
+hush bundle add api-production --files env/api/production
+
+# 3. Create a target that consumes the bundle
+hush target add api-production --bundle api-production --format dotenv
+
+# 4. Verify the target resolves
+hush verify-target api-production --require DATABASE_URL
+
+# 5. Teardown in reverse order
+hush target remove api-production
+hush bundle remove api-production
+hush file remove env/api/production
+```
+
+---
+
+## file
+
+Manage encrypted file documents in the v3 repository.
+
+```bash
+# Add a new encrypted file
+hush file add env/api/production --roles owner,ci
+hush file add env/api/staging --roles owner,member,ci
+hush file add env/project/shared --identities owner-local,ci
+
+# Update readers on an existing file
+hush file readers env/api/production --roles owner,ci
+hush file readers env/api/production --identities owner-local,ci
+
+# List all files
+hush file list
+hush file list --json
+
+# Remove a file
+hush file remove env/api/staging
+hush file remove env/api/production --keep-file
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|-----------|-------------|
+| `add <namespaced-path>` | Create a new encrypted file document with the given readers |
+| `remove <namespaced-path>` | Remove a file from the manifest and delete the encrypted disk file |
+| `list` | List all encrypted files with their readers |
+| `readers <namespaced-path>` | Update the ACL readers on an existing file |
+
+### Options for `file add` and `file readers`
+
+| Option | Description |
+|--------|-------------|
+| `--roles <csv>` | Comma-separated roles: `owner`, `member`, `ci` |
+| `--identities <csv>` | Comma-separated identity names |
+
+### Options for `file remove`
+
+| Option | Description |
+|--------|-------------|
+| `--keep-file` | Remove only the manifest entry; leave the encrypted disk file in place |
+
+### Safety semantics
+
+- Requires the owner role. Non-owner identities cannot add, remove, or update files.
+- `file remove` fails if the file is still referenced by any bundle. Remove the bundle first.
+- All mutations emit `metadata_change` audit events.
+
+<Aside type="tip">
+Use `hush file readers` to grant CI access to a file without recreating it. This is the safe way to expand or restrict who can decrypt a file.
+</Aside>
+
+---
+
+## bundle
+
+Manage bundles of encrypted file references.
+
+```bash
+# Create a bundle from explicit file refs
+hush bundle add api-production --files env/api/production
+hush bundle add api-production --files env/api/production,env/project/shared
+
+# Add or remove a file from an existing bundle
+hush bundle add-file api-production env/project/shared
+hush bundle remove-file api-production env/project/shared
+
+# List all bundles
+hush bundle list
+hush bundle list --json
+
+# Remove a bundle
+hush bundle remove api-production
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|-----------|-------------|
+| `add <name>` | Create a new bundle, optionally with an initial file list |
+| `add-file <bundle> <file>` | Add a file reference to an existing bundle |
+| `remove-file <bundle> <file>` | Remove a file reference from a bundle |
+| `remove <name>` | Remove a bundle from the manifest |
+| `list` | List all bundles with their file references |
+
+### Options for `bundle add`
+
+| Option | Description |
+|--------|-------------|
+| `--files <csv>` | Comma-separated namespaced file paths to include in the bundle |
+
+### Safety semantics
+
+- Requires the owner role. All bundle mutations emit `metadata_change` audit events.
+- `bundle add` validates that every file path exists in the file index before writing.
+- Duplicate file refs in `--files` are rejected.
+- `bundle remove` fails if the bundle is still referenced by any target. Remove the target first.
+
+<Aside type="tip">
+Use `hush bundle add-file` and `hush bundle remove-file` to incrementally adjust what a bundle includes without recreating it.
+</Aside>
+
+---
+
+## target
+
+Manage targets in the v3 repository.
+
+```bash
+# Add a target
+hush target add api-production --bundle api-production --format dotenv
+hush target add ios-signing --bundle ios-signing --format json --mode file
+hush target add web-example --bundle web --format dotenv --mode example
+
+# List all targets
+hush target list
+hush target list --json
+
+# Remove a target
+hush target remove api-production
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|-----------|-------------|
+| `add <name>` | Create a new target |
+| `remove <name>` | Remove a target from the manifest |
+| `list` | List all targets with their bundle and format |
+
+### Options for `target add`
+
+| Option | Description |
+|--------|-------------|
+| `--bundle <name>` | **Required.** The bundle this target consumes |
+| `--format <format>` | **Required.** Output format: `dotenv`, `json`, `wrangler` |
+| `--mode <mode>` | Materialization mode: `process` (default), `file`, `example` |
+| `--filename <name>` | Override the output filename for file-mode targets |
+| `--subpath <path>` | Override the output subdirectory under the materialization root |
+| `--materialize-as <name>` | Override the full relative output path |
+
+### Safety semantics
+
+- Requires the owner role.
+- `target add` validates that the referenced bundle exists before writing.
+- `target remove` fails if the target name is not found.
+- All mutations emit `metadata_change` audit events.
+
+<Aside type="tip">
+Use `hush verify-target <name> --require <KEY>` after adding a target to confirm it resolves and contains the expected keys before wiring it into CI.
+</Aside>
+
+---
+
 ## init
 
 Deprecated alias for `hush bootstrap`.
@@ -626,7 +821,7 @@ If the repo still uses `hush.yaml`, `status` reports that migration is required 
 | `audit log path ... (missing)` | No diagnostic command has written audit yet | run a read/write command or check state permissions |
 
 <Aside type="tip">
-If `hush status` shows "age key configured" but `hush inspect` still fails with "no identity matched", check the reported key identity and attempted paths. Hush now prefers the standard SOPS keyring at `~/.config/sops/age/keys.txt`, then falls back to per-project keys in `~/.config/sops/age/keys/<project>.txt`, then legacy `key.txt`.
+If `hush status` shows "age key configured" but `hush inspect` still fails with "no identity matched", check the reported key identity and attempted paths. Hush first honors explicit SOPS env vars, then tries the expected project key, then matches local project keys against the `.sops.yaml` recipient, then falls back to the standard SOPS keyring (`~/Library/Application Support/sops/age/keys.txt` on macOS, `~/.config/sops/age/keys.txt` on Linux), then legacy `key.txt`.
 </Aside>
 
 ---
@@ -1095,7 +1290,7 @@ This error means SOPS cannot find your decryption key.
 
 **Most common cause:** direnv not loaded.
 
-Hush uses per-project keys at `~/.config/sops/age/keys/{project}.txt`. SOPS needs the `SOPS_AGE_KEY_FILE` environment variable to locate them.
+Hush stores per-project keys at `~/.config/sops/age/keys/{project}.txt`. Hush now auto-matches those files against the `.sops.yaml` recipient for normal CLI commands, so a fresh `hush bootstrap` works even if `package.json.repository` is missing. `SOPS_AGE_KEY_FILE` is still the best explicit override when you need to force a specific key file.
 
 ```bash
 # 1. Verify direnv is installed and hooked
@@ -1107,9 +1302,9 @@ source ~/.zshrc
 cd /path/to/project
 direnv allow
 
-# 3. Verify the env var is set
+# 3. Verify the env var when you want an explicit override
 echo $SOPS_AGE_KEY_FILE
-# Should output: /Users/you/.config/sops/age/keys/project-name.txt
+# Optional, but if set it should output: /Users/you/.config/sops/age/keys/project-name.txt
 
 # 4. Test
 hush status
@@ -1124,11 +1319,9 @@ The key file doesn't exist at the expected location.
 # Check where hush expects the key
 hush status   # Look at "Local key:" line
 
-# Option 1: Pull from 1Password
+# Get the key from a team member and save it manually
+# Save to the path shown in hush status, then run:
 hush keys setup
-
-# Option 2: Get from team member and save manually
-# Save to the path shown in hush status
 ```
 
 ### Key exists but wrong project
@@ -1139,7 +1332,7 @@ If you have a key but it's for a different project:
 # List all local keys
 hush keys list
 
-# Pull the correct key
+# Copy the correct key into the expected local path, then verify it
 hush keys setup
 ```
 
