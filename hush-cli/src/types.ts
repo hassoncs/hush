@@ -335,6 +335,108 @@ export interface ResolveOptions {
   json?: boolean;
 }
 
+// File command options
+export interface FileAddOptions {
+  store: StoreContext;
+  subcommand?: string;
+  path: string;
+  roles?: string;
+  identities?: string;
+  json?: boolean;
+}
+
+export interface FileRemoveOptions {
+  store: StoreContext;
+  subcommand?: string;
+  path: string;
+  keepFile?: boolean;
+  json?: boolean;
+}
+
+export interface FileListOptions {
+  store: StoreContext;
+  subcommand?: string;
+  json?: boolean;
+}
+
+export interface FileReadersOptions {
+  store: StoreContext;
+  subcommand?: string;
+  path: string;
+  roles?: string;
+  identities?: string;
+  json?: boolean;
+}
+
+export type FileCommandOptions = FileAddOptions | FileRemoveOptions | FileListOptions | FileReadersOptions;
+
+// Bundle command options
+export interface BundleAddOptions {
+  store: StoreContext;
+  subcommand?: string;
+  name: string;
+  files?: string;
+  json?: boolean;
+}
+
+export interface BundleAddFileOptions {
+  store: StoreContext;
+  subcommand?: string;
+  bundle: string;
+  file: string;
+  json?: boolean;
+}
+
+export interface BundleRemoveFileOptions {
+  store: StoreContext;
+  subcommand?: string;
+  bundle: string;
+  file: string;
+  json?: boolean;
+}
+
+export interface BundleRemoveOptions {
+  store: StoreContext;
+  subcommand?: string;
+  name: string;
+  json?: boolean;
+}
+
+export interface BundleListOptions {
+  store: StoreContext;
+  subcommand?: string;
+  json?: boolean;
+}
+
+// Target command options
+export interface TargetAddOptions {
+  store: StoreContext;
+  subcommand?: string;
+  name: string;
+  bundle?: string;
+  format: string;
+  mode?: string;
+  filename?: string;
+  subpath?: string;
+  materializeAs?: string;
+  json?: boolean;
+}
+
+export interface TargetRemoveOptions {
+  store: StoreContext;
+  subcommand?: string;
+  name: string;
+  json?: boolean;
+}
+
+export interface TargetListOptions {
+  store: StoreContext;
+  subcommand?: string;
+  json?: boolean;
+}
+
+export type TargetCommandOptions = TargetAddOptions | TargetRemoveOptions | TargetListOptions;
+
 export interface TraceOptions {
   store: StoreContext;
   env: Environment;
@@ -479,12 +581,6 @@ export interface HushContext {
     keyPath(project: string): string;
     keyLoad(project: string): { private: string; public: string } | null;
     agePublicFromPrivate(privateKey: string): string;
-  };
-  onepassword: {
-    opInstalled(): boolean;
-    opAvailable(): boolean;
-    opGetKey(project: string): string | null;
-    opStoreKey(project: string, privateKey: string, publicKey: string): void;
   };
   sops: {
     decrypt(path: string, options?: { root?: string; keyIdentity?: string }): string;

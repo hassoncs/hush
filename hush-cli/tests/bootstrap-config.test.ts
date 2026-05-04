@@ -113,12 +113,6 @@ const defaultConfig: LegacyHushConfig = {
       keyLoad: vi.fn(() => null),
       agePublicFromPrivate: vi.fn(() => TEST_AGE_PUBLIC_KEY),
     },
-    onepassword: {
-      opInstalled: vi.fn(() => false),
-      opAvailable: vi.fn(() => false),
-      opGetKey: vi.fn(() => null),
-      opStoreKey: vi.fn(),
-    },
     sops: {
       decrypt: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decrypt(filePath, options)),
       decryptYaml: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decryptYaml(filePath, options)),
@@ -367,5 +361,80 @@ describe('bootstrap/config/init task 6', () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('deprecated'));
     expect(nodeFs.existsSync(join(projectRoot, '.hush/manifest.encrypted'))).toBe(true);
     expect(getActiveIdentity(ctx, store)).toBe('owner-local');
+  });
+
+  it('parses file subcommands and path/roles/identities flags through cli argument parsing', () => {
+    const addParsed = parseArgs(['file', 'add', 'env/project/staging', '--roles', 'owner,member', '--identities', 'owner-local', '--json']);
+    expect(addParsed.command).toBe('file');
+    expect(addParsed.subcommand).toBe('add');
+    expect(addParsed.positionalArgs).toEqual(['env/project/staging']);
+    expect(addParsed.roles).toBe('owner,member');
+    expect(addParsed.identities).toBe('owner-local');
+    expect(addParsed.json).toBe(true);
+
+    const removeParsed = parseArgs(['file', 'remove', 'env/project/shared', '--keep-file', '--json']);
+    expect(removeParsed.command).toBe('file');
+    expect(removeParsed.subcommand).toBe('remove');
+    expect(removeParsed.positionalArgs).toEqual(['env/project/shared']);
+    expect(removeParsed.json).toBe(true);
+
+    const listParsed = parseArgs(['file', 'list', '--json']);
+    expect(listParsed.command).toBe('file');
+    expect(listParsed.subcommand).toBe('list');
+    expect(listParsed.json).toBe(true);
+
+    const readersParsed = parseArgs(['file', 'readers', 'env/project/shared', '--roles', 'owner,ci']);
+    expect(readersParsed.command).toBe('file');
+    expect(readersParsed.subcommand).toBe('readers');
+    expect(readersParsed.positionalArgs).toEqual(['env/project/shared']);
+    expect(readersParsed.roles).toBe('owner,ci');
+  });
+
+  it('parses bundle subcommands and name/files flags through cli argument parsing', () => {
+    const addParsed = parseArgs(['bundle', 'add', 'my-bundle', '--files', 'env/project/shared,env/project/production', '--json']);
+    expect(addParsed.command).toBe('bundle');
+    expect(addParsed.subcommand).toBe('add');
+    expect(addParsed.positionalArgs).toEqual(['my-bundle']);
+    expect(addParsed.json).toBe(true);
+
+    const addFileParsed = parseArgs(['bundle', 'add-file', 'my-bundle', 'env/project/staging']);
+    expect(addFileParsed.command).toBe('bundle');
+    expect(addFileParsed.subcommand).toBe('add-file');
+    expect(addFileParsed.positionalArgs).toEqual(['my-bundle', 'env/project/staging']);
+
+    const removeFileParsed = parseArgs(['bundle', 'remove-file', 'my-bundle', 'env/project/staging']);
+    expect(removeFileParsed.command).toBe('bundle');
+    expect(removeFileParsed.subcommand).toBe('remove-file');
+    expect(removeFileParsed.positionalArgs).toEqual(['my-bundle', 'env/project/staging']);
+
+    const removeParsed = parseArgs(['bundle', 'remove', 'my-bundle', '--json']);
+    expect(removeParsed.command).toBe('bundle');
+    expect(removeParsed.subcommand).toBe('remove');
+    expect(removeParsed.positionalArgs).toEqual(['my-bundle']);
+    expect(removeParsed.json).toBe(true);
+
+    const listParsed = parseArgs(['bundle', 'list', '--json']);
+    expect(listParsed.command).toBe('bundle');
+    expect(listParsed.subcommand).toBe('list');
+    expect(listParsed.json).toBe(true);
+  });
+
+  it('parses target subcommands and name/format/mode flags through cli argument parsing', () => {
+    const addParsed = parseArgs(['target', 'add', 'api-runtime', '--bundle', 'my-bundle', '--format', 'dotenv', '--mode', '0600', '--filename', '.env', '--subpath', 'env/api', '--materialize-as', 'runtime']);
+    expect(addParsed.command).toBe('target');
+    expect(addParsed.subcommand).toBe('add');
+    expect(addParsed.positionalArgs).toEqual(['api-runtime']);
+    expect(addParsed.json).toBe(false);
+
+    const removeParsed = parseArgs(['target', 'remove', 'api-runtime', '--json']);
+    expect(removeParsed.command).toBe('target');
+    expect(removeParsed.subcommand).toBe('remove');
+    expect(removeParsed.positionalArgs).toEqual(['api-runtime']);
+    expect(removeParsed.json).toBe(true);
+
+    const listParsed = parseArgs(['target', 'list', '--json']);
+    expect(listParsed.command).toBe('target');
+    expect(listParsed.subcommand).toBe('list');
+    expect(listParsed.json).toBe(true);
   });
 });

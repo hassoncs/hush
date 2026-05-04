@@ -12,6 +12,8 @@ import { runCommand } from './commands/run.js';
 import { statusCommand } from './commands/status.js';
 import { doctorCommand } from './commands/doctor.js';
 import { pushCommand } from './commands/push.js';
+import { fileCommand } from './commands/file.js';
+import { bundleCommand } from './commands/bundle.js';
 import { initCommand } from './commands/init.js';
 import { bootstrapCommand } from './commands/bootstrap.js';
 import { configCommand } from './commands/config.js';
@@ -31,6 +33,7 @@ import { copyKeyCommand } from './commands/copy-key.js';
 import { templateCommand } from './commands/template.js';
 import { expansionsCommand } from './commands/expansions.js';
 import { migrateCommand } from './commands/migrate.js';
+import { targetCommand } from './commands/target.js';
 import { findProjectRoot } from './config/loader.js';
 import { resolveStoreContext } from './store.js';
 import { checkForUpdate } from './utils/version-check.js';
@@ -79,6 +82,9 @@ ${pc.bold('Debugging Commands:')}
 
 ${pc.bold('Advanced Commands:')}
   decrypt --force   Write secrets to disk (requires confirmation, last resort)
+  file <cmd>        Manage encrypted files (add, remove, list, readers)
+  bundle <cmd>      Manage bundles (add, add-file, remove-file, remove, list)
+  target <cmd>      Manage targets (add, remove, list)
 
 ${pc.bold('Options:')}
   -e, --env <env>   Environment: development or production (default: development)
@@ -136,8 +142,8 @@ ${pc.bold('Examples:')}
   hush set API_KEY -e prod      Set a production secret
   hush copy-key RESEND_API_KEY --from env/project/production --to env/api/production
   hush move-key RESEND_API_KEY --from env/project/production --to env/api/production
-  hush keys setup               Pull key from 1Password or verify local
-  hush keys generate            Generate new key + backup to 1Password
+  hush keys setup               Verify local age key
+  hush keys generate            Generate new local age key
   hush edit                     Edit all shared secrets in $EDITOR
   hush edit development         Edit development secrets in $EDITOR
   hush edit local               Edit personal local overrides
@@ -181,7 +187,6 @@ export interface ParsedArgs {
   local: boolean;
   force: boolean;
   gui: boolean;
-  vault?: string;
   roles?: string;
   identities?: string;
   ref?: string;
@@ -198,6 +203,14 @@ export interface ParsedArgs {
   requireKeys: string[];
   positionalArgs: string[];
   cmdArgs: string[];
+  // file/bundle/target options
+  format?: string;
+  mode?: string;
+  filename?: string;
+  subpath?: string;
+  materializeAs?: string;
+  keepFile?: boolean;
+  files?: string;
 }
 
 function parseEnvironment(value: string): Environment | null {
@@ -231,7 +244,6 @@ export function parseArgs(args: string[]): ParsedArgs {
   let local = false;
   let force = false;
   let gui = false;
-  let vault: string | undefined;
   let roles: string | undefined;
   let identities: string | undefined;
   let ref: string | undefined;
@@ -248,6 +260,13 @@ export function parseArgs(args: string[]): ParsedArgs {
   let requireKeys: string[] = [];
   let positionalArgs: string[] = [];
   let cmdArgs: string[] = [];
+  let format: string | undefined;
+  let mode: string | undefined;
+  let filename: string | undefined;
+  let subpath: string | undefined;
+  let materializeAs: string | undefined;
+  let keepFile = false;
+  let files: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -351,11 +370,6 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
-    if (arg === '--vault') {
-      vault = args[++i];
-      continue;
-    }
-
     if (arg === '--roles') {
       roles = args[++i];
       continue;
@@ -373,6 +387,11 @@ export function parseArgs(args: string[]): ParsedArgs {
 
     if (arg === '--bundle') {
       bundle = args[++i];
+      continue;
+    }
+
+    if (arg === '--files') {
+      files = args[++i];
       continue;
     }
 
@@ -398,6 +417,36 @@ export function parseArgs(args: string[]): ParsedArgs {
 
     if (arg === '--output-root' || arg === '--to') {
       outputRoot = args[++i];
+      continue;
+    }
+
+    if (arg === '--format') {
+      format = args[++i];
+      continue;
+    }
+
+    if (arg === '--mode') {
+      mode = args[++i];
+      continue;
+    }
+
+    if (arg === '--filename') {
+      filename = args[++i];
+      continue;
+    }
+
+    if (arg === '--subpath') {
+      subpath = args[++i];
+      continue;
+    }
+
+    if (arg === '--materialize-as') {
+      materializeAs = args[++i];
+      continue;
+    }
+
+    if (arg === '--keep-file') {
+      keepFile = true;
       continue;
     }
 
@@ -477,6 +526,15 @@ export function parseArgs(args: string[]): ParsedArgs {
       }
       continue;
     }
+
+    if ((command === 'file' || command === 'bundle' || command === 'target') && !arg.startsWith('-')) {
+      if (!subcommand) {
+        subcommand = arg;
+      } else {
+        positionalArgs.push(arg);
+      }
+      continue;
+    }
   }
 
   return {
@@ -497,7 +555,6 @@ export function parseArgs(args: string[]): ParsedArgs {
     local,
     force,
     gui,
-    vault,
     roles,
     identities,
     ref,
@@ -514,6 +571,13 @@ export function parseArgs(args: string[]): ParsedArgs {
     requireKeys,
     positionalArgs,
     cmdArgs,
+    format,
+    mode,
+    filename,
+    subpath,
+    materializeAs,
+    keepFile,
+    files,
   };
 }
 
@@ -548,10 +612,48 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const { command, subcommand, env, envExplicit, root, dryRun, verbose, quiet, warn, json, onlyChanged, requireSource, allowPlaintext, global, local, force, gui, vault, roles, identities, ref, bundle, from,     cleanup,
+  const {
+    command,
+    subcommand,
+    env,
+    envExplicit,
+    root,
+    dryRun,
+    verbose,
+    quiet,
+    warn,
+    json,
+    onlyChanged,
+    requireSource,
+    allowPlaintext,
+    global,
+    local,
+    force,
+    gui,
+    roles,
+    identities,
+    ref,
+    bundle,
+    from,
+    cleanup,
     newRepo,
     yes,
-    outputRoot, file, key, value, target, requireKeys, positionalArgs, cmdArgs } = parseArgs(args);
+    outputRoot,
+    file,
+    key,
+    value,
+    target,
+    requireKeys,
+    positionalArgs,
+    cmdArgs,
+    keepFile,
+    format,
+    mode,
+    filename,
+    subpath,
+    materializeAs,
+    files,
+  } = parseArgs(args);
   const storeMode: StoreMode = global && command !== 'skill' ? 'global' : 'project';
   const store = resolveStoreContext(root, storeMode);
 
@@ -662,10 +764,10 @@ export async function main(): Promise<void> {
       case 'keys':
         if (!subcommand) {
           console.error(pc.red('Usage: hush keys <command>'));
-          console.error(pc.dim('Commands: setup, generate, pull, push, list'));
+          console.error(pc.dim('Commands: setup, generate, list'));
           process.exit(1);
         }
-        await keysCommand(defaultContext, { store, subcommand, vault, force });
+        await keysCommand(defaultContext, { store, subcommand, force });
         break;
 
       case 'resolve':
@@ -718,6 +820,142 @@ export async function main(): Promise<void> {
       case 'materialize':
         await materializeCommand(defaultContext, { store, target, bundle, json, outputRoot, cleanup, command: cmdArgs });
         break;
+
+      case 'file': {
+        const filePath = positionalArgs[0] ?? '';
+        if (subcommand === 'add') {
+          await fileCommand(defaultContext, {
+            store,
+            subcommand,
+            path: filePath,
+            roles,
+            identities,
+            json,
+          });
+        } else if (subcommand === 'remove') {
+          await fileCommand(defaultContext, {
+            store,
+            subcommand,
+            path: filePath,
+            keepFile,
+            json,
+          });
+        } else if (subcommand === 'list') {
+          await fileCommand(defaultContext, {
+            store,
+            subcommand,
+            json,
+          });
+        } else if (subcommand === 'readers') {
+          await fileCommand(defaultContext, {
+            store,
+            subcommand,
+            path: filePath,
+            roles,
+            identities,
+            json,
+          });
+        } else {
+          console.error(pc.red(`Unknown file subcommand: ${subcommand ?? 'none'}`));
+          console.error(
+            'Usage:\n  hush file add <namespaced-path> [--roles <csv>] [--identities <csv>]\n  hush file remove <namespaced-path> [--keep-file]\n  hush file list [--json]\n  hush file readers <namespaced-path> [--roles <csv>] [--identities <csv>]',
+          );
+          process.exit(1);
+        }
+        break;
+      }
+
+      case 'bundle': {
+        const bundleName = positionalArgs[0] ?? '';
+        if (subcommand === 'add') {
+          await bundleCommand(defaultContext, {
+            store,
+            subcommand: 'add',
+            name: bundleName,
+            files,
+            json,
+          });
+        } else if (subcommand === 'add-file') {
+          await bundleCommand(defaultContext, {
+            store,
+            subcommand: 'add-file',
+            bundle: bundleName,
+            file: positionalArgs[1] ?? '',
+            json,
+          });
+        } else if (subcommand === 'remove-file') {
+          await bundleCommand(defaultContext, {
+            store,
+            subcommand: 'remove-file',
+            bundle: bundleName,
+            file: positionalArgs[1] ?? '',
+            json,
+          });
+        } else if (subcommand === 'remove') {
+          await bundleCommand(defaultContext, {
+            store,
+            subcommand: 'remove',
+            name: bundleName,
+            json,
+          });
+        } else if (subcommand === 'list') {
+          await bundleCommand(defaultContext, {
+            store,
+            subcommand: 'list',
+            json,
+          });
+        } else {
+          console.error(pc.red(`Unknown bundle subcommand: ${subcommand ?? 'none'}`));
+          console.error(
+            'Usage:\n'
+            + '  hush bundle add <name> [--files <csv>]\n'
+            + '  hush bundle add-file <bundle-name> <file-path>\n'
+            + '  hush bundle remove-file <bundle-name> <file-path>\n'
+            + '  hush bundle remove <name>\n'
+            + '  hush bundle list [--json]',
+          );
+          process.exit(1);
+        }
+        break;
+      }
+
+      case 'target': {
+        const targetName = positionalArgs[0] ?? '';
+        if (subcommand === 'add') {
+          await targetCommand(defaultContext, {
+            store,
+            subcommand: 'add',
+            name: targetName,
+            bundle,
+            format: format ?? '',
+            mode,
+            filename,
+            subpath,
+            materializeAs,
+            json,
+          });
+        } else if (subcommand === 'remove') {
+          await targetCommand(defaultContext, {
+            store,
+            subcommand: 'remove',
+            name: targetName,
+            json,
+          });
+        } else if (subcommand === 'list') {
+          await targetCommand(defaultContext, {
+            store,
+            subcommand: 'list',
+            json,
+          });
+        } else {
+          console.error(pc.red(`Unknown target subcommand: ${subcommand ?? 'none'}`));
+          console.error(
+            'Usage:\n  hush target add <name> --bundle <bundle> --format <format> [--mode process|file|example] [--filename <name>] [--subpath <path>] [--materialize-as <name>]\n  hush target remove <name>\n  hush target list [--json]',
+          );
+          process.exit(1);
+        }
+        break;
+      }
 
       default:
         if (command) {
