@@ -84,12 +84,6 @@ function createContext(root: string): HushContext {
       keyLoad: vi.fn(() => ({ private: TEST_AGE_PRIVATE_KEY, public: TEST_AGE_PUBLIC_KEY })),
       agePublicFromPrivate: vi.fn(() => TEST_AGE_PUBLIC_KEY),
     },
-    onepassword: {
-      opInstalled: vi.fn(() => false),
-      opAvailable: vi.fn(() => false),
-      opGetKey: vi.fn(() => null),
-      opStoreKey: vi.fn(),
-    },
     sops: {
       decrypt: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decrypt(filePath, options)),
       decryptYaml: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decryptYaml(filePath, options)),

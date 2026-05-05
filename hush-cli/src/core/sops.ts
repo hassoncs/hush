@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { fs } from '../lib/fs.js';
 import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
-import { keyExists, keyPath } from '../lib/age.js';
+import { findKeysByPublicKey, keyExists, keyPath, type AgeKeyReference } from '../lib/age.js';
 import { findProjectRoot } from '../config/loader.js';
 import { getProjectIdentifier } from '../project.js';
 
@@ -21,6 +21,33 @@ export interface ResolvedAgeKeySource {
   selectedKeySource?: string;
   selectedKeyPath?: string;
   attemptedKeyPaths: string[];
+}
+
+function getSopsConfigRecipients(options?: SopsOptions): string[] {
+  const configPath = getSopsConfigFile(options);
+  if (!configPath) {
+    return [];
+  }
+
+  try {
+    const configContent = fs.readFileSync(configPath, 'utf-8') as string;
+    return [...configContent.matchAll(/age:\s*([^\n]+)/g)]
+      .flatMap((match) => (match[1] ?? '').match(/age1[a-z0-9]+/g) ?? []);
+  } catch {
+    return [];
+  }
+}
+
+function resolveMatchingProjectKey(options?: SopsOptions): { match?: AgeKeyReference; ambiguous?: AgeKeyReference[] } {
+  const candidates = uniquePaths(getSopsConfigRecipients(options)).flatMap((recipient) => findKeysByPublicKey(recipient));
+  const uniqueMatches = new Map(candidates.map((candidate) => [`${candidate.project}:${candidate.path}`, candidate]));
+  const matches = [...uniqueMatches.values()];
+
+  if (matches.length <= 1) {
+    return { match: matches[0] };
+  }
+
+  return { ambiguous: matches };
 }
 
 function getStandardSopsAgeKeyFile(): string {
@@ -86,11 +113,17 @@ export function resolveAgeKeySource(options?: SopsOptions): ResolvedAgeKeySource
   const detectedProjectIdentifier = projectRoot ? getProjectIdentifier(projectRoot) : undefined;
   const resolvedKeyIdentity = options?.keyIdentity ?? detectedProjectIdentifier;
   const projectKeyPath = resolvedKeyIdentity ? keyPath(resolvedKeyIdentity) : undefined;
+  const { match: matchedLocalKey, ambiguous: ambiguousLocalKeys } = resolveMatchingProjectKey({
+    ...options,
+    root: projectRoot,
+  });
   const standardKeyPath = getStandardSopsAgeKeyFile();
   const compatConfigKeyPath = getCompatConfigSopsAgeKeyFile();
   const legacyKeyPath = getLegacySopsAgeKeyFile();
   const attemptedKeyPaths = uniquePaths([
     projectKeyPath,
+    matchedLocalKey?.path,
+    ...(ambiguousLocalKeys?.map((candidate) => candidate.path) ?? []),
     standardKeyPath,
     compatConfigKeyPath,
     legacyKeyPath,
@@ -103,6 +136,27 @@ export function resolveAgeKeySource(options?: SopsOptions): ResolvedAgeKeySource
       resolvedKeyIdentity,
       selectedKeySource: 'project-key',
       selectedKeyPath: projectKeyPath,
+      attemptedKeyPaths,
+    };
+  }
+
+  if (ambiguousLocalKeys && ambiguousLocalKeys.length > 0) {
+    return {
+      projectRoot,
+      detectedProjectIdentifier,
+      resolvedKeyIdentity,
+      selectedKeySource: 'project-key-ambiguous',
+      attemptedKeyPaths,
+    };
+  }
+
+  if (matchedLocalKey) {
+    return {
+      projectRoot,
+      detectedProjectIdentifier,
+      resolvedKeyIdentity: matchedLocalKey.project,
+      selectedKeySource: 'project-key-match',
+      selectedKeyPath: matchedLocalKey.path,
       attemptedKeyPaths,
     };
   }

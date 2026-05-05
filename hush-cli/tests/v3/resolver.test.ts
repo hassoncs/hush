@@ -81,12 +81,6 @@ const defaultConfig: LegacyHushConfig = {
       keyLoad: vi.fn(() => null),
       agePublicFromPrivate: vi.fn(() => 'public'),
     },
-    onepassword: {
-      opInstalled: vi.fn(() => false),
-      opAvailable: vi.fn(() => false),
-      opGetKey: vi.fn(() => null),
-      opStoreKey: vi.fn(),
-    },
     sops: {
       decrypt: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decrypt(filePath, options)),
       decryptYaml: vi.fn((filePath: string, options?: { root?: string; keyIdentity?: string }) => decryptYaml(filePath, options)),

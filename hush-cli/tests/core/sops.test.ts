@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { dirname } from 'node:path';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { decrypt, decryptYaml, encrypt, encryptYamlContent, setKey, withPrivatePlaintextTempFile } from '../../src/core/sops.js';
-import { TEST_AGE_PRIVATE_KEY, ensureTestSopsConfig, ensureTestSopsEnv } from '../helpers/sops-test.js';
+import { decrypt, decryptYaml, encrypt, encryptYamlContent, resolveAgeKeySource, setKey, withPrivatePlaintextTempFile } from '../../src/core/sops.js';
+import { TEST_AGE_PRIVATE_KEY, TEST_AGE_PUBLIC_KEY, ensureTestSopsConfig, ensureTestSopsEnv } from '../helpers/sops-test.js';
 
 describe('sops helpers', () => {
   let storeDir: string;
@@ -181,6 +181,56 @@ describe('sops helpers', () => {
         '~/.config/sops/age/key.txt',
       ].join('[\\s\\S]*')),
     );
+  });
+
+  it('prefers a matching project key over an unrelated shared keyring when package metadata is absent', () => {
+    const isolatedHome = mkdtempSync(join(tmpdir(), 'hush-sops-home-project-match-'));
+    const manifestPath = join(storeDir, '.hush', 'manifest.encrypted');
+    const standardKeyPath = getStandardKeysPath(isolatedHome);
+    const projectKeyPath = join(isolatedHome, '.config', 'sops', 'age', 'keys', 'matrix.txt');
+
+    mkdirSync(dirname(manifestPath), { recursive: true });
+    mkdirSync(dirname(standardKeyPath), { recursive: true });
+    mkdirSync(dirname(projectKeyPath), { recursive: true });
+    writeFileSync(standardKeyPath, '# unrelated default keyring\n', 'utf-8');
+    writeFileSync(projectKeyPath, `# project: matrix\n# public key: ${TEST_AGE_PUBLIC_KEY}\n${TEST_AGE_PRIVATE_KEY}\n`, 'utf-8');
+
+    encryptYamlContent('version: 3\nidentities:\n  dev:\n    roles: [owner]\n', manifestPath, {
+      root: storeDir,
+      keyIdentity: 'matrix',
+    });
+
+    process.env.HOME = isolatedHome;
+    clearExplicitSopsAgeEnv();
+
+    const resolution = resolveAgeKeySource({ root: storeDir });
+    expect(resolution.selectedKeySource).toBe('project-key-match');
+    expect(resolution.selectedKeyPath).toBe(projectKeyPath);
+    expect(decryptYaml(manifestPath, { root: storeDir })).toContain('version: 3');
+  });
+
+  it('matches any recipient listed in .sops.yaml, not just the first one', () => {
+    const isolatedHome = mkdtempSync(join(tmpdir(), 'hush-sops-home-multi-recipient-'));
+    const manifestPath = join(storeDir, '.hush', 'manifest.encrypted');
+    const projectKeyPath = join(isolatedHome, '.config', 'sops', 'age', 'keys', 'matrix.txt');
+    const firstRecipient = 'age1vacr4w7m3qje0px6gvglx4u6rxt2zrkxr572dth8fjz8666ydcesd3fcpf';
+
+    mkdirSync(dirname(manifestPath), { recursive: true });
+    mkdirSync(dirname(projectKeyPath), { recursive: true });
+    writeFileSync(projectKeyPath, `# project: matrix\n# public key: ${TEST_AGE_PUBLIC_KEY}\n${TEST_AGE_PRIVATE_KEY}\n`, 'utf-8');
+    writeFileSync(join(storeDir, '.sops.yaml'), `creation_rules:\n  - encrypted_regex: .*\n    age: ${firstRecipient},${TEST_AGE_PUBLIC_KEY}\n`, 'utf-8');
+
+    encryptYamlContent('version: 3\nidentities:\n  dev:\n    roles: [owner]\n', manifestPath, {
+      root: storeDir,
+      keyIdentity: 'matrix',
+    });
+
+    process.env.HOME = isolatedHome;
+    clearExplicitSopsAgeEnv();
+
+    const resolution = resolveAgeKeySource({ root: storeDir });
+    expect(resolution.selectedKeySource).toBe('project-key-match');
+    expect(resolution.selectedKeyPath).toBe(projectKeyPath);
   });
 
   it('stages plaintext in a private temp dir with restrictive permissions and cleanup', () => {

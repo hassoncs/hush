@@ -1,7 +1,9 @@
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fs } from './lib/fs.js';
 import type { StoreContext, StoreMode } from './types.js';
 import { findConfigPath, findProjectRoot, type FindProjectRootOptions } from './config/loader.js';
+import { findKeysByPublicKey } from './lib/age.js';
 import { getProjectIdentifier } from './project.js';
 import { loadV3Repository } from './v3/repository.js';
 import { getProjectStatePaths } from './v3/state.js';
@@ -18,6 +20,21 @@ export const GLOBAL_STORE_ROOT = join(homedir(), '.hush');
 export const GLOBAL_STORE_KEY_IDENTITY = 'hush-global';
 export const GLOBAL_STORE_STATE_ROOT = join(GLOBAL_STORE_ROOT, 'state');
 
+function getSopsPublicKeys(projectRoot: string): string[] {
+  const sopsPath = join(projectRoot, '.sops.yaml');
+  if (!fs.existsSync(sopsPath)) {
+    return [];
+  }
+
+  try {
+    const content = fs.readFileSync(sopsPath, 'utf-8') as string;
+    return [...content.matchAll(/age:\s*([^\n]+)/g)]
+      .flatMap((match) => (match[1] ?? '').match(/age1[a-z0-9]+/g) ?? []);
+  } catch {
+    return [];
+  }
+}
+
 function resolveProjectKeyIdentity(projectRoot: string, repositoryKind: 'legacy-v2' | 'v3' | undefined): string | undefined {
   if (repositoryKind === 'v3') {
     try {
@@ -28,6 +45,13 @@ function resolveProjectKeyIdentity(projectRoot: string, repositoryKind: 'legacy-
       }
     } catch {
       // Fall back to package.json inference when the v3 repo cannot be decrypted yet.
+    }
+
+    const matchedKeys = getSopsPublicKeys(projectRoot)
+      .flatMap((recipient) => findKeysByPublicKey(recipient))
+      .filter((candidate, index, all) => all.findIndex((entry) => entry.path === candidate.path) === index);
+    if (matchedKeys.length === 1) {
+      return matchedKeys[0]?.project;
     }
   }
 

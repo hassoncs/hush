@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { loadConfig, findProjectRoot } from './config/loader.js';
 import { decrypt, decryptYaml, encrypt, encryptYaml, encryptYamlContent, edit, isSopsInstalled } from './core/sops.js';
 import { ageAvailable, ageGenerate, agePublicFromPrivate, keyExists, keySave, keyLoad, keyPath } from './lib/age.js';
-import { opInstalled, opAvailable, opGetKey, opStoreKey } from './lib/onepassword.js';
 import type { HushContext } from './types.js';
 import pc from 'picocolors';
 
@@ -15,11 +14,9 @@ export const defaultContext: HushContext = {
   },
   exec: {
     spawnSync: (command, args, options) => {
-      // @ts-ignore - types are compatible at runtime
       return spawnSync(command, args, options);
     },
     execSync: (command, options) => {
-      // @ts-ignore - types are compatible at runtime
       return execSync(command, options);
     },
   },
@@ -50,12 +47,6 @@ export const defaultContext: HushContext = {
     keyPath,
     keyLoad,
     agePublicFromPrivate,
-  },
-  onepassword: {
-    opInstalled,
-    opAvailable,
-    opGetKey,
-    opStoreKey,
   },
   sops: {
     decrypt,

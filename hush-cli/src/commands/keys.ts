@@ -2,7 +2,6 @@ import { join } from 'node:path';
 import pc from 'picocolors';
 import { stringify as yamlStringify } from 'yaml';
 import { HushContext, StoreContext } from '../types.js';
-import { opListKeys } from '../lib/onepassword.js';
 import { keysList } from '../lib/age.js';
 import { getProjectIdentifier } from '../project.js';
 import { GLOBAL_STORE_KEY_IDENTITY } from '../store.js';
@@ -11,7 +10,6 @@ import { ensureGlobalStoreBootstrap } from '../global-store.js';
 export interface KeysOptions {
   store: StoreContext;
   subcommand: string;
-  vault?: string;
   force?: boolean;
 }
 
@@ -39,7 +37,7 @@ function getProject(ctx: HushContext, store: StoreContext): string {
 }
 
 export async function keysCommand(ctx: HushContext, options: KeysOptions): Promise<void> {
-  const { store, subcommand, vault, force } = options;
+  const { store, subcommand, force } = options;
   const root = store.root;
   
   switch (subcommand) {
@@ -52,17 +50,8 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
         return;
       }
       
-      if (ctx.onepassword.opAvailable()) {
-        const priv = ctx.onepassword.opGetKey(project);
-        if (priv) {
-          const pub = ctx.age.agePublicFromPrivate(priv);
-          ctx.age.keySave(project, { private: priv, public: pub });
-          ctx.logger.log(pc.green('Pulled key from 1Password.'));
-          return;
-        }
-      }
-
-      ctx.logger.log(pc.yellow('No key found. Run "hush keys generate" to create one.'));
+      ctx.logger.log(pc.yellow(`No local key found for ${project}.`));
+      ctx.logger.log(pc.dim(`Run "hush keys generate" to create one, or copy an age key into ${ctx.age.keyPath(project)}.`));
       break;
     }
     
@@ -90,15 +79,6 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
         ctx.logger.log(pc.green('Bootstrapped ~/.hush'));
       }
       
-      if (ctx.onepassword.opAvailable()) {
-        try {
-          ctx.onepassword.opStoreKey(project, key.private, key.public);
-          ctx.logger.log(pc.green('Stored in 1Password.'));
-        } catch (e) {
-          ctx.logger.warn(pc.yellow(`Could not store in 1Password: ${(e as Error).message}`));
-        }
-      }
-
       if (store.mode === 'global') {
         break;
       }
@@ -118,42 +98,15 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
     }
     
     case 'pull': {
-      if (!ctx.onepassword.opAvailable()) {
-        ctx.logger.error(pc.red('1Password CLI not available or not signed in.'));
-        ctx.process.exit(1);
-      }
-
-      const project = getProject(ctx, store);
-      const priv = ctx.onepassword.opGetKey(project);
-
-      if (!priv) {
-        ctx.logger.error(pc.red(`No key in 1Password for ${project}`));
-        ctx.process.exit(1);
-      }
-
-      const pub = ctx.age.agePublicFromPrivate(priv);
-      ctx.age.keySave(project, { private: priv, public: pub });
-      ctx.logger.log(pc.green(`Pulled and saved to ${ctx.age.keyPath(project)}`));
-      break;
+      ctx.logger.error(pc.red('hush keys pull was removed. Hush no longer integrates with 1Password.'));
+      ctx.logger.log(pc.dim('Copy the age private key into ~/.config/sops/age/keys/<project>.txt, then run "hush keys setup".'));
+      ctx.process.exit(1);
     }
     
     case 'push': {
-      if (!ctx.onepassword.opAvailable()) {
-        ctx.logger.error(pc.red('1Password CLI not available or not signed in.'));
-        ctx.process.exit(1);
-      }
-
-      const project = getProject(ctx, store);
-      const key = ctx.age.keyLoad(project);
-
-      if (!key) {
-        ctx.logger.error(pc.red(`No local key for ${project}`));
-        ctx.process.exit(1);
-      }
-
-      ctx.onepassword.opStoreKey(project, key.private, key.public);
-      ctx.logger.log(pc.green('Pushed to 1Password.'));
-      break;
+      ctx.logger.error(pc.red('hush keys push was removed. Hush no longer integrates with 1Password.'));
+      ctx.logger.log(pc.dim('Back up ~/.config/sops/age/keys/<project>.txt using your own password manager workflow.'));
+      ctx.process.exit(1);
     }
     
     case 'list': {
@@ -162,18 +115,12 @@ export async function keysCommand(ctx: HushContext, options: KeysOptions): Promi
         ctx.logger.log(`  ${pc.cyan(k.project)} ${pc.dim(k.public.slice(0, 20))}...`);
       }
 
-      if (ctx.onepassword.opAvailable()) {
-        ctx.logger.log(pc.blue('\n1Password keys:'));
-        for (const project of opListKeys(vault)) {
-          ctx.logger.log(`  ${pc.cyan(project)}`);
-        }
-      }
       break;
     }
 
     default:
       ctx.logger.error(pc.red(`Unknown: hush keys ${subcommand}`));
-      ctx.logger.log(pc.dim('Commands: setup, generate, pull, push, list'));
+      ctx.logger.log(pc.dim('Commands: setup, generate, list'));
       ctx.process.exit(1);
   }
 }

@@ -18,7 +18,7 @@ import { findProjectRoot, isV3RepositoryRoot } from '../config/loader.js';
 
 interface KeySetupResult {
   publicKey: string;
-  source: 'existing' | '1password' | 'generated';
+  source: 'existing' | 'generated';
 }
 
 const DEFAULT_SHARED_FILE_PATH = 'env/project/shared';
@@ -38,24 +38,7 @@ function tryExistingLocalKey(ctx: HushContext, project: string): KeySetupResult 
   return { publicKey: existing.public, source: 'existing' };
 }
 
-async function tryPullFrom1Password(ctx: HushContext, project: string): Promise<KeySetupResult | null> {
-  if (!ctx.onepassword.opAvailable()) {
-    return null;
-  }
-
-  ctx.logger.log(pc.dim('Checking 1Password for existing key...'));
-  const privateKey = ctx.onepassword.opGetKey(project);
-  if (!privateKey) {
-    return null;
-  }
-
-  const publicKey = ctx.age.agePublicFromPrivate(privateKey);
-  ctx.age.keySave(project, { private: privateKey, public: publicKey });
-  ctx.logger.log(pc.green(`Pulled key from 1Password for ${pc.cyan(project)}`));
-  return { publicKey, source: '1password' };
-}
-
-function generateAndBackupKey(ctx: HushContext, project: string): KeySetupResult {
+function generateLocalKey(ctx: HushContext, project: string): KeySetupResult {
   if (!ctx.age.ageAvailable()) {
     throw new Error('age is not installed. Install it before bootstrapping a v3 repository.');
   }
@@ -64,16 +47,6 @@ function generateAndBackupKey(ctx: HushContext, project: string): KeySetupResult
   const key = ctx.age.ageGenerate();
   ctx.age.keySave(project, key);
   ctx.logger.log(pc.green(`Saved to ${ctx.age.keyPath(project)}`));
-
-  if (ctx.onepassword.opAvailable()) {
-    try {
-      ctx.onepassword.opStoreKey(project, key.private, key.public);
-      ctx.logger.log(pc.green('Backed up to 1Password.'));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      ctx.logger.warn(pc.yellow(`Could not back up to 1Password: ${message}`));
-    }
-  }
 
   return { publicKey: key.public, source: 'generated' };
 }
@@ -98,8 +71,7 @@ function resolveBootstrapProjectIdentity(root: string, keyIdentity: string | und
 async function setupKey(ctx: HushContext, project: string): Promise<KeySetupResult> {
   return (
     tryExistingLocalKey(ctx, project)
-    ?? (await tryPullFrom1Password(ctx, project))
-    ?? generateAndBackupKey(ctx, project)
+    ?? generateLocalKey(ctx, project)
   );
 }
 

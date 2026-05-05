@@ -329,7 +329,7 @@ export function createBundleDefinition(bundle: HushBundleDefinition): HushBundle
     files: (bundle.files ?? []).map((file) => ({ path: assertNamespacedPath(file.path) })),
     imports: (bundle.imports ?? []).map((value) => ({
       ...value,
-      bundle: value.bundle ? assertNamespacedPath(value.bundle) : value.bundle,
+      bundle: value.bundle,
       file: value.file ? assertNamespacedPath(value.file) : value.file,
       project: value.project ? assertIdentityName(value.project, 'Import name') : value.project,
     })),

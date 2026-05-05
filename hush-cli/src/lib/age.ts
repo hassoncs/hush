@@ -8,6 +8,12 @@ export interface AgeKey {
   public: string;
 }
 
+export interface AgeKeyReference {
+  project: string;
+  public: string;
+  path: string;
+}
+
 function getKeysDir(): string {
   return join(homedir(), '.config', 'sops', 'age', 'keys');
 }
@@ -61,17 +67,44 @@ export function keyLoad(project: string): AgeKey | null {
   return pub && priv ? { private: priv, public: pub } : null;
 }
 
+function parseAgeKeyReference(path: string): AgeKeyReference | null {
+  const content = fs.readFileSync(path, 'utf-8') as string;
+  const project = content.match(/# project: (.+)/)?.[1] ?? content.match(/# repo: (.+)/)?.[1];
+  const pub = content.match(/# public key: (age1[a-z0-9]+)/)?.[1];
+  return project && pub ? { project, public: pub, path } : null;
+}
+
+export function findKeyByPublicKey(publicKey: string): AgeKeyReference | null {
+  return findKeysByPublicKey(publicKey)[0] ?? null;
+}
+
+export function findKeysByPublicKey(publicKey: string): AgeKeyReference[] {
+  const keysDir = getKeysDir();
+  if (!fs.existsSync(keysDir)) return [];
+
+  const matches: AgeKeyReference[] = [];
+
+  for (const entry of fs.readdirSync(keysDir)) {
+    if (!entry.endsWith('.txt')) {
+      continue;
+    }
+
+    const parsed = parseAgeKeyReference(join(keysDir, entry));
+    if (parsed?.public === publicKey) {
+      matches.push(parsed);
+    }
+  }
+
+  return matches;
+}
+
 export function keysList(): { project: string; public: string }[] {
   const keysDir = getKeysDir();
   if (!fs.existsSync(keysDir)) return [];
   
   return fs.readdirSync(keysDir)
     .filter(f => f.endsWith('.txt'))
-    .map(f => {
-      const content = fs.readFileSync(join(keysDir, f), 'utf-8') as string;
-      const project = content.match(/# project: (.+)/)?.[1] ?? content.match(/# repo: (.+)/)?.[1];
-      const pub = content.match(/# public key: (age1[a-z0-9]+)/)?.[1];
-      return project && pub ? { project, public: pub } : null;
-    })
-    .filter((k): k is { project: string; public: string } => k !== null);
+    .map(f => parseAgeKeyReference(join(keysDir, f)))
+    .filter((k): k is AgeKeyReference => k !== null)
+    .map(({ project, public: publicKey }) => ({ project, public: publicKey }));
 }

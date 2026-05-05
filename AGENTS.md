@@ -1,574 +1,63 @@
-# AGENTS.md
+# Hush
 
-> This repository is designed to be modified by AI agents. This document is the operational contract.
+AI-native secrets manager. This file is the repo-local operating contract, not a full handbook.
 
 ## Mission
 
-Hush is an AI-native secrets manager. The codebase, documentation, releases, and migrations are all managed by AI agents following this guide. Human intervention is minimal - mostly approving PRs and providing secrets/credentials when needed.
+- Hush is the encrypted secrets manager for AI-first workflows.
+- Code, docs, and release behavior must stay aligned.
 
-## Repository Structure
+## Structure
 
-```
-hush/
-├── hush-cli/           # CLI package (@chriscode/hush)
-│   ├── src/
-│   │   ├── commands/   # CLI commands (bootstrap, config, run, set, etc.)
-│   │   ├── core/       # Core logic (parse, merge, filter, mask)
-│   │   ├── formats/    # Output formatters (dotenv, wrangler, json)
-│   │   ├── config/     # Configuration loader
-│   │   ├── lib/        # Wrappers (fs, diff)
-│   │   ├── context.ts  # Default DI context implementation
-│   │   └── cli.ts      # Entry point
-│   └── tests/          # Vitest tests
-├── docs/               # Astro Starlight documentation site
-│   └── src/content/docs/
-│       ├── guides/     # How-to guides
-│       ├── reference/  # Command/format reference
-│       └── migrations/ # Version migration guides
-└── .github/workflows/  # CI/CD automation (auto-release on every push)
-```
-
-## Architecture
-
-### Dependency Injection
-The CLI uses a Dependency Injection (DI) pattern to improve testability and reduce global state.
-
-- **HushContext**: All commands accept a `ctx: HushContext` object as their first argument.
-- **Isolation**: Commands access filesystem, child process, and config loader ONLY through `ctx`.
-- **Testing**: Tests construct a mock `HushContext` to isolate the command logic from side effects.
-
-### Testing Strategy
-- **Unit Tests**: Use `mockContext` to test commands in isolation.
-- **Integration Tests**: Minimal, verifying the wiring.
-- **Avoid Global Mocks**: Do NOT use `vi.mock` for `fs` or `child_process`. Use DI.
+- `hush-cli/` — CLI implementation
+- `docs/` — Starlight documentation site
+- `.github/workflows/` — CI / release automation
 
 ## Non-Negotiables
 
-1. **No interactive prompts** - All scripts must work non-interactively
-2. **No secrets in commits** - Never commit `.env` files, API keys, tokens
-3. **No type errors** - Never use `as any`, `@ts-ignore`, `@ts-expect-error`
-4. **Tests must pass** - Run `bun run test` before any commit
-5. **Build must succeed** - Run `bun run build` before releases
-6. **Keep docs in sync** - Every CLI change must update implementation, skill, AND docs together
+1. No interactive-only scripts.
+2. No secrets in commits.
+3. No `as any`, `@ts-ignore`, or `@ts-expect-error`.
+4. Tests must pass before commits.
+5. Build must succeed before releases.
+6. CLI behavior, AI skill docs, and user docs must stay in sync.
 
----
+## CLI Change Contract
 
-## CLI Changes: Required Updates
+When changing a CLI command, update all three in the same change:
 
-**CRITICAL: When adding or modifying any CLI command, ALL THREE must be updated in the same commit:**
+- implementation in `hush-cli/src/commands/`
+- AI skill docs generated from `hush-cli/src/commands/skill.ts`
+- user docs in `docs/src/content/docs/reference/commands.mdx`
 
-| Location | What to Update |
-|----------|----------------|
-| `hush-cli/src/commands/*.ts` | Implementation |
-| `hush-cli/src/commands/skill.ts` | AI skill documentation (SKILL.md, REFERENCE.md, workflows.md) |
-| `docs/src/content/docs/reference/commands.mdx` | User-facing documentation |
+## Architecture Rules
 
-### Checklist for New Commands
+- Commands take `ctx: HushContext` and should use DI rather than global mocks.
+- Prefer `mockContext` over global fs/process mocking in tests.
 
-- [ ] Create command file in `hush-cli/src/commands/`
-- [ ] Add types to `hush-cli/src/types.ts` if needed
-- [ ] Register in `hush-cli/src/cli.ts` (import, help text, argument parsing, switch case)
-- [ ] Update skill in `hush-cli/src/commands/skill.ts`:
-  - Add to SKILL.md command table
-  - Add to REFERENCE.md with full documentation
-  - Add usage examples to workflows.md if applicable
-- [ ] Update docs in `docs/src/content/docs/reference/commands.mdx`
-- [ ] Run `bun run build && bun test` to verify
+## Release / Git Rules
 
-### Checklist for Modified Commands
+- Default flow is branch + PR unless explicitly told to land directly on `main`.
+- If pushing to `main`, always pull/rebase first because release automation can advance remote history.
+- Use conventional commits.
+- Major behavior changes need migration docs in `docs/src/content/docs/migrations/`.
 
-- [ ] Update implementation
-- [ ] Update skill documentation if behavior/options changed
-- [ ] Update docs if behavior/options changed
-- [ ] Run `bun run build && bun test` to verify
+## Keys / Secrets
 
-**Why this matters:** The skill teaches AI assistants how to use Hush. If the skill is outdated, AI will give users wrong instructions. The docs are the user's reference. All three must stay in sync.
+- Hush uses per-project local age keys. It must not invoke 1Password or the `op` CLI.
+- Local key path pattern: `~/.config/sops/age/keys/{project}.txt`.
+- CI uses `SOPS_AGE_KEY` as the private key secret.
+- Load `1password` or `hush-secrets` for procedure-heavy key and secret operations.
 
----
+## Docs / Wiki
 
-## Key Management
+- Read `.llm/wiki/CONTEXT.md` before touching code.
+- Update the wiki when architecture, commands, or sharp edges change.
+- Keep AGENTS concise; long command/reference/tutorial content belongs in docs or skills.
 
-Hush uses per-project age keys backed up to 1Password.
+## Keep Out Of This File
 
-### Key Storage
-
-| Location | Purpose |
-|----------|---------|
-| `~/.config/sops/age/keys/{project}.txt` | Local private key |
-| 1Password: `SOPS Key - {project}` | Backup of private key |
-| `.sops.yaml` | Public key (committed) |
-
-The project identifier comes from the v3 repository metadata or auto-detected from `package.json` repository URL.
-
-### Commands
-
-```bash
-hush keys setup     # Pull from 1Password or check local
-hush keys generate  # Generate new key, save locally, backup to 1Password
-hush keys pull      # Pull key from 1Password
-hush keys push      # Push local key to 1Password
-hush keys list      # List local and 1Password keys
-```
-
-### 1Password Integration
-
-Hush integrates with 1Password CLI for secure key backup. When 1Password CLI is available:
-
-1. **Generate** automatically backs up to 1Password
-2. **Setup/Pull** retrieves keys from 1Password
-3. **Biometric auth** pops up automatically when needed
-
-Prerequisites:
-```bash
-brew install --cask 1password
-brew install 1password-cli
-```
-
-Enable "Integrate with 1Password CLI" in 1Password desktop app settings.
-
-### New Developer Setup
-
-```bash
-hush keys setup
-```
-
-This will:
-1. Check for existing local key
-2. If not found, pull from 1Password (triggers biometric auth)
-3. If still not found, prompt to generate
-
-### CI Setup
-
-For CI, the private key is stored as `SOPS_AGE_KEY` GitHub secret. Repository authority stays in encrypted v3 documents under `.hush/`.
-
----
-
-## Branching Strategy
-
-### Default: Branch per task with PRs
-
-```bash
-# Create feature branch
-git checkout -b agent/2026-01-15/add-yaml-format
-
-# Make changes, commit, push
-git add .
-git commit -m "feat(formats): add yaml output format"
-git push -u origin agent/2026-01-15/add-yaml-format
-
-# Create PR
-gh pr create --title "feat(formats): add yaml output format" --body "..."
-```
-
-### Exception: Direct to main
-
-The repository owner (hassoncs) may instruct agents to commit directly to main for small fixes. In this case:
-
-```bash
-git checkout main
-git pull origin main
-# Make changes
-git add .
-git commit -m "fix(cli): handle empty config gracefully"
-git pull --rebase origin main  # ALWAYS pull before push (CI may have bumped version)
-git push origin main
-```
-
-**Only do this when explicitly instructed.** Default is always branch + PR.
-
-### IMPORTANT: Always Pull Before Push
-
-**Every push to main triggers an auto-release** that bumps `package.json` version and creates a commit. This means remote `main` is often ahead of your local branch.
-
-**Always run `git pull --rebase origin main` before pushing.** This avoids rejected pushes due to the CI's version bump commits.
-
-```bash
-# Wrong - will likely fail
-git commit -m "fix(cli): something"
-git push origin main  # ❌ Rejected - remote has version bump
-
-# Correct - always pull first
-git commit -m "fix(cli): something"
-git pull --rebase origin main  # ✅ Get CI's version bump
-git push origin main           # ✅ Success
-```
-
----
-
-## Commit Message Format
-
-Use [Conventional Commits](https://www.conventionalcommits.org/) strictly.
-
-### Format
-
-```
-type(scope): description
-
-[optional body]
-
-[optional footer]
-```
-
-### Types
-
-| Type | When to use | Version bump |
-|------|-------------|--------------|
-| `feat` | New feature | minor |
-| `fix` | Bug fix | patch |
-| `docs` | Documentation only | patch |
-| `refactor` | Code change that doesn't fix bug or add feature | patch |
-| `test` | Adding/updating tests | patch |
-| `chore` | Maintenance, dependencies, config | patch |
-| `style` | Formatting, whitespace | patch |
-| `ci` | CI/CD changes | patch |
-| `build` | Build system changes | patch |
-
-### Scopes
-
-| Scope | When to use |
-|-------|-------------|
-| `cli` | CLI commands, user-facing behavior |
-| `core` | Core parsing, merging, filtering logic |
-| `config` | Configuration loading |
-| `formats` | Output formatters |
-| `docs` | Documentation site |
-| `release` | Release scripts, CI/CD |
-
-### Breaking Changes
-
-For breaking changes, add `!` after the scope:
-
-```
-feat(cli)!: remove deprecated decrypt command
-
-BREAKING CHANGE: The `hush decrypt` command has been removed.
-Use `hush run -- <command>` instead, which decrypts to memory only.
-
-Migration: See docs/migrations/v2-to-v3.md
-```
-
-### Examples
-
-```bash
-# Bug fix
-git commit -m "fix(cli): handle empty v3 target selection gracefully"
-
-# New feature
-git commit -m "feat(core): support variable interpolation in include patterns"
-
-# Documentation
-git commit -m "docs(guides): add monorepo setup guide"
-
-# Breaking change
-git commit -m "feat(config)!: require explicit target mode in manifest definitions
-
-BREAKING CHANGE: v3 target definitions must now declare an explicit mode.
-Update `.hush/manifest.encrypted` targets before upgrading."
-```
-
----
-
-## When to Commit
-
-Commit **per logical unit** that would make sense as a changelog entry.
-
-### Good commit granularity
-
-```bash
-# Task: Add YAML output format
-
-# Commit 1: Core implementation
-git commit -m "feat(formats): add yaml output formatter"
-
-# Commit 2: Tests (if substantial)
-git commit -m "test(formats): add yaml formatter tests"
-
-# Commit 3: Documentation
-git commit -m "docs(reference): document yaml format option"
-```
-
-### Avoid
-
-- **Micro-commits**: "fix typo", "add missing semicolon"
-- **Mega-commits**: "implement entire feature with tests and docs"
-
----
-
-## Version Bump Rules
-
-Version bumps are determined by commit types since the last release:
-
-| Commits include | Bump type | Example |
-|-----------------|-----------|---------|
-| Any `!` (breaking) | **major** | 2.3.0 → 3.0.0 |
-| Any `feat` | **minor** | 2.3.0 → 2.4.0 |
-| Only `fix`, `docs`, etc. | **patch** | 2.3.0 → 2.3.1 |
-
-The agent decides the version bump based on understanding the changes made.
-
----
-
-## Migration Documentation
-
-### When to write migration docs
-
-Write a migration guide when:
-- Major version bump (breaking changes)
-- Significant behavior changes that might confuse users
-- Configuration format changes
-
-### Migration doc location
-
-`docs/src/content/docs/migrations/v{X}-to-v{Y}.mdx`
-
-### Migration doc structure
-
-The AI agent writes the full migration guide with:
-
-1. **Summary** - Who's affected, estimated time
-2. **Breaking changes** - Each change with before/after examples
-3. **Step-by-step migration** - Exact commands to run
-4. **AI Migration Assistant prompt** - Copy-paste prompt for users
-
-Example structure:
-
-```markdown
----
-title: "Migration: v2 to v3"
----
-
-# Migrating from Hush v2 to v3
-
-## Summary
-
-**Who's affected:** Users upgrading an existing v3 repository layout or manifest schema
-**Estimated time:** 5-10 minutes
-
-## Breaking Changes
-
-### 1. Runtime target schema changed
-
-The v3 manifest target definition changed and requires an explicit `mode`.
-
-**Before:**
-```yaml
-targets:
-  runtime:
-    bundle: project
-```
-
-**After:**
-```yaml
-targets:
-  runtime:
-    mode: runtime
-    bundle: project
-```
-
-**Migration:**
-```bash
-# Update the encrypted manifest in place
-hush config show manifest
-hush edit --file shared
-```
-
-## AI Migration Assistant
-
-Copy this prompt to your AI assistant:
-
-```
-Help me migrate from Hush v2 to v3.
-
-Rules:
-- Do NOT read .env files directly
-- Use hush inspect, hush has, hush status only
-
-Steps:
-1. Inspect `.hush/manifest.encrypted` and declared files
-2. Update the repository to the new v3 schema
-3. Run `hush config show state` and the project checks to verify
-```
-```
-
----
-
-## Release Process
-
-### Fully Automatic Releases
-
-**Every push to main triggers a release.** No manual steps required.
-
-The CI workflow:
-1. Runs build + tests
-2. Analyzes commits since last npm version
-3. Determines version bump from conventional commits
-4. Updates `package.json` version
-5. Publishes to npm (OIDC trusted publishing)
-6. Creates git tag and GitHub release
-7. Deploys docs to Cloudflare Pages
-
-### Version Bump Logic
-
-| Commits since last release | Bump | Example |
-|---------------------------|------|---------|
-| Any with `!` (breaking) | major | 2.3.0 → 3.0.0 |
-| Any `feat:` | minor | 2.3.0 → 2.4.0 |
-| Only `fix:`, `docs:`, `chore:`, etc. | patch | 2.3.0 → 2.3.1 |
-| No conventional commits | skip | No release |
-
-### Idempotent Publishing
-
-The workflow is idempotent:
-- If version already exists on npm → skips publish
-- If no conventional commits since last release → skips release
-- Re-running CI on same commits → safe (no duplicate releases)
-
-### What Agents Do
-
-Agents just commit with conventional commit messages. That's it.
-
-```bash
-git commit -m "feat(cli): add new command"
-git push origin main
-# → CI auto-releases as next minor version
-```
-
-For breaking changes:
-```bash
-git commit -m "feat(cli)!: rename config key
-
-BREAKING CHANGE: The 'targets' key is now 'outputs'."
-git push origin main
-# → CI auto-releases as next major version
-```
-
-### Changelog and Migration Docs
-
-**Changelogs are auto-generated** from commit messages in GitHub Releases.
-
-For **major versions**, agents should still write migration guides at `docs/src/content/docs/migrations/vX-to-vY.mdx` before the breaking change commit.
-
----
-
-## CI/CD Workflow
-
-### Single Unified Workflow
-
-One workflow handles everything (`.github/workflows/release.yml`):
-
-**On every push/PR:**
-1. Install dependencies (`bun install`)
-2. Build all packages (`bun run build`)
-3. Run all tests (`bun test`)
-4. Type check (`bun run type-check`)
-
-**On push to main (after CI passes):**
-1. Calculate version bump from commits
-2. Publish to npm (if new version needed)
-3. Create git tag and GitHub release
-4. Deploy docs to Cloudflare Pages
-
----
-
-## Required Secrets (GitHub)
-
-| Secret | Purpose |
-|--------|---------|
-| `SOPS_AGE_KEY` | Private age key for decrypting the v3 repository under `.hush/` |
-
-All other secrets (Cloudflare credentials, etc.) are stored in encrypted v3 file documents under `.hush/files/**.encrypted` and resolved at runtime using `hush run`.
-
-### Setting Up CI Secrets
-
-```bash
-# 1. Generate CI key (separate from developer keys)
-hush keys generate
-
-# 2. Bootstrap the v3 repository shell if needed
-hush bootstrap
-
-# 3. Add secrets to encrypted v3 files
-hush set CLOUDFLARE_API_TOKEN
-hush set CLOUDFLARE_ACCOUNT_ID
-
-# 4. Add the private key to GitHub secrets as SOPS_AGE_KEY
-# Get it from: cat ~/.config/sops/age/keys/{project}.txt
-```
-
----
-
-## Error Recovery
-
-### If CI fails after push
-
-1. Check GitHub Actions logs
-2. Fix the issue locally
-3. Commit fix: `git commit -m "fix(ci): resolve build failure"`
-4. Push again
-
-### If npm publish fails
-
-1. Check if version already exists on npm
-2. If duplicate version: bump version again, re-release
-3. If auth issue: verify `NPM_TOKEN` secret
-
-### If docs deploy fails
-
-1. Check Cloudflare Pages logs
-2. Verify `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`
-3. Try manual deploy: `cd docs && bun run deploy`
-
-### If bootstrap or key resolution fails
-
-1. Run `hush doctor` to diagnose root discovery and key resolution
-2. If key mismatch: `hush keys setup` to sync the key
-3. If nested repo issue: `hush bootstrap --new-repo --yes` to force child-local
-4. Verify with `hush inspect` and `hush status`
-
----
-
-## Quick Reference
-
-### Common commands
-
-```bash
-# Development
-bun install           # Install deps
-bun run build         # Build all
-bun test              # Run tests
-bun run dev           # Watch mode
-
-# CLI testing
-cd hush-cli && bun test:watch
-
-# Docs
-cd docs && bun run dev   # Dev server
-cd docs && bun run build # Build
-
-# Release prep
-git log --oneline v2.3.0..HEAD  # Commits since last release
-```
-
-### File locations
-
-| What | Where |
-|------|-------|
-| CLI version | `hush-cli/package.json` |
-| Migration guides | `docs/src/content/docs/migrations/` |
-| CI workflows | `.github/workflows/` |
-
----
-
-## Wiki
-
-This repo has a local wiki at `.llm/wiki/`. Read it before touching code.
-
-**Agent Start Here:**
-1. Read `.llm/wiki/CONTEXT.md` — what this repo does, where the important code lives, quick-start task table
-2. Use the task table to find the right topic page
-3. Read that topic under `.llm/wiki/topics/`
-4. Only then open raw source files
-
-**Self-update rule:** If you change architecture, add/remove commands, discover a sharp edge, or fix a non-obvious bug — update the relevant wiki page before closing out. If no topic covers the new knowledge, add it to the nearest topic file or `CONTEXT.md`. Keep the wiki honest and operational, not decorative.
-
-**Cross-project wiki:** For pattern comparison, reuse decisions, or workspace-level brainstorming, start at `~/Workspaces/Personal/ch5-company/wiki/CONTEXT.md`.
+- No giant commit/reference handbooks.
+- No long key-management tutorials.
+- No full release workflow prose that belongs in docs/CI docs.
+- No duplicated quick-reference tables already covered by README/docs.

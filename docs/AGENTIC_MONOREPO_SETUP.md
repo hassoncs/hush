@@ -13,7 +13,7 @@ This guide no longer uses legacy `hush.yaml`, `hush init`, or `hush encrypt` as 
 | **Hush v3 repository** | Encrypted manifest plus file-scoped ACL documents under `.hush/` |
 | **Auto-release** | Every push to main can build, test, publish, tag, and deploy docs |
 | **AGENTS.md** | Repo-local contract for AI agents |
-| **1Password backup** | Project age keys backed up through the 1Password CLI |
+| **Local age keys** | Project age keys live under `~/.config/sops/age/keys/` and are backed up outside Hush |
 | **Docs site** | Astro Starlight docs deployed from `docs/` |
 | **Conventional commits** | Commit types drive release automation |
 

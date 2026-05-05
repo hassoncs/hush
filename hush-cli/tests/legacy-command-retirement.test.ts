@@ -61,12 +61,6 @@ function createStubContext(): HushContext {
       keyLoad: () => null,
       agePublicFromPrivate: () => 'public',
     },
-    onepassword: {
-      opInstalled: () => false,
-      opAvailable: () => false,
-      opGetKey: () => null,
-      opStoreKey: () => undefined,
-    },
     sops: {
       decrypt: () => '',
       decryptYaml: () => '',

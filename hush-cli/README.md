@@ -105,7 +105,7 @@ Hush v3 keeps repository authority in encrypted YAML documents under `.hush/`.
 | `hush has <KEY>` | Check whether a secret exists |
 | `hush run -- <command>` | Run with secrets in memory |
 | `hush push` | Push a target to Cloudflare |
-| `hush keys setup` | Pull or verify the project key |
+| `hush keys setup` | Verify the local project key |
 | `hush skill` | Install the AI skill |
 
 ## Legacy v2 migration
@@ -158,13 +158,7 @@ hush run -- npm start
 
 ## Team setup
 
-With 1Password:
-
-```bash
-hush keys setup
-```
-
-Without 1Password, copy the project age key into `~/.config/sops/age/keys/{project}.txt`, then verify with:
+Copy the project age key into `~/.config/sops/age/keys/{project}.txt`, then verify with:
 
 ```bash
 hush config show state
